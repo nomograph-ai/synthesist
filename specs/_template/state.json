@@ -1,0 +1,25 @@
+{
+  "spec": "specs/FEATURE_SLUG/spec.md",
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "First task description",
+      "description": null,
+      "files": [],
+      "depends_on": [],
+      "status": "pending",
+      "gate": null,
+      "acceptance": [
+        {
+          "criterion": "What must be true",
+          "verify": "command that exits 0 on success"
+        }
+      ],
+      "failure_note": null
+    }
+  ],
+  "quality": {
+    "score": null,
+    "validations": []
+  }
+}
