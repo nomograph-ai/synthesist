@@ -1,24 +1,15 @@
 {
   "$schema": "https://opencode.ai/config.json",
   "model": "anthropic/claude-sonnet-4",
+  "small_model": "anthropic/claude-haiku-4-5",
 
   "agent": {
-    "plan": {
-      "description": "Architecture, research, and specification writing. Analyzes codebases, writes structured specs with acceptance criteria, decomposes work into tasks. Never modifies files directly.",
+    "primary": {
+      "description": "Primary agent — discuss, draft specs to disk, iterate, then build. Handles the full loop in one context.",
       "mode": "primary",
       "model": "anthropic/claude-opus-4",
-      "prompt": "{file:./prompts/plan.md}",
+      "prompt": "{file:./prompts/framework.md}\n{file:./prompts/instance.md}",
       "temperature": 0.3,
-      "tools": {
-        "write": false,
-        "edit": false,
-        "bash": false
-      }
-    },
-    "build": {
-      "description": "Implementation agent. Reads specs from specs/<feature>/spec.md and state.json, executes tasks in dependency order, updates state.json status fields, runs verify commands.",
-      "mode": "primary",
-      "model": "anthropic/claude-sonnet-4",
       "tools": {
         "write": true,
         "edit": true,
@@ -26,11 +17,11 @@
       }
     },
     "explore": {
-      "description": "Fast read-only codebase exploration. Use for searching files, understanding structure, finding patterns across the target project.",
+      "description": "Fast read-only codebase exploration. You have 5 steps total. STOP IMMEDIATELY when you have the answer — most tasks complete in 2-3 steps. After each step, count: 'Step M of 5 used.' If you have the answer, return it and stop. Do not refine or re-read.",
       "mode": "subagent",
       "model": "anthropic/claude-sonnet-4",
       "temperature": 0.1,
-      "steps": 15,
+      "steps": 5,
       "tools": {
         "write": false,
         "edit": false,
@@ -41,15 +32,15 @@
       "description": "Targeted file editor. Given a specific task from a spec, makes precise edits to specific files. Receives task ID and spec path as input.",
       "mode": "subagent",
       "model": "anthropic/claude-sonnet-4",
-      "steps": 20,
+      "steps": 15,
       "tools": {
         "write": true,
         "edit": true,
-        "bash": false
+        "bash": true
       }
     },
     "review": {
-      "description": "Cross-model code reviewer. Uses a different model family than the build agent for diversity of perspective. Reviews for correctness, security, maintainability, and spec compliance.",
+      "description": "Cross-model code reviewer. Uses a different model family than the primary agent for diversity of perspective. Reviews for correctness, security, maintainability, and spec compliance.",
       "mode": "subagent",
       "model": "openai/gpt-5",
       "temperature": 0.1,
@@ -62,17 +53,6 @@
     },
     "verify": {
       "description": "Drift detection and acceptance criteria verification. Reads state.json, runs verify commands for completed tasks, reports pass/fail. Trust nothing — run tests yourself.",
-      "mode": "subagent",
-      "model": "anthropic/claude-haiku-4-5",
-      "steps": 20,
-      "tools": {
-        "write": true,
-        "edit": true,
-        "bash": true
-      }
-    },
-    "test": {
-      "description": "Test writer and runner. Generates unit/integration tests and executes them. Receives task context and target files.",
       "mode": "subagent",
       "model": "anthropic/claude-haiku-4-5",
       "steps": 20,

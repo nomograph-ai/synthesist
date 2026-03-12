@@ -12,9 +12,6 @@ the only honest measure of a framework is its predictive power — does followin
 this process reliably produce working systems? Synthesist is a bet that the answer
 is yes, if the specifications are sharp enough and the roles are clear enough.
 
-We're using Synthesist to iterate the [nomograph](https://gitlab.com/nomograph)
-project estate — it's both the framework and our primary test case.
-
 ---
 
 ## What This Is
@@ -22,33 +19,36 @@ project estate — it's both the framework and our primary test case.
 Synthesist is a set of conventions for [OpenCode](https://opencode.ai) that gives
 you:
 
-- **Two primary agents** — `plan` (read-only, writes specs) and `build` (full
-  access, executes specs)
-- **Five subagents** — `@explore`, `@edit`, `@review`, `@verify`, `@test`
+- **One primary agent** — handles the full loop: discuss, draft specs, iterate,
+  build. No plan/build handoff.
+- **Four subagents** — `@explore`, `@edit`, `@review`, `@verify`
 - **A spec format** — Markdown for human intent, JSON for machine state, with
   executable acceptance criteria on every task
-- **A workflow** — Discuss → Plan → Build → Verify, with human gates at
-  high-stakes transitions
+- **A workflow** — Discuss → Draft → Iterate → Codify → Build → Verify, with
+  human gates at high-stakes transitions
+- **Campaign coordination** — cross-spec dependency tracking with temporal horizons
+- **Concurrent session safety** — task ownership, aggressive commits, deconfliction
 
-Drop this repo into a project as a subdirectory. OpenCode picks up the
-`opencode.json` and the agents are available.
+Clone this repo, customize `prompts/instance.md` for your project, and start working.
 
 ## Quick Start
 
 ```bash
 # Clone into your project
 cd your-project
-git clone https://gitlab.com/nomograph/synthesist.git orchestration
+git clone https://gitlab.com/nomograph/synthesist.git
 
 # Or add as a submodule
-git submodule add https://gitlab.com/nomograph/synthesist.git orchestration
+git submodule add https://gitlab.com/nomograph/synthesist.git
 
-# Open opencode from the orchestration directory
-cd orchestration
+# Customize the instance prompt
+cp prompts/instance.md prompts/instance.md.bak
+# Edit prompts/instance.md — set your project identity, skills, estate
+
+# Open opencode
 opencode
 
-# Tab switches between plan (read-only) and build (full access)
-# Start by describing what you want to build to the plan agent
+# Describe what you want to build. The primary agent handles the full loop.
 ```
 
 Edit `opencode.json` to set your preferred models and providers. The defaults
@@ -60,8 +60,8 @@ Every feature gets two files:
 
 | File | Owner | Purpose |
 |------|-------|---------|
-| `specs/<feature>/spec.md` | Human / Plan agent | What and why — goal, context, constraints, decisions |
-| `specs/<feature>/state.json` | Build / Verify agent | What to do next — task DAG, status, acceptance criteria |
+| `specs/<feature>/spec.md` | Human / Primary agent | What and why — goal, context, constraints, decisions |
+| `specs/<feature>/state.json` | Primary / Verify agent | What to do next — task DAG, status, acceptance criteria |
 
 The separation is intentional. Agents reason over prose in spec.md. They execute
 from structured data in state.json. Humans review specs in their editor. Agents
@@ -74,6 +74,7 @@ Each task in state.json has executable acceptance criteria:
   "id": "t1",
   "summary": "Create data model",
   "status": "pending",
+  "owner": null,
   "acceptance": [
     {
       "criterion": "Model exports required interface",
@@ -96,93 +97,107 @@ worked example.
 ## The Workflow
 
 ```
-1. Discuss    You describe intent. Plan agent asks clarifying questions.
-2. Plan       Plan agent reads codebase, writes spec.md + state.json.
-3. Build      Build agent executes tasks in dependency order.
-4. Review     @review agent (different model family) checks the work.
-5. Verify     @verify agent runs all acceptance criteria. Resets failures.
-6. Complete   All tasks done, all criteria pass, quality scored.
+1. Discuss    You describe intent. Primary agent asks clarifying questions.
+2. Draft      Primary agent writes spec.md + state.json to disk immediately.
+3. Iterate    Revise spec on disk until it's right. The file is the workspace.
+4. Codify     Write state.json task DAG with verify commands. Get approval.
+5. Build      Execute tasks in dependency order. Commit after each completion.
+6. Verify     @verify agent runs all acceptance criteria. Resets failures.
 ```
 
-The plan agent cannot modify files — it only reads and writes specs. The build
-agent reads specs and implements. The verify agent trusts nothing and runs tests
-itself. This separation prevents the common failure mode where an agent marks its
-own work as done without actually checking.
+The primary agent handles the full loop in one context — no handoff between
+planning and building. The verify agent trusts nothing and runs tests itself.
+This prevents the common failure mode where an agent marks its own work as done
+without actually checking.
 
 ## Agent Roles
 
-| Agent | Mode | Role | Tools |
-|-------|------|------|-------|
-| `plan` | primary | Spec writing, architecture, research | read-only |
-| `build` | primary | Implementation, refactoring | full access |
-| `@explore` | subagent | Fast codebase search | read-only |
-| `@edit` | subagent | Targeted file changes from spec tasks | write, edit |
-| `@review` | subagent | Cross-model code review | read-only |
-| `@verify` | subagent | Acceptance criteria verification | write, bash |
-| `@test` | subagent | Test generation and execution | write, bash |
+| Agent | Mode | Role | Tools | Steps |
+|-------|------|------|-------|-------|
+| `primary` | primary | Full loop: discuss, plan, build | full access | — |
+| `@explore` | subagent | Fast codebase search with countdown | read-only | 5 |
+| `@edit` | subagent | Targeted file changes from spec tasks | write, edit, bash | 15 |
+| `@review` | subagent | Cross-model code review | read-only | 15 |
+| `@verify` | subagent | Acceptance criteria verification | write, edit, bash | 20 |
 
-The `@review` agent should use a different model family than `build`. Different
-training data catches different bugs. A review that passes both families is more
-reliable than one that passes either alone.
+The `@review` agent uses a different model family than `primary`. Different
+training data catches different bugs.
+
+## Prompt Architecture
+
+The primary agent prompt is composed from two files:
+
+| File | Owner | Content |
+|------|-------|---------|
+| `prompts/framework.md` | Synthesist framework | Loop, write rules, explore rules, context rules, concurrency rules, session rules |
+| `prompts/instance.md` | Your project | Identity, skill tree, estate structure, project-specific overrides |
+
+Framework updates flow without merge conflicts on instance-specific content.
+Customize `prompts/instance.md` for your project — leave `framework.md` alone.
+
+## Campaigns
+
+For multi-spec projects, campaigns track cross-spec dependencies with three
+temporal horizons:
+
+- **done** — what you shipped
+- **active** — what you're working on
+- **backlog** — what you're thinking about
+
+Campaign state lives at `specs/<campaign>/campaign.json`. See `specs/SPEC_FORMAT.md`
+for the schema.
+
+## Concurrent Sessions
+
+Multiple sessions can work on the same spec tree safely:
+
+- Tasks have an `owner` field — check before claiming
+- Commit state.json after every task completion
+- Pull before starting work
+- Dependencies are respected across sessions
+
+This also enables autonomous execution: plan in one session, walk away, and
+agents pick up tasks independently.
 
 ## Key Design Decisions
+
+**Why a single primary agent instead of plan/build split?**
+
+The original design had a read-only plan agent and a full-access build agent.
+In practice, the handoff between them lost context and required copy-paste.
+A single agent handling the full loop — with the trust boundary at human
+agreement ("build") rather than tool restrictions — proved strictly better
+over 16+ sessions of real work.
 
 **Why Markdown + JSON instead of YAML for everything?**
 
 Research on LLM format comprehension (Tam et al., arXiv 2408.02442) shows no
 structured format consistently outperforms others, and schema-constrained formats
-can degrade reasoning by 20–40%. Anthropic's own guidance recommends XML tags for
-structuring prompts and JSON for machine-readable state. We use Markdown (with XML
-sections) for the parts agents reason over, and JSON for the parts they update
-mechanically.
+can degrade reasoning by 20–40%. We use Markdown (with XML sections) for the
+parts agents reason over, and JSON for the parts they update mechanically.
 
 **Why executable acceptance criteria?**
 
-Inspired by GSD's `<verify>` tags and Ralph's `passes` field. If you can't write a
-shell command that checks whether a task is done, the task is underspecified. The
-verify agent runs every command itself — it doesn't ask the build agent "did you
-finish?" It checks.
+If you can't write a shell command that checks whether a task is done, the task
+is underspecified. The verify agent runs every command itself — it doesn't ask
+"did you finish?" It checks.
 
 **Why a separate verify agent?**
 
-From Metaswarm's principle: "Trust nothing, verify everything." The build agent
-self-reports are unreliable — not because the model lies, but because it optimizes
-for completion. A separate agent with the sole job of running tests catches the
-gap between "I think I'm done" and "the tests actually pass."
+"Trust nothing, verify everything." The build agent self-reports are unreliable —
+not because the model lies, but because it optimizes for completion. A separate
+agent with the sole job of running tests catches the gap.
 
 **Why human gates?**
 
-Tasks that touch auth, data models, or public APIs get `"gate": "human"` in
-state.json. The build agent stops and presents what it plans to do. You approve
-or redirect. This prevents the expensive class of errors where an agent makes a
-reasonable-but-wrong architectural decision and builds three more tasks on top of it.
+Tasks that touch auth, data models, or public APIs get `"gate": "human"`. The
+agent stops and presents what it plans to do. This prevents the expensive class
+of errors where an agent makes a reasonable-but-wrong decision and builds on it.
 
 **Why cross-model review?**
 
-Different model families have different failure modes. GPT and Claude disagree on
-different things. Using one to review the other's work is cheap insurance.
-
-## Sources and Influences
-
-Synthesist draws on ideas from several projects in the multi-agent coding space
-as of early 2026:
-
-| Project | What we took | What we left |
-|---------|-------------|--------------|
-| [Symphony](https://github.com/openai/symphony) (OpenAI) | WORKFLOW.md hybrid format (YAML frontmatter + Markdown body), hook lifecycle, stall detection concept | The polling daemon architecture, Linear integration, Codex-specific protocol |
-| [BMAD Method](https://github.com/bmad-code-org/BMAD-METHOD) | Scale-adaptive planning, human gates (HALT), step-based workflows with frontmatter state tracking | 12+ agent personas, module system, npm packaging |
-| [GSD (Get Shit Done)](https://github.com/glittercowboy/get-shit-done) | XML task format with `<verify>` and `<done>` fields, discuss phase before planning, wave-based parallel execution, fresh context per executor | Full artifact forest (PROJECT.md, REQUIREMENTS.md, ROADMAP.md, etc.), config-driven mode system |
-| [Gastown](https://github.com/steveyegge/gastown) (Steve Yegge) | Typed dependency graphs, quality scoring (0.0–1.0), validation records, "findings survive context death" pattern, Refinery merge-queue verification | Dolt database, Go CLI, TOML formulas, 20–30 concurrent agent swarm, git worktrees per agent |
-| [Ralph](https://github.com/snarktank/ralph) | Task sizing discipline ("each story fits in one context window"), append-only progress log as institutional memory, loop-until-done verification | Bash-loop-only orchestration, no planning phase |
-| [Multi-Agent Coding System](https://github.com/Danau5tin/multi-agent-coding-system) | Strict role separation (orchestrator cannot touch code), context refs for selective knowledge injection | Custom XML+YAML task format, RL-trained model |
-| [Metaswarm](https://github.com/dsifry/metaswarm) | "Trust nothing, verify everything" — orchestrator runs tests itself, cross-model adversarial review | 18 agent personas, 9-phase SDLC, JSONL knowledge base |
-| [Adversarial Spec](https://github.com/zscole/adversarial-spec) | Multi-model debate for spec hardening, early agreement skepticism | Full consensus protocol (we use single cross-model review instead) |
-| Anthropic prompt engineering docs | XML tags for structured prompting, JSON for state tracking, `tests.json` pattern for acceptance criteria | — |
-| Tam et al. (arXiv 2408.02442) | Evidence that no structured format consistently wins; schema constraints degrade reasoning; use natural language for reasoning, structured formats for state | — |
-
-The general pattern: take the spec format and verification ideas, leave the
-infrastructure complexity. Synthesist assumes you already have a coding agent
-runtime (OpenCode) and focuses on the coordination layer between agents.
+Different model families have different failure modes. Using one to review the
+other's work is cheap insurance.
 
 ## Project Structure
 
@@ -198,21 +213,26 @@ synthesist/
 │   ├── _template/             # Copy for new features
 │   │   ├── spec.md
 │   │   └── state.json
-│   └── _example/              # Worked example: API key authentication
+│   └── _example/              # Worked example
 │       ├── spec.md
 │       └── state.json
-└── prompts/
-    └── plan.md                # Plan agent system prompt supplement
+├── prompts/
+│   ├── framework.md           # Framework prompt (don't edit — synthesist owns this)
+│   └── instance.md            # Instance prompt (customize for your project)
+├── staging/                   # Chunked write staging area (gitignored)
+│   └── .gitkeep
+└── memory/                    # Session handoff (create as needed)
+    └── session.md
 ```
 
 ## Configuration
 
-The `opencode.json` ships with Anthropic and OpenAI model IDs as defaults.
-Adjust for your provider:
+The `opencode.json` ships with Anthropic model IDs as defaults. Adjust for
+your provider:
 
 ```jsonc
 // GitLab Duo
-"model": "gitlab/claude-sonnet-4"
+"model": "gitlab/duo-chat-sonnet-4-6"
 
 // Direct Anthropic
 "model": "anthropic/claude-sonnet-4"
@@ -223,6 +243,18 @@ Adjust for your provider:
 
 The framework is provider-agnostic. The spec format, agent roles, and workflow
 work with any LLM that OpenCode supports.
+
+## Sources and Influences
+
+| Project | What we took | What we left |
+|---------|-------------|--------------|
+| [Symphony](https://github.com/openai/symphony) (OpenAI) | WORKFLOW.md hybrid format, hook lifecycle, stall detection | Polling daemon, Linear integration |
+| [BMAD Method](https://github.com/bmad-code-org/BMAD-METHOD) | Scale-adaptive planning, human gates (HALT) | 12+ agent personas, npm packaging |
+| [GSD](https://github.com/glittercowboy/get-shit-done) | XML task format with `<verify>`, discuss-before-plan | Full artifact forest, config-driven modes |
+| [Gastown](https://github.com/steveyegge/gastown) (Steve Yegge) | Typed dependency graphs, quality scoring, "findings survive context death" | Dolt database, Go CLI, agent swarm |
+| [Ralph](https://github.com/snarktank/ralph) | Task sizing discipline, append-only progress log | Bash-loop-only orchestration |
+| [Metaswarm](https://github.com/dsifry/metaswarm) | "Trust nothing, verify everything", cross-model review | 18 agent personas, 9-phase SDLC |
+| Tam et al. (arXiv 2408.02442) | No structured format consistently wins; use natural language for reasoning | — |
 
 ## License
 
