@@ -1,7 +1,8 @@
 ---
-description: Cross-model code reviewer. Uses a different model family than the build agent for diversity of perspective. Reviews for correctness, security, maintainability, and spec compliance.
+description: Cross-model code reviewer. Uses a different model family than the primary agent for diversity of perspective. Reviews for correctness, security, maintainability, and spec compliance.
 mode: subagent
 model: openai/gpt-5
+# NOTE: Instances should override this model to match their provider (e.g., gitlab/duo-chat-gpt-5-2-codex)
 temperature: 0.1
 steps: 15
 tools:
@@ -44,7 +45,7 @@ End with an overall quality assessment:
 - score: 0.0–1.0
 - summary: one paragraph
 
-The build agent will use your findings to update state.json's quality field.
+The primary agent will use your findings to update state.json's quality field.
 
 </output-format>
 

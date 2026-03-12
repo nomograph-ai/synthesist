@@ -138,6 +138,21 @@ Agents update it. Humans read it via git diff.
 | `gate` | string\|null | no | `"human"` = requires human approval before starting. `null` = no gate |
 | `acceptance` | object[] | yes | At least one acceptance criterion with a verify command |
 | `failure_note` | string\|null | no | Set by @verify when a criterion fails. Cleared when task restarts |
+| `owner` | string\|null | no | Identifies which session/agent owns an in_progress task. Set when claiming, cleared on completion. |
+
+#### Concurrency Rules
+
+When multiple sessions may operate on the same spec tree:
+
+1. **Commit after every status change.** When a task transitions to "done" (and verify
+   passes), commit state.json and modified files immediately. Do not batch.
+2. **Check owner before claiming.** Read state.json from disk before setting a task to
+   "in_progress". If `owner` is set and status is "in_progress", skip to the next task.
+3. **Set owner when claiming.** Write a session identifier to the `owner` field when
+   transitioning a task to "in_progress".
+4. **Clear owner on completion.** Set `owner` to null when the task reaches "done".
+5. **Pull before starting.** If the spec tree is version-controlled, pull latest state
+   before picking up tasks.
 
 #### Acceptance Criterion Fields
 
@@ -255,3 +270,98 @@ When splitting, maintain the dependency DAG: child tasks depend on parent.
 6. Complete   All tasks done, all criteria pass, quality scored.
               Status: in-progress → done
 ```
+
+---
+
+## campaign.json — Cross-Spec Coordination
+
+For projects with multiple related specs, a campaign file tracks cross-spec
+dependencies and temporal intent. Lives at `specs/<campaign>/campaign.json`.
+
+### Schema
+
+```json
+{
+  "campaign": "campaign-name",
+  "done": [
+    {
+      "id": "spec-slug",
+      "path": "specs/campaign-name/spec-slug/state.json",
+      "summary": "One-line description of what was shipped"
+    }
+  ],
+  "active": [
+    {
+      "id": "spec-slug",
+      "path": "specs/campaign-name/spec-slug/state.json",
+      "summary": "One-line description of current work",
+      "blocked_by": []
+    }
+  ],
+  "backlog": [
+    {
+      "id": "future-spec-slug",
+      "title": "Human-readable title",
+      "summary": "One-line description of intent",
+      "blocked_by": [],
+      "path": null
+    }
+  ]
+}
+```
+
+### Three Horizons
+
+| Horizon | Meaning | Spec required? |
+|---------|---------|----------------|
+| `done` | Completed specs — institutional memory of what shipped | Yes (path to state.json) |
+| `active` | Specs currently being worked | Yes (path to state.json) |
+| `backlog` | Ideas modeled but not yet started | No (path is null until spec is created) |
+
+Backlog items may be full spec stubs (with spec.md + state.json) or lightweight
+entries with just an id, title, and summary. They graduate to `active` when work
+begins and a spec is written.
+
+### Campaign Rules
+
+- A spec moves from `backlog` → `active` when work begins
+- A spec moves from `active` → `done` when all tasks pass verification
+- `blocked_by` references other spec IDs within the same campaign
+- Multiple campaigns may exist in the same project (e.g., one per workstream)
+
+---
+
+## session.md — Session Handoff
+
+The session handoff file lives at `memory/session.md`. It is a lightweight pointer
+that gets the agent into spec context at the start of a new session.
+
+### Structure
+
+```markdown
+# Session Handoff
+
+## Last Session
+Date: YYYY-MM-DD
+Summary: 2-3 lines describing what was accomplished.
+
+## Active Work
+- Campaign: specs/<campaign>/campaign.json
+- Spec: specs/<campaign>/<spec>/state.json — current task status
+- Spec: specs/<campaign>/<spec>/state.json — current task status
+
+## Pending Decisions
+- Decision not yet captured in any spec (if any)
+```
+
+### Session Handoff Rules
+
+- **Read first, ask second.** At session start, read session.md, follow the links
+  to campaign.json and active state.json files. Do not ask the human to re-explain
+  what's already in the specs.
+- **Keep it short.** The specs are the source of truth. session.md is a pointer,
+  not a parallel document.
+- **Update at session end.** Before context fills or the session ends, update
+  session.md with current state.
+- **No duplication.** If information is in a spec, link to it. If it's not in a
+  spec yet, either write it to a spec or note it as a pending decision.
