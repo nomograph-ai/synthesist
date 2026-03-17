@@ -1,0 +1,22 @@
+{
+  "tree": "_example-tree",
+  "description": "Example context tree — demonstrates v3 structure",
+  "active": [
+    {
+      "id": "example-feature",
+      "path": "specs/_example-tree/example-feature/state.json",
+      "summary": "An example feature spec",
+      "phase": null,
+      "blocked_by": []
+    }
+  ],
+  "backlog": [
+    {
+      "id": "future-work",
+      "title": "Future work item",
+      "summary": "A backlog item that hasn't been specced yet",
+      "blocked_by": ["example-feature"],
+      "path": null
+    }
+  ]
+}
