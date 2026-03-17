@@ -12,7 +12,8 @@ All feature work follows this loop. The full protocol is in `prompts/framework.m
 ### Key Principles
 
 1. **The spec is the shared workspace.** Write to disk immediately. Don't hold drafts in context.
-2. **Executable acceptance criteria on every task.** If you can't write a verify command, the task is too vague.
+2. **Context trees scope your focus.** Load one tree at a time via estate.json. Don't carry the whole estate in context.
+3. **Executable acceptance criteria on every task.** If you can't write a verify command, the task is too vague.
 3. **Each task fits in one context window.** ≤5 files, ≤500 word description.
 4. **Trust nothing, verify everything.** The @verify agent runs acceptance criteria; it doesn't trust self-reports.
 5. **Findings persist to disk before context dies.** If it matters, it's in discovery.md.
@@ -125,17 +126,22 @@ Framework updates flow without merge conflicts on instance-specific content.
 
 ---
 
-## Recommended Global Config
+## Self-Contained Harness
 
-The global `~/.config/opencode/` layer should contain only personal preferences
-that apply across all projects:
+Each Synthesist instance must be fully self-contained. It must work correctly
+without any global `~/.config/opencode/` configuration present. All behavioral
+instructions, permissions, agent definitions, and workflow rules live in the
+project itself — in `opencode.json`, `AGENTS.md`, `prompts/`, and `.opencode/`.
 
-- **AGENTS.md**: External write approval rules, git practices, epistemic honesty
+The global `~/.config/opencode/` layer is optional and should contain only
+personal preferences that apply across all projects:
+
+- **AGENTS.md**: Personal rules (git practices, epistemic honesty)
 - **opencode.json**: Provider credentials, default model preferences
 - **skills/**: Cross-project personal utilities only
 
-Behavioral instructions belong in the project, not in global config. Global config
-should not contain workflow rules, skill inventories, or estate-specific instructions.
+If a rule matters for the project to function correctly, it belongs in the project.
+Global config is a convenience layer, not a dependency.
 
 ---
 

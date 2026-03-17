@@ -1,6 +1,10 @@
-# Synthesist Specification Format
+# Synthesist Specification Format (v3)
 
-Every feature gets two files in `specs/<feature>/`:
+Specs are organized into **context trees** — hierarchical directories that scope
+agent context to one domain of work at a time. Each tree has its own campaign.json
+(active work) and archive.json (completed/deferred work).
+
+Every spec gets two files in its directory:
 
 | File | Format | Owner | Purpose |
 |------|--------|-------|---------|
@@ -273,28 +277,105 @@ When splitting, maintain the dependency DAG: child tasks depend on parent.
 
 ---
 
-## campaign.json — Cross-Spec Coordination
+## Context Trees
 
-For projects with multiple related specs, a campaign file tracks cross-spec
-dependencies and temporal intent. Lives at `specs/<campaign>/campaign.json`.
+Specs are organized into **context trees** — top-level directories under `specs/`
+that scope work to a single domain. Each tree is a self-contained unit of context
+that an agent can load without seeing the entire estate.
+
+### Tree Structure
+
+```
+specs/
+├── estate.json                    ← meta-switchboard (all trees + session state)
+├── SPEC_FORMAT.md                 ← this file
+├── <tree-name>/                   ← one context tree
+│   ├── campaign.json              ← active + backlog specs
+│   ├── archive.json               ← archived specs (done, abandoned, deferred)
+│   ├── decisions.md               ← optional: locked decisions for this domain
+│   ├── <spec>/                    ← a spec directory
+│   │   ├── spec.md
+│   │   ├── state.json
+│   │   └── discovery.md
+│   ├── <phase>/<spec>/            ← optional: specs grouped by phase
+│   │   ├── spec.md
+│   │   └── state.json
+│   └── archive/                   ← archived spec directories
+│       └── <old-spec>/
+└── _template/                     ← spec templates
+```
+
+Trees are named after the service or domain they support. Examples:
+- `auth.dunn.dev` — SSO service
+- `immutable.dunn.dev` — image supply chain
+- `upstream` — open source contributions
+- `ops` — operational tasks
+
+### Phases
+
+Trees may optionally group specs into **phases** — subdirectories that batch
+related work by session or milestone. Phases are optional; small trees can have
+flat specs directly under the tree root.
+
+---
+
+## estate.json — Meta-Switchboard
+
+The estate file is the top-level entry point for the agent. It lists all context
+trees, their status, and session state. The agent reads this first at session start.
 
 ### Schema
 
 ```json
 {
-  "campaign": "campaign-name",
-  "done": [
-    {
-      "id": "spec-slug",
-      "path": "specs/campaign-name/spec-slug/state.json",
-      "summary": "One-line description of what was shipped"
+  "version": 3,
+  "trees": {
+    "<tree-name>": {
+      "path": "specs/<tree-name>/campaign.json",
+      "status": "active | dormant | archived",
+      "description": "One-line description of this tree's domain",
+      "last_session": {
+        "date": "YYYY-MM-DD",
+        "summary": "2-3 lines of what was accomplished",
+        "active_spec": "spec-id or null",
+        "active_task": "task-id or null"
+      }
     }
-  ],
+  },
+  "last_session": {
+    "date": "YYYY-MM-DD",
+    "tree": "<tree-name>",
+    "summary": "What was accomplished in the most recent session"
+  }
+}
+```
+
+### Session Entry Protocol
+
+1. Read `specs/estate.json`
+2. Check `last_session.tree` — offer to continue where we left off
+3. If the human names a different tree, load that tree's `campaign.json`
+4. Follow active spec pointers to load context for the current work
+
+---
+
+## campaign.json — Tree-Level Coordination
+
+Each context tree has a campaign.json that tracks active and backlog specs.
+This replaces the v2 flat campaign format.
+
+### Schema
+
+```json
+{
+  "tree": "<tree-name>",
+  "description": "One-line description of this tree's domain",
   "active": [
     {
       "id": "spec-slug",
-      "path": "specs/campaign-name/spec-slug/state.json",
+      "path": "specs/<tree>/<spec>/state.json",
       "summary": "One-line description of current work",
+      "phase": "phase-name or null",
       "blocked_by": []
     }
   ],
@@ -310,24 +391,90 @@ dependencies and temporal intent. Lives at `specs/<campaign>/campaign.json`.
 }
 ```
 
-### Three Horizons
-
-| Horizon | Meaning | Spec required? |
-|---------|---------|----------------|
-| `done` | Completed specs — institutional memory of what shipped | Yes (path to state.json) |
-| `active` | Specs currently being worked | Yes (path to state.json) |
-| `backlog` | Ideas modeled but not yet started | No (path is null until spec is created) |
-
-Backlog items may be full spec stubs (with spec.md + state.json) or lightweight
-entries with just an id, title, and summary. They graduate to `active` when work
-begins and a spec is written.
-
 ### Campaign Rules
 
 - A spec moves from `backlog` → `active` when work begins
-- A spec moves from `active` → `done` when all tasks pass verification
-- `blocked_by` references other spec IDs within the same campaign
-- Multiple campaigns may exist in the same project (e.g., one per workstream)
+- A spec moves from `active` → archive.json when archived
+- `blocked_by` references spec IDs within the same tree, or cross-tree refs
+  in the format `<tree>/<spec-id>`
+- Backlog items may be stubs (no spec.md yet) or full specs
+
+---
+
+## archive.json — Archived Specs
+
+Each context tree has an archive.json that records specs removed from active work.
+Archive is append-only. Spec directories move to the `archive/` subdirectory.
+
+### Schema
+
+```json
+{
+  "tree": "<tree-name>",
+  "archived": [
+    {
+      "id": "spec-slug",
+      "path": "specs/<tree>/archive/<spec>/state.json",
+      "summary": "One-line description",
+      "archived": "YYYY-MM-DD",
+      "reason": "completed | abandoned | superseded | deferred",
+      "outcome": "Optional: what was the result"
+    }
+  ]
+}
+```
+
+### Archive Reasons
+
+| Reason | Meaning |
+|--------|---------|
+| `completed` | All tasks done, acceptance criteria met |
+| `abandoned` | Work stopped, not worth continuing |
+| `superseded` | Replaced by a different spec |
+| `deferred` | Parked indefinitely, may return to it later |
+
+### Archive Rules
+
+- When archiving, move the spec directory to `archive/` under the tree
+- Add an entry to archive.json with the reason
+- Update any cross-references that point to the archived spec (or the
+  integrity tool will flag them)
+- Archive is append-only — never delete entries
+
+---
+
+## Cross-References
+
+Specs may reference other specs, including specs in different context trees.
+Cross-references are declared in spec.md using a `<references>` section.
+
+### Format
+
+```xml
+<references>
+- spec: upstream/immich/oidc-callback
+  type: discovered_from
+  note: "Found incorrect callback path during bench testing"
+- spec: immutable.dunn.dev/carmine/installer
+  type: informs
+  note: "Blueprints from bench will be deployed via carmine installer"
+</references>
+```
+
+### Reference Types
+
+| Type | Meaning |
+|------|---------|
+| `blocked_by` | This spec cannot proceed until the referenced spec is done |
+| `informs` | Findings here affect the referenced spec |
+| `discovered_from` | This spec was created because of work on the referenced spec |
+
+### Reference Resolution
+
+References use the format `<tree>/<spec-id>` (or `<tree>/<phase>/<spec-id>`).
+The integrity tool resolves references by checking campaign.json first, then
+archive.json. References to archived specs are valid — they just point to
+the archive/ directory.
 
 ---
 
