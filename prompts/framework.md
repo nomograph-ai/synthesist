@@ -178,6 +178,8 @@ support clean handoff between sessions.
 
 2. **Read campaign.json second.** The campaign file shows what's done, what's active,
    and what's in the backlog. Pick up where the last session left off.
+   If the project uses context trees (specs/estate.json), read estate.json to find
+   the active tree, then load that tree's campaign.json.
 
 3. **Update session.md at the end.** Before the session ends (or when context is
    getting heavy), update memory/session.md with:

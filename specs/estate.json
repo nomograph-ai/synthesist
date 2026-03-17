@@ -1,0 +1,21 @@
+{
+  "version": 3,
+  "trees": {
+    "_example-tree": {
+      "path": "specs/_example-tree/campaign.json",
+      "status": "active",
+      "description": "Example context tree — demonstrates v3 structure",
+      "last_session": {
+        "date": "2026-03-17",
+        "summary": "Initial setup",
+        "active_spec": "example-feature",
+        "active_task": "t1"
+      }
+    }
+  },
+  "last_session": {
+    "date": "2026-03-17",
+    "tree": "_example-tree",
+    "summary": "Initial setup"
+  }
+}
