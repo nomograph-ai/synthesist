@@ -26,8 +26,11 @@ you:
   executable acceptance criteria on every task
 - **A workflow** — Discuss → Draft → Iterate → Codify → Build → Verify, with
   human gates at high-stakes transitions
+- **Context trees** — hierarchical spec organization that scopes agent context to
+  one domain at a time, with archive mechanics and cross-tree references
 - **Campaign coordination** — cross-spec dependency tracking with temporal horizons
 - **Concurrent session safety** — task ownership, aggressive commits, deconfliction
+- **Integrity tooling** — Python linter validates estate structure, references, schemas
 
 Clone this repo, customize `prompts/instance.md` for your project, and start working.
 
@@ -91,8 +94,8 @@ Each task in state.json has executable acceptance criteria:
 The `verify` field is a shell command. Exit 0 means pass. The `@verify` agent
 runs every single one and doesn't trust self-reports.
 
-See `specs/SPEC_FORMAT.md` for the full schema, and `specs/_example/` for a
-worked example.
+See `specs/SPEC_FORMAT.md` for the full schema, and `specs/_example-tree/` for a
+worked example with context trees.
 
 ## The Workflow
 
@@ -135,17 +138,45 @@ The primary agent prompt is composed from two files:
 Framework updates flow without merge conflicts on instance-specific content.
 Customize `prompts/instance.md` for your project — leave `framework.md` alone.
 
+## Context Trees (v3)
+
+For projects with multiple domains of work, **context trees** scope agent context
+to one area at a time. Each tree has its own campaign.json (active work) and
+archive.json (completed/deferred work).
+
+```
+specs/
+├── estate.json              # Meta-switchboard — all trees + session state
+├── my-service/              # One context tree
+│   ├── campaign.json        # Active + backlog specs
+│   ├── archive.json         # Archived specs (done, abandoned, deferred)
+│   ├── feature-a/           # A spec directory
+│   │   ├── spec.md
+│   │   └── state.json
+│   └── archive/             # Archived spec directories
+└── another-domain/
+    ├── campaign.json
+    └── archive.json
+```
+
+At session start, the agent reads `estate.json` to find the active tree, then
+loads only that tree's campaign. This keeps context focused and prevents sprawl.
+
+Specs can reference each other across trees using typed cross-references
+(`blocked_by`, `informs`, `discovered_from`).
+
 ## Campaigns
 
-For multi-spec projects, campaigns track cross-spec dependencies with three
-temporal horizons:
+Within each tree, campaigns track cross-spec dependencies with two horizons:
 
-- **done** — what you shipped
 - **active** — what you're working on
 - **backlog** — what you're thinking about
 
-Campaign state lives at `specs/<campaign>/campaign.json`. See `specs/SPEC_FORMAT.md`
-for the schema.
+Archived work moves to `archive.json` with a reason: `completed`, `abandoned`,
+`superseded`, or `deferred`.
+
+Campaign state lives at `specs/<tree>/campaign.json`. See `specs/SPEC_FORMAT.md`
+for the full schema.
 
 ## Concurrent Sessions
 
@@ -209,13 +240,19 @@ synthesist/
 │   ├── review.md              # Cross-model reviewer system prompt
 │   └── verify.md              # Verification agent system prompt
 ├── specs/
+│   ├── estate.json            # Meta-switchboard (context trees + session state)
 │   ├── SPEC_FORMAT.md         # Spec schema reference (loaded via instructions)
 │   ├── _template/             # Copy for new features
 │   │   ├── spec.md
 │   │   └── state.json
-│   └── _example/              # Worked example
-│       ├── spec.md
-│       └── state.json
+│   └── _example-tree/         # Worked example with context tree
+│       ├── campaign.json
+│       ├── archive.json
+│       └── example-feature/
+│           ├── spec.md
+│           └── state.json
+├── tools/
+│   └── lint-specs.py          # Estate integrity checker
 ├── prompts/
 │   ├── framework.md           # Framework prompt (don't edit — synthesist owns this)
 │   └── instance.md            # Instance prompt (customize for your project)
