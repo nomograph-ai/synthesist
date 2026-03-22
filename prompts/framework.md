@@ -172,24 +172,30 @@ then the agent (or multiple agents) execute tasks independently.
 Sessions are finite. Context windows fill. Humans step away. The framework must
 support clean handoff between sessions.
 
-1. **Read session.md first.** At the start of every session, read memory/session.md
-   (if it exists). It contains pointers to the active campaign and specs. Follow
-   the links to get into context — do not ask the human to re-explain.
+1. **Read estate.json first.** At the start of every session, read `specs/estate.json`.
+   Check `active_threads` — display all threads sorted by date, offer to continue
+   any of them. Load that tree's `campaign.json` to see active and backlog specs.
+   Follow active spec pointers to load context for the current work. Do not ask the
+   human to re-explain what's already in the specs.
 
-2. **Read campaign.json second.** The campaign file shows what's done, what's active,
-   and what's in the backlog. Pick up where the last session left off.
+2. **Read campaign.json second.** The campaign file shows what's active and what's in
+   the backlog. Pick up where the last session left off.
    If the project uses context trees (specs/estate.json), read estate.json to find
    the active tree, then load that tree's campaign.json.
 
-3. **Update session.md at the end.** Before the session ends (or when context is
-   getting heavy), update memory/session.md with:
-   - Last session date and 2-3 line summary of what was accomplished
-   - Pointers to campaign.json and active state.json files
-   - Any pending human decisions not yet captured in specs
-   Keep it short. The specs are the source of truth — session.md is just a pointer.
+3. **Update estate.json at the end.** Before the session ends (or when context is
+   getting heavy), update specs/estate.json:
+   - Find this session's thread in `active_threads` by `id`
+   - If found, update `date`, `summary`, `task` (and `spec` if changed)
+   - If not found, append a new thread entry
+   - Prune threads older than 7 days with no active spec/task
+   - Pending decisions go into the relevant spec's `<discovery>` section or as
+     backlog items in the appropriate campaign.json — not into a separate file
 
-4. **Do not duplicate spec content in session.md.** If it's in a spec, link to it.
-   If it's not in a spec yet, either write it to a spec or note it as a pending
-   decision in session.md.
+4. **Concurrent sessions.** Multiple sessions may run simultaneously. Each session
+   manages its own thread entry in `active_threads`, identified by the `id` field.
+   Sessions update only their own thread — they do not modify other threads. If two
+   sessions update the same thread simultaneously, the last writer wins (acceptable —
+   same thread means same workstream).
 
 </session-rules>
