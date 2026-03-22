@@ -55,9 +55,7 @@ def check_estate():
         error("estate.json missing 'trees' field")
         return None
 
-    if "last_session" not in estate:
-        warn("estate.json missing 'last_session' field")
-
+    # Validate trees
     for name, tree in estate["trees"].items():
         if "path" not in tree:
             error(f"Tree '{name}' missing 'path' field")
@@ -65,6 +63,35 @@ def check_estate():
             error(f"Tree '{name}' campaign.json not found at {tree['path']}")
         if "status" not in tree:
             warn(f"Tree '{name}' missing 'status' field")
+
+    # Validate active_threads (v4+)
+    threads = estate.get("active_threads")
+    if threads is not None:
+        if not isinstance(threads, list):
+            error("active_threads must be an array")
+        else:
+            seen_ids = set()
+            tree_names = set(estate.get("trees", {}).keys())
+            required = {"id", "tree", "date", "summary"}
+            for i, thread in enumerate(threads):
+                if not isinstance(thread, dict):
+                    error(f"active_threads[{i}] is not an object")
+                    continue
+                missing = required - set(thread.keys())
+                if missing:
+                    error(
+                        f"active_threads[{i}] missing fields: {', '.join(sorted(missing))}"
+                    )
+                tid = thread.get("id", f"<missing-{i}>")
+                if tid in seen_ids:
+                    error(f"Duplicate thread id: {tid}")
+                seen_ids.add(tid)
+                tree_ref = thread.get("tree")
+                if tree_ref and tree_ref not in tree_names:
+                    warn(f"Thread '{tid}' references tree '{tree_ref}' not in trees")
+            print(f"  {len(threads)} active threads")
+    elif "last_session" not in estate:
+        warn("estate.json missing both 'active_threads' and 'last_session'")
 
     print(f"  {len(estate['trees'])} trees found")
     return estate
@@ -118,7 +145,9 @@ def check_tree(tree_name, tree_info):
             if spec_path:
                 full_path = SPECS_DIR.parent / spec_path
                 if not full_path.exists():
-                    error(f"Archived spec '{spec_id}' state.json not found at {spec_path}")
+                    error(
+                        f"Archived spec '{spec_id}' state.json not found at {spec_path}"
+                    )
 
             if "reason" not in spec:
                 warn(f"Archived spec '{spec_id}' missing 'reason' field")
@@ -138,10 +167,15 @@ def check_tree(tree_name, tree_info):
             if entry.name not in known_ids:
                 # Check if it's a nested spec (e.g., carmine/deploy-smoothing)
                 has_state = (entry / "state.json").exists()
-                has_sub_state = any((entry / sub / "state.json").exists()
-                                   for sub in entry.iterdir() if sub.is_dir())
+                has_sub_state = any(
+                    (entry / sub / "state.json").exists()
+                    for sub in entry.iterdir()
+                    if sub.is_dir()
+                )
                 if has_state or has_sub_state:
-                    warn(f"Directory '{tree_name}/{entry.name}' not in campaign.json or archive.json")
+                    warn(
+                        f"Directory '{tree_name}/{entry.name}' not in campaign.json or archive.json"
+                    )
 
 
 def check_state_json(path, spec_id):
@@ -171,9 +205,13 @@ def check_state_json(path, spec_id):
         # Acceptance criteria must have verify commands
         for ac in task.get("acceptance", []):
             if "verify" not in ac:
-                error(f"Spec '{spec_id}' task '{tid}' acceptance missing 'verify' command")
+                error(
+                    f"Spec '{spec_id}' task '{tid}' acceptance missing 'verify' command"
+                )
             if "criterion" not in ac:
-                warn(f"Spec '{spec_id}' task '{tid}' acceptance missing 'criterion' description")
+                warn(
+                    f"Spec '{spec_id}' task '{tid}' acceptance missing 'criterion' description"
+                )
 
 
 def check_cross_references(estate):
@@ -197,6 +235,7 @@ def check_cross_references(estate):
 
             # Extract references section
             import re
+
             ref_match = re.search(r"<references>(.*?)</references>", content, re.DOTALL)
             if not ref_match:
                 continue
@@ -219,7 +258,9 @@ def check_cross_references(estate):
                         if campaign_path.exists():
                             campaign = load_json(campaign_path)
                             if campaign:
-                                for s in campaign.get("active", []) + campaign.get("backlog", []):
+                                for s in campaign.get("active", []) + campaign.get(
+                                    "backlog", []
+                                ):
                                     if s.get("id") == ref_spec:
                                         found = True
                                         break
@@ -238,11 +279,16 @@ def check_cross_references(estate):
                         # Check if directory exists directly
                         if not found:
                             direct_path = SPECS_DIR / ref_path
-                            if direct_path.is_dir() and (direct_path / "spec.md").exists():
+                            if (
+                                direct_path.is_dir()
+                                and (direct_path / "spec.md").exists()
+                            ):
                                 found = True
 
                         if not found:
-                            warn(f"Cross-reference '{ref_path}' in {spec_md.relative_to(SPECS_DIR)} not found")
+                            warn(
+                                f"Cross-reference '{ref_path}' in {spec_md.relative_to(SPECS_DIR)} not found"
+                            )
 
     print(f"  {ref_count} cross-references checked")
 
