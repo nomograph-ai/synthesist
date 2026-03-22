@@ -328,34 +328,51 @@ trees, their status, and session state. The agent reads this first at session st
 
 ```json
 {
-  "version": 3,
+  "version": 4,
   "trees": {
     "<tree-name>": {
       "path": "specs/<tree-name>/campaign.json",
       "status": "active | dormant | archived",
-      "description": "One-line description of this tree's domain",
-      "last_session": {
-        "date": "YYYY-MM-DD",
-        "summary": "2-3 lines of what was accomplished",
-        "active_spec": "spec-id or null",
-        "active_task": "task-id or null"
-      }
+      "description": "One-line description of this tree's domain"
     }
   },
-  "last_session": {
-    "date": "YYYY-MM-DD",
-    "tree": "<tree-name>",
-    "summary": "What was accomplished in the most recent session"
-  }
+  "active_threads": [
+    {
+      "id": "<tree>/<spec-or-account>",
+      "tree": "<tree-name>",
+      "spec": "spec-id or null",
+      "task": "task-id or null",
+      "date": "YYYY-MM-DD",
+      "summary": "1-2 sentence current state and what's next"
+    }
+  ]
 }
 ```
+
+#### Thread Fields
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `id` | string | yes | Unique key: `{tree}/{spec}` or `{tree}/{account}` for account work. Must be stable across sessions. |
+| `tree` | string | yes | Which tree this thread lives in |
+| `spec` | string | no | Active spec ID, or null for tree-level work (research, cadence) |
+| `task` | string | no | Active task ID within the spec, or null |
+| `date` | string | yes | Last update date (YYYY-MM-DD) |
+| `summary` | string | yes | Current state and what's next |
+
+#### Thread Lifecycle
+
+- A thread is **created** when a session starts work on a new spec or account
+- A thread is **updated** when a session makes progress (date, task, summary change)
+- A thread is **pruned** when it is older than 7 days AND has no active spec/task
+- Threads with an active spec or task are never pruned regardless of age
 
 ### Session Entry Protocol
 
 1. Read `specs/estate.json`
-2. Check `last_session.tree` — offer to continue where we left off
-3. If the human names a different tree, load that tree's `campaign.json`
-4. Follow active spec pointers to load context for the current work
+2. Display all `active_threads` sorted by date (most recent first)
+3. Offer to continue any thread, or start a new one
+4. If the human names a thread, load that tree's `campaign.json` and follow spec/task pointers
 
 ---
 
@@ -478,37 +495,35 @@ the archive/ directory.
 
 ---
 
-## session.md — Session Handoff
+## Session State
 
-The session handoff file lives at `memory/session.md`. It is a lightweight pointer
-that gets the agent into spec context at the start of a new session.
+Session state lives in `specs/estate.json` as an `active_threads` array. Each
+thread represents an active workstream -- a spec being built, an account being
+researched, a contribution being tracked. Multiple sessions can run concurrently
+without overwriting each other's state.
 
-### Structure
+### Session Entry Protocol
 
-```markdown
-# Session Handoff
+1. Read `specs/estate.json`
+2. Display all `active_threads` sorted by date (most recent first)
+3. Offer to continue any thread, or start a new one
+4. If the human names a thread, load that tree's `campaign.json` and follow
+   the spec/task pointers
 
-## Last Session
-Date: YYYY-MM-DD
-Summary: 2-3 lines describing what was accomplished.
+### Session End Protocol
 
-## Active Work
-- Campaign: specs/<campaign>/campaign.json
-- Spec: specs/<campaign>/<spec>/state.json — current task status
-- Spec: specs/<campaign>/<spec>/state.json — current task status
+Before the session ends (or when context is getting heavy), update estate.json:
+- Find this session's thread in `active_threads` by `id`
+- If found, update `date`, `summary`, `task` (and `spec` if changed)
+- If not found, append a new thread entry
+- Prune threads older than 7 days with no active spec/task
+- Pending decisions go into the relevant spec's `<discovery>` section or as
+  backlog items in the appropriate campaign.json -- not into a separate file
 
-## Pending Decisions
-- Decision not yet captured in any spec (if any)
-```
+### Concurrent Sessions
 
-### Session Handoff Rules
-
-- **Read first, ask second.** At session start, read session.md, follow the links
-  to campaign.json and active state.json files. Do not ask the human to re-explain
-  what's already in the specs.
-- **Keep it short.** The specs are the source of truth. session.md is a pointer,
-  not a parallel document.
-- **Update at session end.** Before context fills or the session ends, update
-  session.md with current state.
-- **No duplication.** If information is in a spec, link to it. If it's not in a
-  spec yet, either write it to a spec or note it as a pending decision.
+Multiple sessions may run simultaneously. Each session manages its own thread
+entry in `active_threads`, identified by the `id` field. Sessions update only
+their own thread -- they do not modify other threads. If two sessions update
+the same thread simultaneously, the last writer wins (acceptable -- same thread
+means same workstream).
