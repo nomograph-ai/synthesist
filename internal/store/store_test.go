@@ -184,7 +184,7 @@ func TestStakeholderAndDisposition(t *testing.T) {
 
 	// Add stakeholder
 	_, err = s.DB.Exec("INSERT INTO stakeholders (tree, id, context) VALUES (?, ?, ?)",
-		"upstream", "cgwalters", "bootc maintainer")
+		"upstream", "mwilson", "auth-service maintainer")
 	if err != nil {
 		t.Fatalf("Insert stakeholder failed: %v", err)
 	}
@@ -192,8 +192,8 @@ func TestStakeholderAndDisposition(t *testing.T) {
 	// Add disposition
 	_, err = s.DB.Exec(
 		"INSERT INTO dispositions (tree, spec, id, stakeholder_id, topic, stance, confidence, valid_from) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-		"upstream", "bootc/composefs", "d1", "cgwalters",
-		"composefs timestamp strategy", "cautious", "inferred", Today(),
+		"upstream", "upstream/auth-api", "d1", "mwilson",
+		"API versioning strategy", "cautious", "inferred", Today(),
 	)
 	if err != nil {
 		t.Fatalf("Insert disposition failed: %v", err)
@@ -203,7 +203,7 @@ func TestStakeholderAndDisposition(t *testing.T) {
 	var stance, confidence string
 	err = s.DB.QueryRow(
 		"SELECT stance, confidence FROM dispositions WHERE stakeholder_id = ? AND valid_until IS NULL ORDER BY valid_from DESC LIMIT 1",
-		"cgwalters",
+		"mwilson",
 	).Scan(&stance, &confidence)
 	if err != nil {
 		t.Fatalf("Query disposition failed: %v", err)
@@ -214,19 +214,19 @@ func TestStakeholderAndDisposition(t *testing.T) {
 
 	// Supersede with new disposition
 	s.DB.Exec(
-		"UPDATE dispositions SET valid_until = ?, superseded_by = 'd2' WHERE tree = 'upstream' AND spec = 'bootc/composefs' AND id = 'd1'",
+		"UPDATE dispositions SET valid_until = ?, superseded_by = 'd2' WHERE tree = 'upstream' AND spec = 'upstream/auth-api' AND id = 'd1'",
 		Today(),
 	)
 	s.DB.Exec(
 		"INSERT INTO dispositions (tree, spec, id, stakeholder_id, topic, stance, confidence, valid_from) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-		"upstream", "bootc/composefs", "d2", "cgwalters",
-		"composefs timestamp strategy", "supportive", "documented", Today(),
+		"upstream", "upstream/auth-api", "d2", "mwilson",
+		"API versioning strategy", "supportive", "documented", Today(),
 	)
 
 	// Query should return the new one
 	err = s.DB.QueryRow(
 		"SELECT stance FROM dispositions WHERE stakeholder_id = ? AND valid_until IS NULL ORDER BY valid_from DESC LIMIT 1",
-		"cgwalters",
+		"mwilson",
 	).Scan(&stance)
 	if err != nil {
 		t.Fatalf("Query superseded disposition failed: %v", err)
@@ -283,9 +283,9 @@ func TestDirections(t *testing.T) {
 
 	_, err = s.DB.Exec(
 		"INSERT INTO directions (tree, id, project, topic, status, impact, valid_from) VALUES (?, ?, ?, ?, ?, ?, ?)",
-		"upstream", "d1", "containers/bootc",
-		"unified storage via composefs", "committed",
-		"ostree deploy path will be replaced -- don't over-invest in bootloader workarounds",
+		"upstream", "d1", "upstream-org/auth-service",
+		"migrate to REST v3", "committed",
+		"v2 endpoints will be deprecated -- don't build new integrations against them",
 		Today(),
 	)
 	if err != nil {
@@ -295,8 +295,8 @@ func TestDirections(t *testing.T) {
 	// Add impact link
 	_, err = s.DB.Exec(
 		"INSERT INTO direction_impacts (tree, direction_id, affected_tree, affected_spec, description) VALUES (?, ?, ?, ?, ?)",
-		"upstream", "d1", "upstream", "bootc/install-tool",
-		"install tooling must account for composefs layout, not ostree hardlinks",
+		"upstream", "d1", "upstream", "upstream/api-client",
+		"client library must support v3 endpoints before migration",
 	)
 	if err != nil {
 		t.Fatalf("Insert direction impact failed: %v", err)
@@ -308,13 +308,13 @@ func TestDirections(t *testing.T) {
 		SELECT d.topic, di.description
 		FROM directions d
 		JOIN direction_impacts di ON d.tree = di.tree AND d.id = di.direction_id
-		WHERE di.affected_tree = 'upstream' AND di.affected_spec = 'bootc/install-tool'
+		WHERE di.affected_tree = 'upstream' AND di.affected_spec = 'upstream/api-client'
 		AND d.valid_until IS NULL
 	`).Scan(&topic, &impact)
 	if err != nil {
 		t.Fatalf("Query direction impact failed: %v", err)
 	}
-	if topic != "unified storage via composefs" {
+	if topic != "migrate to REST v3" {
 		t.Errorf("Unexpected topic: %q", topic)
 	}
 }

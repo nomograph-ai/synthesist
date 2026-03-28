@@ -9,7 +9,7 @@ owns the Dolt database at .synth/.
 ## Concepts
 
 **tree/spec format**: Commands take specs as ` + "`tree/spec`" + ` -- e.g.
-` + "`upstream/bootc-install`" + `, ` + "`harness/estate-contract`" + `. The tree is the
+` + "`upstream/auth-service`" + `, ` + "`harness/site-redesign`" + `. The tree is the
 context domain (upstream, harness, account). The spec is the work unit
 within that tree. Specs are created implicitly when you add the first task.
 

@@ -244,14 +244,14 @@ type PatternRegistry struct {
 // --- Direction layer ---
 
 // Direction tracks an upstream technical trajectory. Per-tree, not per-spec.
-// A direction like "composefs replacing ostree deploy" affects multiple specs.
+// A direction like "migrate from REST v2 to v3" affects multiple specs.
 // When status changes (proposed -> committed), create a new Direction and
 // supersede the old one -- same temporal model as dispositions.
 // Directions with status=committed are "positions" (settled upstream decisions).
 type Direction struct {
 	ID                string          `json:"id"`
-	Project           string          `json:"project"`            // "containers/bootc"
-	Topic             string          `json:"topic"`              // "unified storage via composefs"
+	Project           string          `json:"project"`            // "upstream-org/auth-service"
+	Topic             string          `json:"topic"`              // "API versioning strategy"
 	Status            DirectionStatus `json:"status"`             // committed = position (settled)
 	Owner             *string         `json:"owner,omitempty"`    // stakeholder ref
 	Timeline          *string         `json:"timeline,omitempty"` // "6-12 months"

@@ -34,18 +34,18 @@ make install  # installs to $GOPATH/bin
 cd your-project
 synthesist init
 
-# Create a task in the upstream/bootc spec (tree/spec format)
-synthesist task create upstream/bootc "Research bootc install architecture"
+# Create a task in the upstream/auth-service spec (tree/spec format)
+synthesist task create upstream/auth-service "Research API versioning strategy"
 
 # Track a stakeholder and their disposition
-synthesist stakeholder add upstream cgwalters --context "bootc maintainer"
-synthesist disposition add upstream/bootc cgwalters \
-  --topic "external tooling" --stance cautious --confidence inferred
+synthesist stakeholder add upstream mwilson --context "auth-service maintainer"
+synthesist disposition add upstream/auth-service mwilson \
+  --topic "API versioning" --stance cautious --confidence inferred
 
 # Work through the task DAG
-synthesist task claim upstream/bootc t1
+synthesist task claim upstream/auth-service t1
 # ... do the work ...
-synthesist task done upstream/bootc t1
+synthesist task done upstream/auth-service t1
 
 # See the full estate overview
 synthesist status
@@ -53,30 +53,52 @@ synthesist status
 
 All output is JSON by default. Use `--human` for human-readable output.
 
-## The Data Model
+## Data Model
 
-Synthesist stores a temporal specification graph with six data layers and
+Synthesist stores a temporal specification graph with six node types and
 eight edge types.
 
-### Six data layers
+```
+                    ┌──────────────┐   depends_on   ┌──────────────┐
+                    │     Task     │───────────────▶│     Task     │
+                    │   (pending)  │                │    (done)    │
+                    └──────┬───────┘                └──────┬───────┘
+                           │                               │
+                  influences│                               │
+                           │                               │
+                    ┌──────▼───────┐                ┌──────▼───────┐
+                    │ Stakeholder  │                │    Retro     │
+                    │              │                │ (type=retro) │
+                    └──────┬───────┘                └──────┬───────┘
+                           │                               │
+                   signaled│                      patterned│
+                           │                               │
+                    ┌──────▼───────┐   evidences   ┌──────▼───────┐
+                    │    Signal    │───────────────▶│   Pattern    │
+                    │ (immutable)  │                │   (named)    │
+                    └──────┬───────┘                └──────────────┘
+                           │
+                    ┌──────▼───────┐   supersedes   ┌──────────────┐
+                    │ Disposition  │───────────────▶│ Disposition  │
+                    │  (temporal)  │                │ (superseded) │
+                    └──────────────┘                └──────────────┘
 
-| Layer | What it tracks | Key tables |
-|-------|---------------|------------|
-| **Estate** | Trees (context domains) and threads (active workstreams) | `trees`, `threads` |
-| **Task DAG** | Tasks with dependencies, acceptance criteria, and status | `tasks`, `task_deps`, `acceptance` |
-| **Landscape** | Stakeholders, dispositions, signals, influences | `stakeholders`, `dispositions`, `signals`, `influences` |
-| **Directions** | Upstream technical trajectories with temporal validity | `directions`, `direction_impacts` |
-| **Patterns** | Named reusable approaches discovered through work | `patterns`, `pattern_observations` |
-| **Campaign + Archive** | Active/backlog spec tracking and archived spec records | `campaign_active`, `archives` |
+                    ┌──────────────┐   impacts      ┌──────────────┐
+                    │  Direction   │───────────────▶│     Task     │
+                    │  (upstream)  │                │              │
+                    └──────────────┘                └──────────────┘
+```
 
-### Node types
+### Six node types
 
-- **task** -- a unit of work with executable acceptance criteria
-- **stakeholder** -- a human actor relevant to the work (registered per-tree)
-- **disposition** -- a stakeholder's assessed stance on a technical direction (temporal)
-- **signal** -- immutable, timestamped evidence from a stakeholder action
-- **direction** -- an upstream technical trajectory with impact assessment
-- **pattern** -- a named, transferable approach discovered through retrospective analysis
+| Node | What it represents |
+|------|--------------------|
+| **Task** | A unit of work with executable acceptance criteria and DAG dependencies |
+| **Stakeholder** | A human actor relevant to the work, registered per-tree |
+| **Signal** | Immutable, timestamped evidence from a stakeholder action |
+| **Disposition** | A stakeholder's assessed stance on a technical direction (temporal, supersedable) |
+| **Direction** | An upstream technical trajectory with impact assessment and validity window |
+| **Pattern** | A named, transferable approach discovered through retrospective analysis |
 
 ### Eight edge types
 
@@ -227,51 +249,6 @@ make release    # Cross-compile for darwin/arm64, darwin/amd64, linux/amd64, lin
 
 The Makefile auto-detects ICU on macOS via Homebrew and sets the correct
 `CGO_CFLAGS`, `CGO_CXXFLAGS`, and `CGO_LDFLAGS`.
-
-## CI/CD
-
-The GitLab CI pipeline (`.gitlab-ci.yml`) has four stages:
-
-| Stage | Runner | What it does |
-|-------|--------|-------------|
-| **test** | Group runner (storr) | `go vet`, `go test`, integration test (init + task lifecycle) |
-| **build** | Group runner (Linux), instance runner (macOS) | Cross-compile binaries |
-| **publish** | Group runner | Upload to GitLab Package Registry (generic packages) |
-| **release** | Group runner | Create GitLab Release with binary assets (tags only) |
-
-- Linux builds run on the `storr` group runner (storr.dunn.dev)
-- macOS builds run on the `saas-macos-medium-m1` instance runner (Apple Silicon)
-- The macOS job is `allow_failure: true` since the runner may not be available
-- The publish stage uploads both platforms plus checksums
-- Tag pushes also publish as `latest` for stable download URLs
-- Releases are created only on tag pushes
-
-## Project Structure
-
-```
-synthesist/
-├── cmd/synthesist/            # CLI binary source
-│   ├── main.go                # Command dispatch + help text
-│   ├── skill.go               # LLM behavioral contract (synthesist skill)
-│   ├── cmd_init.go            # Estate initialization
-│   ├── cmd_task.go            # Task DAG commands
-│   ├── cmd_landscape.go       # Stakeholder intelligence commands
-│   ├── cmd_retro.go           # Retrospective + pattern commands
-│   └── cmd_status.go          # Estate overview + validation
-├── internal/
-│   ├── store/store.go         # Dolt embedded database layer
-│   └── types/types.go         # Schema as Go types (enums, structs)
-├── prompts/
-│   ├── framework.md           # Agent behavioral framework (for OpenCode instances)
-│   └── instance.md            # Instance configuration template (for OpenCode)
-├── specs/
-│   └── SPEC_FORMAT.md         # Specification format reference (v5)
-├── Makefile                   # Build with ICU detection
-├── .gitlab-ci.yml             # Test + build + publish + release pipeline
-├── CHANGELOG.md               # v1-v5 evolution
-├── AGENTS.md                  # Agent bootstrap instructions
-└── go.mod                     # Go module (gitlab.com/nomograph/synthesist)
-```
 
 ## Version History
 
