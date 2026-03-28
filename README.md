@@ -34,7 +34,12 @@ make install  # installs to $GOPATH/bin
 cd your-project
 synthesist init
 
-# Create a task in the upstream/auth-service spec (tree/spec format)
+# Create a spec with goal and constraints (tree/spec format)
+synthesist spec create upstream/auth-service \
+  --goal "Migrate auth API from v2 to v3" \
+  --constraints "Backward compatible. No breaking changes to existing clients."
+
+# Add tasks to the spec
 synthesist task create upstream/auth-service "Research API versioning strategy"
 
 # Track a stakeholder and their disposition
@@ -72,7 +77,7 @@ graph TD
     T1 --> P1[Patterns<br/><i>per-tree registry</i>]
     T1 --> DIR1[Directions<br/><i>upstream trajectories</i>]
 
-    C1 --> S1[Spec A<br/><i>active</i>]
+    C1 --> S1[Spec A<br/><i>goal, constraints, decisions</i>]
     C1 --> S2[Spec B<br/><i>backlog</i>]
     C1 -.-> A1[Archive<br/><i>completed / deferred</i>]
 
@@ -81,6 +86,8 @@ graph TD
     S1 --> TK3[t3<br/><i>pending</i>]
     TK1 -->|depends_on| TK2
     TK2 -->|depends_on| TK3
+
+    S1 -.->|propagates_to| S2
 
     E --> TH[Threads<br/><i>active workstreams</i>]
     TH -.-> S1
@@ -209,7 +216,7 @@ Key properties:
 | **Estate** | global | -- | Top-level switchboard. Lists trees and active threads. |
 | **Tree** | estate | -- | Domain of work (upstream, harness, account). |
 | **Campaign** | tree | -- | Active and backlog specs within a tree. |
-| **Spec** | tree | -- | Unit of work. Contains task DAG and landscape. |
+| **Spec** | tree | created | Unit of work with goal, constraints, and decisions. Contains task DAG and landscape. |
 | **Thread** | estate | date | Active workstream pointer. Pruned after 7 days if idle. |
 | **Task** | spec | created, completed | DAG node with acceptance criteria. Status: pending, in_progress, done, blocked, waiting. |
 | **Retro** | spec | created, completed | Task node (type=retro) with arc, transforms, pattern links. |
@@ -232,6 +239,7 @@ Key properties:
 | `impacts` | direction | spec | Which specs an upstream trajectory affects |
 | `patterned` | retro | pattern | Named approach identified during retrospective |
 | `observed_in` | pattern | spec | Where a pattern has been applied |
+| `propagates_to` | spec | spec | "When this spec changes, target needs updates" (ordered) |
 
 ## The Skill File
 
