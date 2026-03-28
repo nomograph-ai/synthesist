@@ -1,6 +1,6 @@
 // Package types defines the core data model for Synthesist v5.
 // These types ARE the schema. The JSON tags are the wire format.
-// LLM agents read and write these via the synth CLI.
+// LLM agents read and write these via the synthesist CLI.
 package types
 
 // Status represents a task's lifecycle state.
@@ -362,7 +362,7 @@ type Archive struct {
 
 // --- Config ---
 
-// Config holds synth runtime configuration.
+// Config holds synthesist runtime configuration.
 type Config struct {
 	AutoCommit     bool   `json:"auto_commit"`
 	CommitTrailer  string `json:"commit_trailer"`
@@ -374,6 +374,6 @@ func DefaultConfig() Config {
 	return Config{
 		AutoCommit:    true,
 		CommitTrailer: "AI-Assisted: yes",
-		DefaultAuthor: "synth",
+		DefaultAuthor: "synthesist",
 	}
 }

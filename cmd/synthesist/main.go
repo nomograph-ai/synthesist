@@ -102,7 +102,7 @@ func main() {
 }
 
 func printUsage() {
-	fmt.Print(`synth — Synthesist specification graph manager
+	fmt.Print(`synthesist -- specification graph manager
 
 Estate:
   init                          Scaffold estate structure in current directory
@@ -140,7 +140,7 @@ Stance:
   stance <stakeholder> <topic>  Disposition history for person + topic
 
 Meta:
-  skill                         Output the synth skill file for LLM harness
+  skill                         Output the synthesist skill file for LLM harness
   check                         Validate estate integrity
   version                       Print version
   help                          This message
@@ -150,7 +150,7 @@ Auto-commits are on by default. Use --no-commit to disable.
 `)
 }
 
-// cmdReady is a top-level alias for "synth task ready"
+// cmdReady is a top-level alias for "synthesist task ready"
 func cmdReady(args []string) error { return cmdTaskReady(args) }
 
 func cmdSkill(args []string) error {

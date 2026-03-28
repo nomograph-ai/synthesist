@@ -7,7 +7,7 @@ staging/*
 !staging/.gitkeep
 
 # Go build artifacts
-/synth
+/synthesist
 dist/
 *.test
 *.out

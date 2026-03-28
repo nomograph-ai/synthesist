@@ -5,7 +5,7 @@ stages:
   - release
 
 variables:
-  BINARY_NAME: synth
+  BINARY_NAME: synthesist
 
 # storr = group runner (storr.dunn.dev). All Linux jobs go here.
 # saas-macos-medium-m1 = instance runner. Only macOS build uses this.
@@ -32,16 +32,16 @@ test:integration:
   before_script:
     - apt-get update -qq && apt-get install -y -qq libicu-dev > /dev/null 2>&1
   script:
-    - go build -o synth ./cmd/synth
+    - go build -o synthesist ./cmd/synthesist
     - mkdir -p /tmp/test-project && cd /tmp/test-project
-    - /builds/$CI_PROJECT_PATH/synth init
-    - /builds/$CI_PROJECT_PATH/synth task create test/spec "validation task"
-    - /builds/$CI_PROJECT_PATH/synth task list test/spec
-    - /builds/$CI_PROJECT_PATH/synth task ready test/spec
-    - /builds/$CI_PROJECT_PATH/synth task claim test/spec t1
-    - /builds/$CI_PROJECT_PATH/synth task done test/spec t1
-    - /builds/$CI_PROJECT_PATH/synth version
-    - /builds/$CI_PROJECT_PATH/synth skill | head -5
+    - /builds/$CI_PROJECT_PATH/synthesist init
+    - /builds/$CI_PROJECT_PATH/synthesist task create test/spec "validation task"
+    - /builds/$CI_PROJECT_PATH/synthesist task list test/spec
+    - /builds/$CI_PROJECT_PATH/synthesist task ready test/spec
+    - /builds/$CI_PROJECT_PATH/synthesist task claim test/spec t1
+    - /builds/$CI_PROJECT_PATH/synthesist task done test/spec t1
+    - /builds/$CI_PROJECT_PATH/synthesist version
+    - /builds/$CI_PROJECT_PATH/synthesist skill | head -5
 
 # =============================================================================
 # Build -- linux on group runner, macOS on instance runner
@@ -59,7 +59,7 @@ build:linux:
     - |
       GOOS=linux GOARCH=amd64 go build \
         -ldflags "-X main.version=${VERSION}" \
-        -o ${BINARY_NAME}-linux-amd64 ./cmd/synth
+        -o ${BINARY_NAME}-linux-amd64 ./cmd/synthesist
     - ls -lh ${BINARY_NAME}-*
     - sha256sum ${BINARY_NAME}-* > checksums-linux.txt
     - cat checksums-linux.txt
@@ -92,7 +92,7 @@ build:darwin:
       CGO_LDFLAGS="-L${ICU_PREFIX}/lib" \
       GOOS=darwin GOARCH=arm64 go build \
         -ldflags "-X main.version=${VERSION}" \
-        -o ${BINARY_NAME}-darwin-arm64 ./cmd/synth
+        -o ${BINARY_NAME}-darwin-arm64 ./cmd/synthesist
     - ls -lh ${BINARY_NAME}-*
     - shasum -a 256 ${BINARY_NAME}-* > checksums-darwin.txt
     - cat checksums-darwin.txt
@@ -172,7 +172,7 @@ release:
     - echo "Creating release for ${CI_COMMIT_TAG}"
   release:
     tag_name: $CI_COMMIT_TAG
-    name: "synth $CI_COMMIT_TAG"
+    name: "synthesist $CI_COMMIT_TAG"
     description: |
       ## Synthesist v5 -- Temporal Specification Graphs
 
@@ -182,30 +182,30 @@ release:
 
       ```toml
       [tools]
-      "ubi:nomograph/synthesist" = { version = "${CI_COMMIT_TAG}", exe = "synth", provider = "gitlab" }
+      "ubi:nomograph/synthesist" = { version = "${CI_COMMIT_TAG}", exe = "synthesist", provider = "gitlab" }
       ```
 
       ## Install (manual)
 
       ```bash
       # macOS (Apple Silicon)
-      curl -L "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/synth/${CI_COMMIT_TAG}/synth-darwin-arm64" -o synth
-      chmod +x synth && ./synth init
+      curl -L "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/synthesist/${CI_COMMIT_TAG}/synthesist-darwin-arm64" -o synthesist
+      chmod +x synthesist && ./synthesist init
 
       # Linux (amd64)
-      curl -L "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/synth/${CI_COMMIT_TAG}/synth-linux-amd64" -o synth
-      chmod +x synth && ./synth init
+      curl -L "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/synthesist/${CI_COMMIT_TAG}/synthesist-linux-amd64" -o synthesist
+      chmod +x synthesist && ./synthesist init
       ```
     assets:
       links:
-        - name: synth-linux-amd64
-          url: ${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/synth/${CI_COMMIT_TAG}/synth-linux-amd64
+        - name: synthesist-linux-amd64
+          url: ${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/synthesist/${CI_COMMIT_TAG}/synthesist-linux-amd64
           link_type: package
-        - name: synth-darwin-arm64
-          url: ${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/synth/${CI_COMMIT_TAG}/synth-darwin-arm64
+        - name: synthesist-darwin-arm64
+          url: ${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/synthesist/${CI_COMMIT_TAG}/synthesist-darwin-arm64
           link_type: package
         - name: checksums.txt
-          url: ${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/synth/${CI_COMMIT_TAG}/checksums.txt
+          url: ${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/synthesist/${CI_COMMIT_TAG}/checksums.txt
           link_type: other
   rules:
     - if: $CI_COMMIT_TAG
