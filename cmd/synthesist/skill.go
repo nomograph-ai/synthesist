@@ -11,7 +11,13 @@ owns the Dolt database at .synth/.
 **tree/spec format**: Commands take specs as ` + "`tree/spec`" + ` -- e.g.
 ` + "`upstream/auth-service`" + `, ` + "`harness/site-redesign`" + `. The tree is the
 context domain (upstream, harness, account). The spec is the work unit
-within that tree. Specs are created implicitly when you add the first task.
+within that tree. Specs can be created explicitly with ` + "`synthesist spec create`" + `
+to capture intent (goal, constraints, decisions), or implicitly when you
+add the first task.
+
+**Propagation chains** link specs so that when a source spec's output changes,
+downstream specs are flagged as potentially stale. Use ` + "`synthesist propagation`" + `
+to manage these cross-spec data dependencies.
 
 **Stakeholders** are registered per-tree (` + "`synthesist stakeholder add <tree>`" + `).
 They are referenced by ID across specs in that tree.
@@ -63,6 +69,14 @@ interpret synthesist output for you. Empty collections are ` + "`[]`" + `, never
 
 ` + "```" + `
 synthesist status                          # estate overview + ready tasks
+synthesist spec create <tree/spec> --goal "..." [--constraints "..."] [--decisions "..."]
+synthesist spec show <tree/spec>             # spec intent + task summary + propagation
+synthesist spec update <tree/spec> [--goal "..."] [--constraints "..."] [--decisions "..."]
+
+synthesist propagation add <source-tree/spec> <target-tree/spec> --seq N [--description "..."]
+synthesist propagation list <tree/spec>      # upstream and downstream links
+synthesist propagation check <tree/spec>     # find stale downstream specs
+
 synthesist task create <tree/spec> <summary>  [--depends-on t1,t2] [--gate human] [--files f1,f2]
 synthesist task list <tree/spec>              # all tasks with status
 synthesist task claim <tree/spec> <id>        # set owner + in_progress

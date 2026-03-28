@@ -17,8 +17,8 @@ import (
 
 // Store manages the Dolt database and git operations.
 type Store struct {
-	Root       string  // project root
-	DBPath     string  // path to .synth/ directory
+	Root       string // project root
+	DBPath     string // path to .synth/ directory
 	DB         *sql.DB
 	AutoCommit bool
 }
@@ -429,6 +429,28 @@ func (s *Store) createSchema() error {
 			tree VARCHAR(255) NOT NULL,
 			spec_id VARCHAR(255) NOT NULL,
 			contribution_path TEXT NOT NULL
+		)`,
+
+		// --- Specs layer (intent and institutional memory) ---
+		`CREATE TABLE IF NOT EXISTS specs (
+			tree VARCHAR(255) NOT NULL,
+			id VARCHAR(255) NOT NULL,
+			goal TEXT,
+			constraints TEXT,
+			decisions TEXT,
+			created DATE,
+			PRIMARY KEY (tree, id)
+		)`,
+
+		// --- Propagation chains (cross-spec data dependencies) ---
+		`CREATE TABLE IF NOT EXISTS propagation_chain (
+			source_tree VARCHAR(255) NOT NULL,
+			source_spec VARCHAR(255) NOT NULL,
+			target_tree VARCHAR(255) NOT NULL,
+			target_spec VARCHAR(255) NOT NULL,
+			seq INT NOT NULL,
+			description TEXT,
+			PRIMARY KEY (source_tree, source_spec, target_tree, target_spec)
 		)`,
 
 		// --- Meta ---
