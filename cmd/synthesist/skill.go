@@ -8,19 +8,32 @@ owns the Dolt database at .synth/.
 
 ## Concepts
 
-**tree/spec format**: Commands take specs as ` + "`tree/spec`" + ` -- e.g.
-` + "`upstream/auth-service`" + `, ` + "`harness/site-redesign`" + `. The tree is the
-context domain (upstream, harness, account). The spec is the work unit
-within that tree. Specs can be created explicitly with ` + "`synthesist spec create`" + `
-to capture intent (goal, constraints, decisions), or implicitly when you
-add the first task.
+**Trees** are named domains of work (upstream, harness, account). They
+are explicit entities that must be created with ` + "`synthesist tree create`" + `
+before you can add specs, stakeholders, or campaigns to them.
 
-**Propagation chains** link specs so that when a source spec's output changes,
-downstream specs are flagged as potentially stale. Use ` + "`synthesist propagation`" + `
-to manage these cross-spec data dependencies.
+**tree/spec format**: Most commands take specs as ` + "`tree/spec`" + ` -- e.g.
+` + "`upstream/auth-service`" + `, ` + "`harness/site-redesign`" + `. Campaign commands
+take ` + "`<tree> <spec-id>`" + ` as two separate positional arguments instead.
+
+**Specs** capture intent (goal, constraints, decisions) via
+` + "`synthesist spec create`" + `. Specs can also be created implicitly when
+you add the first task.
+
+**Threads** are session pointers that track active workstreams. Create
+them with ` + "`synthesist thread create`" + ` to record what you're working on.
+` + "`synthesist status`" + ` shows all active threads.
+
+**Propagation chains** link specs so that when a source spec's output
+changes, downstream specs are flagged as potentially stale. Use
+` + "`synthesist propagation check`" + ` to find stale targets.
 
 **Stakeholders** are registered per-tree (` + "`synthesist stakeholder add <tree>`" + `).
-They are referenced by ID across specs in that tree.
+They are referenced by ID across specs in that tree. Dispositions and
+signals are per-spec (` + "`tree/spec`" + ` format).
+
+**Bootstrap**: Run ` + "`synthesist init`" + ` to create the database, then
+` + "`synthesist tree create`" + ` to set up your first tree.
 
 ## Enums
 
@@ -30,15 +43,22 @@ They are referenced by ID across specs in that tree.
 **influence role**: maintainer | reviewer | approver | blocker | champion | observer
 **direction status**: committed | proposed | experimental | rejected
 **task status**: pending | in_progress | done | blocked | waiting | cancelled
+**archive reason**: completed | abandoned | superseded | deferred
 
 ## When to use synthesist
 
+- Bootstrapping: ` + "`synthesist init`" + ` then ` + "`synthesist tree create`" + `
 - Starting a session: ` + "`synthesist status`" + ` to see estate overview
-- Planning work: ` + "`synthesist task create`" + ` to add tasks to a spec
+- Planning work: ` + "`synthesist spec create`" + ` then ` + "`synthesist task create`" + `
 - Executing work: ` + "`synthesist task claim`" + ` then ` + "`synthesist task done`" + ` when verified
+- Blocking a task: ` + "`synthesist task block`" + ` for internal blockers
 - External blockers: ` + "`synthesist task wait`" + ` with a check command
 - Tracking people: ` + "`synthesist stakeholder add`" + ` and ` + "`synthesist disposition add`" + `
 - Recording evidence: ` + "`synthesist signal record`" + ` for observable stakeholder actions
+- Recording findings: ` + "`synthesist discovery add`" + ` for institutional memory
+- Managing campaigns: ` + "`synthesist campaign active/backlog`" + `
+- Archiving completed work: ` + "`synthesist archive add`" + `
+- Cross-spec dependencies: ` + "`synthesist propagation add`" + ` then ` + "`synthesist propagation check`" + `
 - Completing a spec: ` + "`synthesist retro create`" + ` with arc and transforms
 - Checking health: ` + "`synthesist check`" + ` validates everything
 - Replaying work: ` + "`synthesist replay <spec>`" + ` to get a playbook for adaptation
@@ -68,12 +88,13 @@ interpret synthesist output for you. Empty collections are ` + "`[]`" + `, never
 ## Core commands
 
 ` + "```" + `
-synthesist status                          # estate overview + ready tasks
+synthesist init                               # bootstrap: create .synth/ database
+synthesist status                             # estate overview + ready tasks
 synthesist spec create <tree/spec> --goal "..." [--constraints "..."] [--decisions "..."]
 synthesist spec show <tree/spec>             # spec intent + task summary + propagation
 synthesist spec update <tree/spec> [--goal "..."] [--constraints "..."] [--decisions "..."]
 
-synthesist propagation add <source-tree/spec> <target-tree/spec> --seq N [--description "..."]
+synthesist propagation add <source-tree/spec> <target-tree/spec> [--seq N] [--description "..."]
 synthesist propagation list <tree/spec>      # upstream and downstream links
 synthesist propagation check <tree/spec>     # find stale downstream specs
 
@@ -88,7 +109,8 @@ synthesist task claim <tree/spec> <id>        # set owner + in_progress
 synthesist task done <tree/spec> <id>         # verify acceptance + complete (--skip-verify to bypass)
 synthesist task cancel <tree/spec> <id>       # cancel a task [--reason "..."]
 synthesist task acceptance <tree/spec> <id> --criterion "..." --verify "cmd"
-synthesist task wait <tree/spec> <id> --reason "..." --external "url" --check "cmd"
+synthesist task block <tree/spec> <id>        # set blocked status
+synthesist task wait <tree/spec> <id> --reason "..." --external "url" --check "cmd" [--check-after YYYY-MM-DD]
 synthesist task ready <tree/spec>             # unblocked pending tasks
 
 synthesist campaign active <tree> <spec-id> [--summary "..."] [--phase "..."] [--blocked-by spec1,spec2]
