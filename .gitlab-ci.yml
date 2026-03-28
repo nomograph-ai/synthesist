@@ -144,9 +144,11 @@ publish:
       if [ -n "${CI_COMMIT_TAG}" ]; then
         echo "Tag build -- also publishing as 'latest'..."
         for binary in ${BINARY_NAME}-linux-amd64 ${BINARY_NAME}-darwin-arm64; do
-          curl --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
-               --upload-file ${binary} \
-               "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/${BINARY_NAME}/latest/${binary}"
+          if [ -f "${binary}" ]; then
+            curl --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
+                 --upload-file ${binary} \
+                 "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/${BINARY_NAME}/latest/${binary}"
+          fi
         done
         curl --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
              --upload-file checksums.txt \
