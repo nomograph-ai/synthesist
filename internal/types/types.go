@@ -190,15 +190,15 @@ type Disposition struct {
 // is when we captured it (transaction time). This matters for retroactive
 // discovery -- reading a 2-week-old PR comment today.
 type Signal struct {
-	ID             string    `json:"id"`
-	Stakeholder    string    `json:"stakeholder"`
-	Date           string    `json:"date"`
-	RecordedDate   string    `json:"recorded_date"`
-	Source         string    `json:"source"`
+	ID             string     `json:"id"`
+	Stakeholder    string     `json:"stakeholder"`
+	Date           string     `json:"date"`
+	RecordedDate   string     `json:"recorded_date"`
+	Source         string     `json:"source"`
 	SourceType     SignalType `json:"source_type"`
-	Content        string    `json:"content"`
-	Interpretation *string   `json:"interpretation,omitempty"`
-	OurAction      *string   `json:"our_action,omitempty"` // what we did that prompted this signal
+	Content        string     `json:"content"`
+	Interpretation *string    `json:"interpretation,omitempty"`
+	OurAction      *string    `json:"our_action,omitempty"` // what we did that prompted this signal
 }
 
 // Influence describes how a stakeholder relates to a specific task.
@@ -210,11 +210,11 @@ type Influence struct {
 
 // Landscape is the per-spec stakeholder intelligence file.
 type Landscape struct {
-	Spec          string        `json:"spec"`
-	Stakeholders  []string      `json:"stakeholders"`
-	Dispositions  []Disposition `json:"dispositions"`
-	Signals       []Signal      `json:"signals"`
-	Influences    []Influence   `json:"influences"`
+	Spec         string        `json:"spec"`
+	Stakeholders []string      `json:"stakeholders"`
+	Dispositions []Disposition `json:"dispositions"`
+	Signals      []Signal      `json:"signals"`
+	Influences   []Influence   `json:"influences"`
 }
 
 // StakeholderRegistry is the per-tree stakeholder identity registry.
@@ -249,26 +249,26 @@ type PatternRegistry struct {
 // supersede the old one -- same temporal model as dispositions.
 // Directions with status=committed are "positions" (settled upstream decisions).
 type Direction struct {
-	ID                string          `json:"id"`
-	Project           string          `json:"project"`            // "upstream-org/auth-service"
-	Topic             string          `json:"topic"`              // "API versioning strategy"
-	Status            DirectionStatus `json:"status"`             // committed = position (settled)
-	Owner             *string         `json:"owner,omitempty"`    // stakeholder ref
-	Timeline          *string         `json:"timeline,omitempty"` // "6-12 months"
-	Detail            *string         `json:"detail,omitempty"`
-	Impact            string          `json:"impact"`             // what this means for our work
-	References        []string        `json:"references,omitempty"`
-	ValidFrom         string          `json:"valid_from"`
-	ValidUntil        *string         `json:"valid_until,omitempty"`
-	SupersededBy      *string         `json:"superseded_by,omitempty"`
+	ID           string          `json:"id"`
+	Project      string          `json:"project"`            // "upstream-org/auth-service"
+	Topic        string          `json:"topic"`              // "API versioning strategy"
+	Status       DirectionStatus `json:"status"`             // committed = position (settled)
+	Owner        *string         `json:"owner,omitempty"`    // stakeholder ref
+	Timeline     *string         `json:"timeline,omitempty"` // "6-12 months"
+	Detail       *string         `json:"detail,omitempty"`
+	Impact       string          `json:"impact"` // what this means for our work
+	References   []string        `json:"references,omitempty"`
+	ValidFrom    string          `json:"valid_from"`
+	ValidUntil   *string         `json:"valid_until,omitempty"`
+	SupersededBy *string         `json:"superseded_by,omitempty"`
 }
 
 // DirectionImpact links a direction to a spec it affects.
 type DirectionImpact struct {
-	DirectionID   string `json:"direction_id"`
-	AffectedTree  string `json:"affected_tree"`
-	AffectedSpec  string `json:"affected_spec"`
-	Description   string `json:"description"` // how this direction affects this spec
+	DirectionID  string `json:"direction_id"`
+	AffectedTree string `json:"affected_tree"`
+	AffectedSpec string `json:"affected_spec"`
+	Description  string `json:"description"` // how this direction affects this spec
 }
 
 // TaskProvenance records "while doing X we discovered we need Y."
@@ -281,6 +281,30 @@ type TaskProvenance struct {
 	TargetSpec string `json:"target_spec"`
 	TargetTask string `json:"target_task"`
 	Note       string `json:"note,omitempty"`
+}
+
+// --- Spec layer (intent and institutional memory) ---
+
+// Spec represents a unit of work's intent, constraints, and decisions.
+// Tasks live in the task DAG; this captures the "why" and "what rules."
+type Spec struct {
+	Tree        string  `json:"tree"`
+	ID          string  `json:"id"`
+	Goal        *string `json:"goal,omitempty"`
+	Constraints *string `json:"constraints,omitempty"`
+	Decisions   *string `json:"decisions,omitempty"`
+	Created     *string `json:"created,omitempty"`
+}
+
+// PropagationLink models "when this spec's output changes, the target
+// spec needs updates." Ordered by seq for cascade direction.
+type PropagationLink struct {
+	SourceTree  string  `json:"source_tree"`
+	SourceSpec  string  `json:"source_spec"`
+	TargetTree  string  `json:"target_tree"`
+	TargetSpec  string  `json:"target_spec"`
+	Seq         int     `json:"seq"`
+	Description *string `json:"description,omitempty"`
 }
 
 // --- Estate layer ---
@@ -305,9 +329,9 @@ type Thread struct {
 
 // Estate is the top-level navigation switchboard.
 type Estate struct {
-	Version       int                `json:"version"`
+	Version       int                 `json:"version"`
 	Trees         map[string]TreeInfo `json:"trees"`
-	ActiveThreads []Thread           `json:"active_threads"`
+	ActiveThreads []Thread            `json:"active_threads"`
 }
 
 // --- Campaign layer ---
@@ -332,10 +356,10 @@ type BacklogItem struct {
 
 // Campaign is the tree-level coordination file.
 type Campaign struct {
-	Tree        string       `json:"tree"`
-	Description string       `json:"description"`
-	SubTrees    []string     `json:"sub_trees,omitempty"`
-	Active      []ActiveSpec `json:"active"`
+	Tree        string        `json:"tree"`
+	Description string        `json:"description"`
+	SubTrees    []string      `json:"sub_trees,omitempty"`
+	Active      []ActiveSpec  `json:"active"`
 	Backlog     []BacklogItem `json:"backlog"`
 }
 
@@ -364,9 +388,9 @@ type Archive struct {
 
 // Config holds synthesist runtime configuration.
 type Config struct {
-	AutoCommit     bool   `json:"auto_commit"`
-	CommitTrailer  string `json:"commit_trailer"`
-	DefaultAuthor  string `json:"default_author"`
+	AutoCommit    bool   `json:"auto_commit"`
+	CommitTrailer string `json:"commit_trailer"`
+	DefaultAuthor string `json:"default_author"`
 }
 
 // DefaultConfig returns the default configuration.

@@ -68,6 +68,12 @@ func main() {
 	case "direction":
 		err = cmdDirection(args)
 
+	// Specs + Propagation
+	case "spec":
+		err = cmdSpec(args)
+	case "propagation":
+		err = cmdPropagation(args)
+
 	// Retro + Patterns
 	case "retro":
 		err = cmdRetro(args)
@@ -110,6 +116,16 @@ Estate:
   init                          Scaffold estate structure in current directory
   status                        Show estate overview (trees, threads, ready tasks)
   check                         Validate all specs, landscapes, references
+
+Specs:
+  spec create <tree/spec>       Create a spec with goal/constraints/decisions
+  spec show <tree/spec>         Show spec intent + task summary + propagation
+  spec update <tree/spec>       Update goal/constraints/decisions
+
+Propagation:
+  propagation add <source> <target>  Link specs for change propagation
+  propagation list <tree/spec>       Show upstream and downstream links
+  propagation check <tree/spec>      Find stale downstream specs
 
 Task DAG:
   task create <spec> <summary>  Add a task to a spec
