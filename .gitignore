@@ -5,3 +5,9 @@ node_modules/
 .DS_Store
 staging/*
 !staging/.gitkeep
+
+# Go build artifacts
+/synth
+dist/
+*.test
+*.out
