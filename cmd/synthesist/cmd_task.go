@@ -109,15 +109,27 @@ func cmdTaskCreate(args []string) error {
 
 func cmdTaskList(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: synthesist task list <tree/spec>")
+		return fmt.Errorf("usage: synthesist task list <tree/spec> [--human]")
 	}
+
+	// Check for --human flag
+	human := false
+	var filteredArgs []string
+	for _, a := range args {
+		if a == "--human" {
+			human = true
+		} else {
+			filteredArgs = append(filteredArgs, a)
+		}
+	}
+
 	s, err := discoverStore()
 	if err != nil {
 		return err
 	}
 	defer s.Close()
 
-	tree, spec, err := parseTreeSpec(args[0])
+	tree, spec, err := parseTreeSpec(filteredArgs[0])
 	if err != nil {
 		return err
 	}
@@ -131,42 +143,88 @@ func cmdTaskList(args []string) error {
 	}
 	defer rows.Close()
 
-	var tasks []map[string]any
+	var tasks []taskListEntry
 	for rows.Next() {
-		var id, typ, summary, status, created string
-		var owner, completed, gate *string
-		rows.Scan(&id, &typ, &summary, &status, &owner, &created, &completed, &gate)
-		t := map[string]any{
-			"id": id, "type": typ, "summary": summary,
-			"status": status, "created": created,
-		}
-		if owner != nil {
-			t["owner"] = *owner
-		}
-		if completed != nil {
-			t["completed"] = *completed
-		}
-		if gate != nil {
-			t["gate"] = *gate
-		}
-
-		// Get deps
-		depRows, _ := s.DB.Query("SELECT depends_on FROM task_deps WHERE tree = ? AND spec = ? AND task_id = ?", tree, spec, id)
-		var deps []string
+		var t taskListEntry
+		rows.Scan(&t.id, &t.typ, &t.summary, &t.status, &t.owner, &t.created, &t.completed, &t.gate)
+		depRows, _ := s.DB.Query("SELECT depends_on FROM task_deps WHERE tree = ? AND spec = ? AND task_id = ?", tree, spec, t.id)
 		for depRows.Next() {
 			var d string
 			depRows.Scan(&d)
-			deps = append(deps, d)
+			t.deps = append(t.deps, d)
 		}
 		depRows.Close()
-		if len(deps) > 0 {
-			t["depends_on"] = deps
-		}
-
 		tasks = append(tasks, t)
 	}
 
-	return jsonOut(map[string]any{"tree": tree, "spec": spec, "tasks": tasks})
+	if human {
+		return taskListHuman(tree, spec, tasks)
+	}
+
+	// JSON output
+	var jsonTasks []map[string]any
+	for _, t := range tasks {
+		m := map[string]any{
+			"id": t.id, "type": t.typ, "summary": t.summary,
+			"status": t.status, "created": t.created,
+		}
+		if t.owner != nil {
+			m["owner"] = *t.owner
+		}
+		if t.completed != nil {
+			m["completed"] = *t.completed
+		}
+		if t.gate != nil {
+			m["gate"] = *t.gate
+		}
+		if len(t.deps) > 0 {
+			m["depends_on"] = t.deps
+		}
+		jsonTasks = append(jsonTasks, m)
+	}
+	return jsonOut(map[string]any{"tree": tree, "spec": spec, "tasks": jsonTasks})
+}
+
+// taskListEntry holds parsed task data for rendering.
+type taskListEntry struct {
+	id, typ, summary, status, created string
+	owner, completed, gate            *string
+	deps                              []string
+}
+
+func taskListHuman(tree, spec string, tasks []taskListEntry) error {
+	symbols := map[string]string{
+		"pending": "○", "in_progress": "●", "done": "✓",
+		"blocked": "⊘", "waiting": "◷", "cancelled": "✗",
+	}
+
+	// Count statuses
+	done := 0
+	total := len(tasks)
+	for _, t := range tasks {
+		if t.status == "done" {
+			done++
+		}
+	}
+
+	fmt.Fprintf(os.Stdout, "%s/%s%s%d/%d done\n\n", tree, spec, strings.Repeat(" ", 50-len(tree)-len(spec)-1), done, total)
+
+	for _, t := range tasks {
+		sym := symbols[t.status]
+		if sym == "" {
+			sym = "?"
+		}
+		gate := "  "
+		if t.gate != nil && *t.gate != "" {
+			gate = "🔒"
+		}
+		depStr := ""
+		if len(t.deps) > 0 {
+			depStr = "← " + strings.Join(t.deps, ",")
+		}
+		fmt.Fprintf(os.Stdout, "  %s %-4s %s %-45s %s\n", sym, t.id, gate, t.summary, depStr)
+	}
+	return nil
 }
 
 func cmdTaskClaim(args []string) error {
