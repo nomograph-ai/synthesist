@@ -55,78 +55,162 @@ All output is JSON by default. Use `--human` for human-readable output.
 
 ## Data Model
 
-Synthesist stores a temporal specification graph with six node types and
-eight edge types.
+### Structure
+
+The estate is a hierarchy. Trees organize work by domain. Specs are
+units of work within a tree. Tasks form a DAG within a spec.
+Campaigns track what's active and what's waiting.
 
 ```mermaid
 graph TD
-    %% Task DAG layer
-    T1[Task<br/><i>pending</i>] -->|depends_on| T2[Task<br/><i>done</i>]
-    T2 -->|provenance| T3[Task<br/><i>discovered</i>]
-    T2 --> R[Retro<br/><i>type=retro</i>]
+    E[Estate] --> T1[Tree<br/><i>upstream</i>]
+    E --> T2[Tree<br/><i>harness</i>]
+    E --> T3[Tree<br/><i>account</i>]
 
-    %% Stakeholder intelligence layer
-    SH[Stakeholder] -->|influences| T1
-    SH -->|signaled| SIG[Signal<br/><i>immutable, bi-temporal</i>]
-    SIG -->|evidences| D[Disposition<br/><i>temporal validity</i>]
-    D -->|supersedes| D2[Disposition<br/><i>superseded</i>]
-    D -.->|stance of| SH
+    T1 --> C1[Campaign<br/><i>active + backlog</i>]
+    T1 --> SH1[Stakeholders<br/><i>per-tree registry</i>]
+    T1 --> P1[Patterns<br/><i>per-tree registry</i>]
+    T1 --> DIR1[Directions<br/><i>upstream trajectories</i>]
 
-    %% Upstream direction layer
-    DIR[Direction<br/><i>committed / proposed</i>] -->|impacts| T1
+    C1 --> S1[Spec A<br/><i>active</i>]
+    C1 --> S2[Spec B<br/><i>backlog</i>]
+    C1 -.-> A1[Archive<br/><i>completed / deferred</i>]
 
-    %% Retrospective + pattern layer
-    R -->|patterned| P[Pattern<br/><i>named, transferable</i>]
-    P -.->|observed_in| T2
+    S1 --> TK1[t1<br/><i>done</i>]
+    S1 --> TK2[t2<br/><i>in_progress</i>]
+    S1 --> TK3[t3<br/><i>pending</i>]
+    TK1 -->|depends_on| TK2
+    TK2 -->|depends_on| TK3
 
-    %% Styling
+    E --> TH[Threads<br/><i>active workstreams</i>]
+    TH -.-> S1
+
+    classDef estate fill:#34495e,stroke:#2c3e50,color:#fff
+    classDef tree fill:#2c3e50,stroke:#1a252f,color:#fff
+    classDef campaign fill:#7f8c8d,stroke:#616a6b,color:#fff
+    classDef spec fill:#4a9eff,stroke:#2670c2,color:#fff
+    classDef task fill:#3498db,stroke:#2980b9,color:#fff
+    classDef registry fill:#1abc9c,stroke:#16a085,color:#fff
+    classDef archive fill:#95a5a6,stroke:#7f8c8d,color:#fff
+    classDef thread fill:#f39c12,stroke:#d68910,color:#fff
+
+    class E estate
+    class T1,T2,T3 tree
+    class C1 campaign
+    class S1,S2 spec
+    class TK1,TK2,TK3 task
+    class SH1,P1,DIR1 registry
+    class A1 archive
+    class TH thread
+```
+
+### Intelligence
+
+Each spec has a landscape: who influences the work, what they've
+signaled, and our assessment of their stance. Dispositions and
+directions are temporal -- they have validity windows and form
+supersession chains.
+
+```mermaid
+graph LR
+    subgraph "Spec Landscape"
+        TK[Task]
+        SH[Stakeholder]
+        SIG[Signal<br/><i>immutable</i><br/><i>event + record date</i>]
+        D1[Disposition<br/><i>valid_from: Mar 1</i><br/><i>stance: cautious</i>]
+        D2[Disposition<br/><i>valid_from: Mar 20</i><br/><i>stance: supportive</i>]
+    end
+
+    SH -->|influences| TK
+    SH -->|signaled| SIG
+    SIG -->|evidences| D2
+    D1 -->|superseded_by| D2
+
+    subgraph "Upstream Directions"
+        DIR[Direction<br/><i>status: committed</i><br/><i>valid_from: Feb 15</i>]
+    end
+
+    DIR -->|impacts| TK
+
+    subgraph "Retrospective"
+        R[Retro<br/><i>arc + transforms</i>]
+        P[Pattern<br/><i>named, transferable</i>]
+    end
+
+    TK --> R
+    R -->|patterned| P
+
     classDef task fill:#4a9eff,stroke:#2670c2,color:#fff
-    classDef retro fill:#9b59b6,stroke:#7d3c98,color:#fff
     classDef stakeholder fill:#2ecc71,stroke:#27ae60,color:#fff
     classDef signal fill:#f39c12,stroke:#d68910,color:#fff
     classDef disposition fill:#e74c3c,stroke:#c0392b,color:#fff
     classDef direction fill:#1abc9c,stroke:#16a085,color:#fff
+    classDef retro fill:#9b59b6,stroke:#7d3c98,color:#fff
     classDef pattern fill:#8e44ad,stroke:#6c3483,color:#fff
 
-    class T1,T2,T3 task
-    class R retro
+    class TK task
     class SH stakeholder
     class SIG signal
-    class D,D2 disposition
+    class D1,D2 disposition
     class DIR direction
+    class R retro
     class P pattern
 ```
 
-### Six node types
+### Temporal model
 
-| Node | What it represents |
-|------|--------------------|
-| **Task** | A unit of work with executable acceptance criteria and DAG dependencies |
-| **Stakeholder** | A human actor relevant to the work, registered per-tree |
-| **Signal** | Immutable, timestamped evidence from a stakeholder action |
-| **Disposition** | A stakeholder's assessed stance on a technical direction (temporal, supersedable) |
-| **Direction** | An upstream technical trajectory with impact assessment and validity window |
-| **Pattern** | A named, transferable approach discovered through retrospective analysis |
+Dispositions and directions carry `valid_from` / `valid_until`
+windows. Signals are bi-temporal: `date` (when it happened) and
+`recorded_date` (when we captured it). When new evidence changes an
+assessment, the old record is superseded -- not deleted. History is
+preserved.
 
-### Eight edge types
+```mermaid
+gantt
+    title Disposition Timeline
+    dateFormat YYYY-MM-DD
+    section Stakeholder A
+        cautious (inferred)     :d1, 2026-03-01, 2026-03-19
+        supportive (documented) :d2, 2026-03-20, 2026-04-01
+    section Direction X
+        proposed                :dir1, 2026-02-15, 2026-03-10
+        committed               :dir2, 2026-03-11, 2026-04-01
+    section Signals
+        PR comment (event)      :milestone, 2026-03-05, 0d
+        Review (event)          :milestone, 2026-03-18, 0d
+        Discovered retroactively:milestone, 2026-03-20, 0d
+```
 
-| Edge | From | To | Purpose |
-|------|------|----|---------|
-| `depends_on` | task | task | DAG ordering |
-| `influences` | stakeholder | task | Who affects which work |
-| `disposition_of` | disposition | stakeholder | Stance on a topic |
-| `evidenced_by` | disposition | signal | What supports an assessment |
-| `impacts` | direction | spec | Which specs a trajectory affects |
-| `observed_in` | pattern | spec | Where a pattern was used |
+### Node reference
+
+| Node | Scope | Temporal | Description |
+|------|-------|----------|-------------|
+| **Estate** | global | -- | Top-level switchboard. Lists trees and active threads. |
+| **Tree** | estate | -- | Domain of work (upstream, harness, account). |
+| **Campaign** | tree | -- | Active and backlog specs within a tree. |
+| **Spec** | tree | -- | Unit of work. Contains task DAG and landscape. |
+| **Thread** | estate | date | Active workstream pointer. Pruned after 7 days if idle. |
+| **Task** | spec | created, completed | DAG node with acceptance criteria. Status: pending, in_progress, done, blocked, waiting. |
+| **Retro** | spec | created, completed | Task node (type=retro) with arc, transforms, pattern links. |
+| **Stakeholder** | tree | -- | Human actor. Identity registered once per tree. |
+| **Signal** | spec | date, recorded_date | Immutable evidence. Bi-temporal: event time vs record time. |
+| **Disposition** | spec | valid_from, valid_until | Temporal stance assessment. Supersession chains preserve history. |
+| **Direction** | tree | valid_from, valid_until | Upstream technical trajectory. Supersedable. Impacts linked to specs. |
+| **Pattern** | tree | first_observed | Named reusable approach. Referenced by retro nodes across specs. |
+| **Archive** | tree | archived | Completed/deferred spec record with duration, patterns, contributions. |
+
+### Edge reference
+
+| Edge | From | To | Description |
+|------|------|----|-------------|
+| `depends_on` | task | task | Execution ordering within a spec DAG |
 | `provenance` | task | task | "While doing X we discovered Y" (cross-spec) |
-| `supersedes` | disposition/direction | disposition/direction | Temporal replacement chain |
-
-### Temporal validity
-
-Dispositions and directions have `valid_from` / `valid_until` windows. When new
-evidence changes an assessment, the old record is superseded (not deleted) and a
-new one is created. History is preserved. The query "what did we think this
-person's stance was on date X?" resolves by filtering the validity windows.
+| `influences` | stakeholder | task | Who affects whether this work lands |
+| `evidences` | signal | disposition | What evidence supports this assessment |
+| `supersedes` | disposition | disposition | Temporal replacement (also direction -> direction) |
+| `impacts` | direction | spec | Which specs an upstream trajectory affects |
+| `patterned` | retro | pattern | Named approach identified during retrospective |
+| `observed_in` | pattern | spec | Where a pattern has been applied |
 
 ## The Skill File
 
