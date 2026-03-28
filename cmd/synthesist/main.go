@@ -54,6 +54,18 @@ func main() {
 	case "check":
 		err = cmdCheck(args)
 
+	// Estate management
+	case "tree":
+		err = cmdTree(args)
+	case "thread":
+		err = cmdThread(args)
+	case "campaign":
+		err = cmdCampaign(args)
+	case "archive":
+		err = cmdArchive(args)
+	case "discovery":
+		err = cmdDiscovery(args)
+
 	// Task DAG
 	case "task":
 		err = cmdTask(args)
@@ -116,6 +128,10 @@ Estate:
   init                          Scaffold estate structure in current directory
   status                        Show estate overview (trees, threads, ready tasks)
   check                         Validate all specs, landscapes, references
+  tree create <name>            Create a tree in the estate
+  tree list                     List all trees
+  thread create <id>            Create an active thread
+  thread list                   List active threads
 
 Specs:
   spec create <tree/spec>       Create a spec with goal/constraints/decisions
@@ -134,7 +150,22 @@ Task DAG:
   task done <spec> <id>         Verify acceptance criteria, transition to done
   task wait <spec> <id>         Set waiting status with waiter object
   task block <spec> <id>        Set blocked status
+  task cancel <spec> <id>       Cancel a task with optional reason
+  task acceptance <spec> <id>   Add acceptance criterion to a task
   task ready <spec>             Show unblocked, pending tasks
+
+Campaign:
+  campaign active <tree> <spec> Add a spec to campaign active list
+  campaign backlog <tree> <spec> Add a spec to campaign backlog
+  campaign list <tree>          List active and backlog specs for a tree
+
+Archive:
+  archive add <tree/spec>       Archive a spec with reason
+  archive list <tree>           List archived specs for a tree
+
+Discovery:
+  discovery add <tree/spec>     Record a finding during work
+  discovery list <tree/spec>    List discoveries for a spec
 
 Landscape:
   stakeholder add <tree> <id>   Register a stakeholder in a tree
@@ -200,6 +231,10 @@ func cmdTask(args []string) error {
 		return cmdTaskBlock(rest)
 	case "ready":
 		return cmdTaskReady(rest)
+	case "acceptance":
+		return cmdTaskAcceptance(rest)
+	case "cancel":
+		return cmdTaskCancel(rest)
 	default:
 		return fmt.Errorf("unknown task subcommand: %s", sub)
 	}

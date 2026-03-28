@@ -50,15 +50,16 @@ func cmdStatus(args []string) error {
 	}
 
 	// Task summary across all specs
-	var pending, inProgress, done, waiting, blocked int
+	var pending, inProgress, done, waiting, blocked, cancelled int
 	s.DB.QueryRow("SELECT COUNT(*) FROM tasks WHERE status = 'pending'").Scan(&pending)
 	s.DB.QueryRow("SELECT COUNT(*) FROM tasks WHERE status = 'in_progress'").Scan(&inProgress)
 	s.DB.QueryRow("SELECT COUNT(*) FROM tasks WHERE status = 'done'").Scan(&done)
 	s.DB.QueryRow("SELECT COUNT(*) FROM tasks WHERE status = 'waiting'").Scan(&waiting)
 	s.DB.QueryRow("SELECT COUNT(*) FROM tasks WHERE status = 'blocked'").Scan(&blocked)
+	s.DB.QueryRow("SELECT COUNT(*) FROM tasks WHERE status = 'cancelled'").Scan(&cancelled)
 	result["task_counts"] = map[string]int{
 		"pending": pending, "in_progress": inProgress, "done": done,
-		"waiting": waiting, "blocked": blocked,
+		"waiting": waiting, "blocked": blocked, "cancelled": cancelled,
 	}
 
 	// Ready tasks (across all specs)

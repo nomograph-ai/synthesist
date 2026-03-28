@@ -12,6 +12,7 @@ const (
 	StatusDone       Status = "done"
 	StatusBlocked    Status = "blocked"
 	StatusWaiting    Status = "waiting"
+	StatusCancelled  Status = "cancelled"
 )
 
 // TaskType distinguishes regular tasks from retrospective nodes.
@@ -305,6 +306,18 @@ type PropagationLink struct {
 	TargetSpec  string  `json:"target_spec"`
 	Seq         int     `json:"seq"`
 	Description *string `json:"description,omitempty"`
+}
+
+// Discovery is a timestamped, append-only finding made during work.
+type Discovery struct {
+	Tree    string  `json:"tree"`
+	Spec    string  `json:"spec"`
+	ID      string  `json:"id"`
+	Date    string  `json:"date"`
+	Author  *string `json:"author,omitempty"`
+	Finding string  `json:"finding"`
+	Impact  *string `json:"impact,omitempty"`
+	Action  *string `json:"action,omitempty"`
 }
 
 // --- Estate layer ---
