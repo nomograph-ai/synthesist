@@ -375,16 +375,115 @@ See [CHANGELOG.md](CHANGELOG.md) for the full history. Brief summary:
 
 ## Sources and Influences
 
-| Source | What we took |
-|--------|-------------|
-| [Beads](https://github.com/steveyegge/beads) (Steve Yegge, 2026) | Structured agent interactions, CLI as stable API, "constrain the LLM to well-formed operations" |
-| [Graphiti/Zep](https://github.com/getzep/graphiti) | Temporal knowledge graphs, bi-temporal entity modeling |
-| Howard & Matheson (1968) | Decision analysis as structured information flow |
-| [Symphony](https://github.com/openai/symphony) (OpenAI) | WORKFLOW.md hybrid format, stall detection |
-| [BMAD Method](https://github.com/bmad-code-org/BMAD-METHOD) | Scale-adaptive planning, human gates |
-| [Gastown](https://github.com/steveyegge/gastown) (Steve Yegge) | Typed dependency graphs, "findings survive context death" |
-| [Metaswarm](https://github.com/dsifry/metaswarm) | "Trust nothing, verify everything", cross-model review |
-| Tam et al. (arXiv 2408.02442) | No structured format consistently wins for LLM reasoning |
+Synthesist combines ideas from agent memory systems, temporal knowledge
+graphs, decision theory, open source social dynamics, and specification
+frameworks. No single prior system unifies task execution with
+stakeholder intelligence. The contribution is the combination.
+
+### Task DAGs and agent memory
+
+**[Beads](https://github.com/steveyegge/beads)** (Yegge, 2026) --
+git-backed, Dolt-powered task tracker for AI agents. 19.9k stars. Typed
+relationships (`relates_to`, `duplicates`, `supersedes`, `dep`), agent
+queries via `bd ready --json`. Core insight we adopted: "markdown plans
+cost the model GPU cycles to parse; structured, queryable,
+dependency-aware data is cheaper and more reliable." Beads tracks
+*tasks*. We extend this to track *people*.
+
+**[Gastown](https://github.com/steveyegge/gastown)** (Yegge, 2026) --
+multi-agent workspace orchestrator built on Beads. Validated Dolt
+embedded as a storage backend for agent coordination. Design principle
+we adopted: "findings survive context death." Our retrospective nodes
+and pattern registry exist because of this.
+
+**[PlugMem](https://www.microsoft.com/en-us/research/blog/from-raw-interaction-to-reusable-knowledge-rethinking-memory-for-ai-agents/)**
+(Microsoft Research, 2025) -- transforms raw agent interactions into
+propositional knowledge (facts) and prescriptive knowledge (reusable
+skills). Maps directly to our separation of signals (raw observations)
+from dispositions (assessed stances) and patterns (transferable
+approaches).
+
+### Temporal knowledge graphs
+
+**[Graphiti/Zep](https://github.com/getzep/graphiti)**
+([arXiv:2501.13956](https://arxiv.org/abs/2501.13956)) -- bi-temporal
+knowledge graph where every edge carries validity windows: when a fact
+became true (event time) and when it was recorded (transaction time).
+94.8% accuracy on Deep Memory Retrieval benchmark. We adopted the
+bi-temporal model directly for dispositions and signals.
+
+**Graph-based Agent Memory survey**
+([arXiv:2602.05665](https://arxiv.org/abs/2602.05665), Feb 2026) --
+comprehensive taxonomy: knowledge graphs for static facts, temporal
+graphs for time-sensitive information, hierarchical structures for task
+decomposition, hypergraphs for n-ary relations. Identifies "sentiment
+memory" and "user profiling" as categories but has no taxonomy for
+stakeholder dynamics in collaborative development. This gap is what we
+fill.
+
+**[MAGMA](https://arxiv.org/abs/2601.03236)** (2025) -- four
+orthogonal graph structures (semantic, temporal, causal, entity) with
+policy-guided traversal. We chose a simpler approach: a single
+relational schema with temporal validity on specific node types. The
+complexity tradeoff is deliberate -- our consumer is an LLM calling CLI
+commands, not a graph reasoning engine.
+
+### Influence and decision theory
+
+**Howard & Matheson** ("Influence Diagrams", Decision Analysis, 2005;
+[originally 1981](https://pubsonline.informs.org/doi/10.1287/deca.1050.0020))
+-- introduced influence diagrams for the Defense Intelligence Agency to
+model political conflicts in the Persian Gulf. Three node types
+(decisions, uncertainties, values) with arcs representing informational
+influence. Our disposition model borrows the framing: stakeholder stances
+are uncertainties that influence contribution strategy decisions.
+
+**Influence maximization on temporal networks**
+([Applied Network Science, 2024](https://link.springer.com/article/10.1007/s41109-024-00625-3))
+-- the order and timing of interactions matters; influence propagation
+differs on time-varying networks versus static ones. This supports our
+design decision to make dispositions temporal rather than static.
+
+### Open source social dynamics
+
+**Crowston et al.** ("Social network analysis of open source software",
+[IST 2020](https://www.sciencedirect.com/science/article/abs/pii/S0950584920301956))
+-- systematic review identifying the temporal gap: "information on how
+these structures appear and evolve over time is lacking." Our disposition
+supersession chains are a direct response.
+
+**[GitHub Blog](https://github.blog/open-source/maintainers/what-to-expect-for-open-source-in-2026/)**
+(2026) -- documents widening gap between participants and maintainers.
+"The gap between the number of participants and the number of maintainers
+with a sense of ownership widens as new developers grow at record rates."
+Confirms the practical need for contributor-side context modeling.
+
+### Strategic mapping
+
+**[Wardley Maps](https://www.wardleymaps.com/read)** (Wardley, 2017)
+-- evolution axis models how components change from genesis to commodity.
+Our direction nodes serve a similar function at the project level:
+tracking where an upstream technology is heading so contributors can
+align rather than invest in paths that will be replaced.
+
+**Asahara** ("Beyond Ontologies: OODA Loop Knowledge Graph Structures",
+[2025](https://eugeneasahara.com/2025/03/14/beyond-ontologies-ooda-knowledge-graph-structures/))
+-- connects Boyd's observe-orient-decide-act cycle to graph query
+patterns. Resonates with our cycle: observe (signals), orient
+(dispositions), decide (task strategy), act (contribution).
+
+### Specification frameworks (v1-v4 lineage)
+
+Synthesist v1-v4 drew from these frameworks before the v5 rebuild:
+
+| Source | What we took | What we left |
+|--------|-------------|--------------|
+| [Symphony](https://github.com/openai/symphony) (OpenAI) | WORKFLOW.md hybrid format, stall detection | Polling daemon, Linear integration |
+| [BMAD Method](https://github.com/bmad-code-org/BMAD-METHOD) | Scale-adaptive planning, human gates | 12+ agent personas, npm packaging |
+| [GSD](https://github.com/glittercowboy/get-shit-done) | XML task format with `<verify>`, discuss-before-plan | Full artifact forest, config-driven modes |
+| [Ralph](https://github.com/snarktank/ralph) | Task sizing discipline, append-only progress log | Bash-loop-only orchestration |
+| [Metaswarm](https://github.com/dsifry/metaswarm) | "Trust nothing, verify everything", cross-model review | 18 agent personas, 9-phase SDLC |
+| Tam et al. ([arXiv 2408.02442](https://arxiv.org/abs/2408.02442)) | No structured format consistently wins; use natural language for reasoning | -- |
 
 ## License
 
