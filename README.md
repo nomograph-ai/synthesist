@@ -472,19 +472,6 @@ align rather than invest in paths that will be replaced.
 patterns. Resonates with our cycle: observe (signals), orient
 (dispositions), decide (task strategy), act (contribution).
 
-### Specification frameworks (v1-v4 lineage)
-
-Synthesist v1-v4 drew from these frameworks before the v5 rebuild:
-
-| Source | What we took | What we left |
-|--------|-------------|--------------|
-| [Symphony](https://github.com/openai/symphony) (OpenAI) | WORKFLOW.md hybrid format, stall detection | Polling daemon, Linear integration |
-| [BMAD Method](https://github.com/bmad-code-org/BMAD-METHOD) | Scale-adaptive planning, human gates | 12+ agent personas, npm packaging |
-| [GSD](https://github.com/glittercowboy/get-shit-done) | XML task format with `<verify>`, discuss-before-plan | Full artifact forest, config-driven modes |
-| [Ralph](https://github.com/snarktank/ralph) | Task sizing discipline, append-only progress log | Bash-loop-only orchestration |
-| [Metaswarm](https://github.com/dsifry/metaswarm) | "Trust nothing, verify everything", cross-model review | 18 agent personas, 9-phase SDLC |
-| Tam et al. ([arXiv 2408.02442](https://arxiv.org/abs/2408.02442)) | No structured format consistently wins; use natural language for reasoning | -- |
-
 ## License
 
 MIT -- see [LICENSE](LICENSE).
