@@ -1,4 +1,4 @@
-# Synthesist Specification Format (v3)
+# Synthesist Specification Format (v5)
 
 Specs are organized into **context trees** — hierarchical directories that scope
 agent context to one domain of work at a time. Each tree has its own campaign.json

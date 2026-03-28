@@ -1,5 +1,5 @@
 {
-  "version": 4,
+  "version": 5,
   "trees": {
     "_example-tree": {
       "path": "specs/_example-tree/campaign.json",

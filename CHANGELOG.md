@@ -7,7 +7,7 @@ are not semver -- they represent architectural generations of the framework.
 
 ---
 
-## [v5] -- 2026-03-28 (in progress)
+## [v5] -- 2026-03-28
 
 ### Architecture Decision: Dolt embedded storage
 

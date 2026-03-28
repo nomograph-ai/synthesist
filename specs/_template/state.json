@@ -1,14 +1,17 @@
 {
-  "spec": "specs/FEATURE_SLUG/spec.md",
+  "spec": "specs/TREE/FEATURE_SLUG/spec.md",
   "tasks": [
     {
       "id": "t1",
+      "type": "task",
       "summary": "First task description",
       "description": null,
       "files": [],
       "depends_on": [],
       "status": "pending",
       "gate": null,
+      "owner": null,
+      "created": "YYYY-MM-DD",
       "acceptance": [
         {
           "criterion": "What must be true",
