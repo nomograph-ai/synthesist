@@ -29,7 +29,7 @@ They are referenced by ID across specs in that tree.
 **signal type**: pr_comment | issue_comment | review | commit_message | chat | meeting | email | other
 **influence role**: maintainer | reviewer | approver | blocker | champion | observer
 **direction status**: committed | proposed | experimental | rejected
-**task status**: pending | in_progress | done | blocked | waiting
+**task status**: pending | in_progress | done | blocked | waiting | cancelled
 
 ## When to use synthesist
 
@@ -77,12 +77,29 @@ synthesist propagation add <source-tree/spec> <target-tree/spec> --seq N [--desc
 synthesist propagation list <tree/spec>      # upstream and downstream links
 synthesist propagation check <tree/spec>     # find stale downstream specs
 
-synthesist task create <tree/spec> <summary>  [--depends-on t1,t2] [--gate human] [--files f1,f2]
+synthesist tree create <name> [--description "..."] [--status active]
+synthesist tree list
+synthesist thread create <id> --tree <tree> --summary "..." [--spec id] [--task id] [--date YYYY-MM-DD]
+synthesist thread list
+
+synthesist task create <tree/spec> <summary>  [--depends-on t1,t2] [--gate human] [--files f1,f2] [--status pending] [--id t1] [--created YYYY-MM-DD] [--completed YYYY-MM-DD]
 synthesist task list <tree/spec>              # all tasks with status
 synthesist task claim <tree/spec> <id>        # set owner + in_progress
-synthesist task done <tree/spec> <id>         # verify acceptance + complete
+synthesist task done <tree/spec> <id>         # verify acceptance + complete (--skip-verify to bypass)
+synthesist task cancel <tree/spec> <id>       # cancel a task [--reason "..."]
+synthesist task acceptance <tree/spec> <id> --criterion "..." --verify "cmd"
 synthesist task wait <tree/spec> <id> --reason "..." --external "url" --check "cmd"
 synthesist task ready <tree/spec>             # unblocked pending tasks
+
+synthesist campaign active <tree> <spec-id> [--summary "..."] [--phase "..."] [--blocked-by spec1,spec2]
+synthesist campaign backlog <tree> <spec-id> [--title "..."] [--summary "..."] [--blocked-by spec1,spec2]
+synthesist campaign list <tree>
+
+synthesist archive add <tree/spec> --reason completed [--outcome "..."] [--archived YYYY-MM-DD] [--patterns p1,p2]
+synthesist archive list <tree>
+
+synthesist discovery add <tree/spec> --finding "..." [--impact "..."] [--action "..."] [--author agent] [--date YYYY-MM-DD]
+synthesist discovery list <tree/spec>
 
 synthesist stakeholder add <tree> <id> --context "role" [--name "Full Name"] [--orgs "org1,org2"]
 synthesist stakeholder list <tree>

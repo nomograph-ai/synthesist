@@ -30,6 +30,8 @@ func cmdTaskCreate(args []string) error {
 	var dependsOn []string
 	var gate *string
 	var files []string
+	var statusFlag, idFlag, createdFlag string
+	var completedFlag *string
 	for i := 2; i < len(args)-1; i += 2 {
 		switch args[i] {
 		case "--depends-on":
@@ -39,27 +41,50 @@ func cmdTaskCreate(args []string) error {
 			gate = &v
 		case "--files":
 			files = strings.Split(args[i+1], ",")
+		case "--status":
+			statusFlag = args[i+1]
+		case "--id":
+			idFlag = args[i+1]
+		case "--created":
+			createdFlag = args[i+1]
+		case "--completed":
+			v := args[i+1]
+			completedFlag = &v
 		}
 	}
 
-	// Get next ID
-	var ids []string
-	rows, err := s.DB.Query("SELECT id FROM tasks WHERE tree = ? AND spec = ?", tree, spec)
-	if err != nil {
-		return err
+	// Get next ID (or use provided)
+	var newID string
+	if idFlag != "" {
+		newID = idFlag
+	} else {
+		var ids []string
+		rows, err := s.DB.Query("SELECT id FROM tasks WHERE tree = ? AND spec = ?", tree, spec)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var id string
+			rows.Scan(&id)
+			ids = append(ids, id)
+		}
+		newID = store.NextID("t", ids)
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var id string
-		rows.Scan(&id)
-		ids = append(ids, id)
+
+	today := createdFlag
+	if today == "" {
+		today = store.Today()
 	}
-	newID := store.NextID("t", ids)
-	today := store.Today()
+
+	status := statusFlag
+	if status == "" {
+		status = "pending"
+	}
 
 	_, err = s.DB.Exec(
-		"INSERT INTO tasks (tree, spec, id, type, summary, status, gate, created) VALUES (?, ?, ?, 'task', ?, 'pending', ?, ?)",
-		tree, spec, newID, summary, gate, today,
+		"INSERT INTO tasks (tree, spec, id, type, summary, status, gate, created, completed) VALUES (?, ?, ?, 'task', ?, ?, ?, ?, ?)",
+		tree, spec, newID, summary, status, gate, today, completedFlag,
 	)
 	if err != nil {
 		return fmt.Errorf("inserting task: %w", err)
@@ -78,7 +103,7 @@ func cmdTaskCreate(args []string) error {
 		return err
 	}
 
-	result := map[string]any{"id": newID, "tree": tree, "spec": spec, "summary": summary, "status": "pending"}
+	result := map[string]any{"id": newID, "tree": tree, "spec": spec, "summary": summary, "status": status}
 	return jsonOut(result)
 }
 
@@ -219,38 +244,48 @@ func cmdTaskDone(args []string) error {
 	}
 	taskID := args[1]
 
-	// Run acceptance criteria
-	acRows, err := s.DB.Query(
-		"SELECT seq, criterion, verify_cmd FROM acceptance WHERE tree = ? AND spec = ? AND task_id = ? ORDER BY seq",
-		tree, spec, taskID,
-	)
-	if err != nil {
-		return err
+	skipVerify := false
+	for _, arg := range args[2:] {
+		if arg == "--skip-verify" {
+			skipVerify = true
+		}
 	}
-	defer acRows.Close()
 
 	var results []map[string]any
 	allPass := true
-	for acRows.Next() {
-		var seq int
-		var criterion, verifyCmd string
-		acRows.Scan(&seq, &criterion, &verifyCmd)
 
-		cmd := exec.Command("sh", "-c", verifyCmd)
-		cmd.Dir = s.Root
-		output, err := cmd.CombinedOutput()
-		passed := err == nil
+	if !skipVerify {
+		// Run acceptance criteria
+		acRows, err := s.DB.Query(
+			"SELECT seq, criterion, verify_cmd FROM acceptance WHERE tree = ? AND spec = ? AND task_id = ? ORDER BY seq",
+			tree, spec, taskID,
+		)
+		if err != nil {
+			return err
+		}
+		defer acRows.Close()
 
-		result := map[string]any{
-			"criterion": criterion,
-			"verify":    verifyCmd,
-			"passed":    passed,
+		for acRows.Next() {
+			var seq int
+			var criterion, verifyCmd string
+			acRows.Scan(&seq, &criterion, &verifyCmd)
+
+			cmd := exec.Command("sh", "-c", verifyCmd)
+			cmd.Dir = s.Root
+			output, err := cmd.CombinedOutput()
+			passed := err == nil
+
+			result := map[string]any{
+				"criterion": criterion,
+				"verify":    verifyCmd,
+				"passed":    passed,
+			}
+			if !passed {
+				allPass = false
+				result["output"] = strings.TrimSpace(string(output))
+			}
+			results = append(results, result)
 		}
-		if !passed {
-			allPass = false
-			result["output"] = strings.TrimSpace(string(output))
-		}
-		results = append(results, result)
 	}
 
 	today := store.Today()
@@ -403,6 +438,87 @@ func cmdTaskReady(args []string) error {
 	}
 
 	return jsonOut(map[string]any{"tree": tree, "spec": spec, "ready": ready, "count": len(ready)})
+}
+
+func cmdTaskAcceptance(args []string) error {
+	if len(args) < 2 {
+		return fmt.Errorf("usage: synthesist task acceptance <tree/spec> <task-id> --criterion '...' --verify 'cmd'")
+	}
+	s, err := discoverStore()
+	if err != nil {
+		return err
+	}
+	defer s.Close()
+
+	tree, spec, err := parseTreeSpec(args[0])
+	if err != nil {
+		return err
+	}
+	taskID := args[1]
+
+	var criterion, verify string
+	for i := 2; i < len(args)-1; i += 2 {
+		switch args[i] {
+		case "--criterion":
+			criterion = args[i+1]
+		case "--verify":
+			verify = args[i+1]
+		}
+	}
+	if criterion == "" || verify == "" {
+		return fmt.Errorf("--criterion and --verify are required")
+	}
+
+	var maxSeq int
+	s.DB.QueryRow("SELECT COALESCE(MAX(seq), 0) FROM acceptance WHERE tree = ? AND spec = ? AND task_id = ?",
+		tree, spec, taskID).Scan(&maxSeq)
+
+	_, err = s.DB.Exec("INSERT INTO acceptance (tree, spec, task_id, seq, criterion, verify_cmd) VALUES (?, ?, ?, ?, ?, ?)",
+		tree, spec, taskID, maxSeq+1, criterion, verify)
+	if err != nil {
+		return fmt.Errorf("adding acceptance criterion: %w", err)
+	}
+
+	s.Commit(fmt.Sprintf("spec(%s/%s): acceptance on %s", tree, spec, taskID))
+	return jsonOut(map[string]any{"task": taskID, "seq": maxSeq + 1, "criterion": criterion})
+}
+
+func cmdTaskCancel(args []string) error {
+	if len(args) < 2 {
+		return fmt.Errorf("usage: synthesist task cancel <tree/spec> <task-id> [--reason '...']")
+	}
+	s, err := discoverStore()
+	if err != nil {
+		return err
+	}
+	defer s.Close()
+
+	tree, spec, err := parseTreeSpec(args[0])
+	if err != nil {
+		return err
+	}
+	taskID := args[1]
+
+	var reason string
+	for i := 2; i < len(args)-1; i += 2 {
+		if args[i] == "--reason" {
+			reason = args[i+1]
+		}
+	}
+
+	var notePtr *string
+	if reason != "" {
+		notePtr = &reason
+	}
+
+	_, err = s.DB.Exec("UPDATE tasks SET status = 'cancelled', failure_note = ? WHERE tree = ? AND spec = ? AND id = ?",
+		notePtr, tree, spec, taskID)
+	if err != nil {
+		return err
+	}
+
+	s.Commit(fmt.Sprintf("spec(%s/%s): cancel %s", tree, spec, taskID))
+	return jsonOut(map[string]any{"id": taskID, "status": "cancelled"})
 }
 
 // --- Helpers ---

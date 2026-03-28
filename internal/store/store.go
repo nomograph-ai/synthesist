@@ -453,6 +453,19 @@ func (s *Store) createSchema() error {
 			PRIMARY KEY (source_tree, source_spec, target_tree, target_spec)
 		)`,
 
+		// --- Discoveries layer ---
+		`CREATE TABLE IF NOT EXISTS discoveries (
+			tree VARCHAR(255) NOT NULL,
+			spec VARCHAR(255) NOT NULL,
+			id VARCHAR(64) NOT NULL,
+			date DATE NOT NULL,
+			author VARCHAR(255),
+			finding TEXT NOT NULL,
+			impact TEXT,
+			action_taken TEXT,
+			PRIMARY KEY (tree, spec, id)
+		)`,
+
 		// --- Meta ---
 		`CREATE TABLE IF NOT EXISTS config (
 			key_name VARCHAR(255) PRIMARY KEY,
