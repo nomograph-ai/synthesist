@@ -7,7 +7,7 @@ import (
 	"gitlab.com/nomograph/synthesist/internal/store"
 )
 
-const version = "0.1.0"
+var version = "dev" // set by -ldflags "-X main.version=..."
 
 // noCommit disables auto-commit when --no-commit is passed globally.
 var noCommit bool
