@@ -58,35 +58,43 @@ All output is JSON by default. Use `--human` for human-readable output.
 Synthesist stores a temporal specification graph with six node types and
 eight edge types.
 
-```
-                    ┌──────────────┐   depends_on   ┌──────────────┐
-                    │     Task     │───────────────▶│     Task     │
-                    │   (pending)  │                │    (done)    │
-                    └──────┬───────┘                └──────┬───────┘
-                           │                               │
-                  influences│                               │
-                           │                               │
-                    ┌──────▼───────┐                ┌──────▼───────┐
-                    │ Stakeholder  │                │    Retro     │
-                    │              │                │ (type=retro) │
-                    └──────┬───────┘                └──────┬───────┘
-                           │                               │
-                   signaled│                      patterned│
-                           │                               │
-                    ┌──────▼───────┐   evidences   ┌──────▼───────┐
-                    │    Signal    │───────────────▶│   Pattern    │
-                    │ (immutable)  │                │   (named)    │
-                    └──────┬───────┘                └──────────────┘
-                           │
-                    ┌──────▼───────┐   supersedes   ┌──────────────┐
-                    │ Disposition  │───────────────▶│ Disposition  │
-                    │  (temporal)  │                │ (superseded) │
-                    └──────────────┘                └──────────────┘
+```mermaid
+graph TD
+    %% Task DAG layer
+    T1[Task<br/><i>pending</i>] -->|depends_on| T2[Task<br/><i>done</i>]
+    T2 -->|provenance| T3[Task<br/><i>discovered</i>]
+    T2 --> R[Retro<br/><i>type=retro</i>]
 
-                    ┌──────────────┐   impacts      ┌──────────────┐
-                    │  Direction   │───────────────▶│     Task     │
-                    │  (upstream)  │                │              │
-                    └──────────────┘                └──────────────┘
+    %% Stakeholder intelligence layer
+    SH[Stakeholder] -->|influences| T1
+    SH -->|signaled| SIG[Signal<br/><i>immutable, bi-temporal</i>]
+    SIG -->|evidences| D[Disposition<br/><i>temporal validity</i>]
+    D -->|supersedes| D2[Disposition<br/><i>superseded</i>]
+    D -.->|stance of| SH
+
+    %% Upstream direction layer
+    DIR[Direction<br/><i>committed / proposed</i>] -->|impacts| T1
+
+    %% Retrospective + pattern layer
+    R -->|patterned| P[Pattern<br/><i>named, transferable</i>]
+    P -.->|observed_in| T2
+
+    %% Styling
+    classDef task fill:#4a9eff,stroke:#2670c2,color:#fff
+    classDef retro fill:#9b59b6,stroke:#7d3c98,color:#fff
+    classDef stakeholder fill:#2ecc71,stroke:#27ae60,color:#fff
+    classDef signal fill:#f39c12,stroke:#d68910,color:#fff
+    classDef disposition fill:#e74c3c,stroke:#c0392b,color:#fff
+    classDef direction fill:#1abc9c,stroke:#16a085,color:#fff
+    classDef pattern fill:#8e44ad,stroke:#6c3483,color:#fff
+
+    class T1,T2,T3 task
+    class R retro
+    class SH stakeholder
+    class SIG signal
+    class D,D2 disposition
+    class DIR direction
+    class P pattern
 ```
 
 ### Six node types
