@@ -31,31 +31,28 @@ you:
 - **Campaign coordination** — cross-spec dependency tracking with temporal horizons
 - **Concurrent session safety** — task ownership, aggressive commits, deconfliction
 - **Integrity tooling** — Python linter validates estate structure, references, schemas
+- **Temporal stakeholder intelligence** — dispositions with validity windows track what implementation choices upstream maintainers will accept
+- **Retrospective replay** — retro nodes with labeled transforms enable "play back this work onto a different project"
+- **Dolt-backed storage** — embedded database replaces JSON files; `synthesist` CLI binary owns all reads/writes
 
 Clone this repo, customize `prompts/instance.md` for your project, and start working.
 
 ## Quick Start
 
 ```bash
-# Clone into your project
-cd your-project
+# Install via mise (after release)
+# "ubi:nomograph/synthesist" = { version = "v5.0.0", exe = "synthesist", provider = "gitlab" }
+
+# Or build from source
 git clone https://gitlab.com/nomograph/synthesist.git
+cd synthesist
+make build    # requires Go 1.26+ and libicu-dev
 
-# Or add as a submodule
-git submodule add https://gitlab.com/nomograph/synthesist.git
-
-# Customize the instance prompt
-cp prompts/instance.md prompts/instance.md.bak
-# Edit prompts/instance.md — set your project identity, skills, estate
-
-# Open opencode
-opencode
-
-# Describe what you want to build. The primary agent handles the full loop.
+# Initialize in your project
+cd your-project
+synthesist init
+synthesist status
 ```
-
-Edit `opencode.json` to set your preferred models and providers. The defaults
-use Anthropic model IDs — swap to whatever your provider offers.
 
 ## The Spec Format
 
@@ -138,7 +135,7 @@ The primary agent prompt is composed from two files:
 Framework updates flow without merge conflicts on instance-specific content.
 Customize `prompts/instance.md` for your project — leave `framework.md` alone.
 
-## Context Trees (v3)
+## Context Trees
 
 For projects with multiple domains of work, **context trees** scope agent context
 to one area at a time. Each tree has its own campaign.json (active work) and
@@ -234,32 +231,32 @@ other's work is cheap insurance.
 
 ```
 synthesist/
-├── opencode.json              # Agent configuration (edit model IDs for your provider)
-├── AGENTS.md                  # Workflow instructions loaded by all agents
-├── .opencode/agents/
-│   ├── review.md              # Cross-model reviewer system prompt
-│   └── verify.md              # Verification agent system prompt
+├── cmd/synthesist/            # CLI binary source
+│   ├── main.go
+│   ├── skill.go               # LLM behavioral contract (synthesist skill)
+│   ├── cmd_task.go            # Task DAG commands
+│   ├── cmd_landscape.go       # Stakeholder intelligence commands
+│   ├── cmd_retro.go           # Retrospective + pattern commands
+│   └── cmd_status.go          # Estate overview + validation
+├── internal/
+│   ├── store/store.go         # Dolt embedded database layer
+│   └── types/types.go         # Schema as Go types
 ├── specs/
-│   ├── estate.json            # Meta-switchboard (context trees + session state)
-│   ├── SPEC_FORMAT.md         # Spec schema reference (loaded via instructions)
+│   ├── estate.json            # Meta-switchboard
+│   ├── SPEC_FORMAT.md         # Schema reference (v5)
 │   ├── _template/             # Copy for new features
-│   │   ├── spec.md
-│   │   └── state.json
-│   └── _example-tree/         # Worked example with context tree
-│       ├── campaign.json
-│       ├── archive.json
-│       └── example-feature/
-│           ├── spec.md
-│           └── state.json
-├── tools/
-│   └── lint-specs.py          # Estate integrity checker
-├── prompts/
-│   ├── framework.md           # Framework prompt (don't edit — synthesist owns this)
-│   └── instance.md            # Instance prompt (customize for your project)
-├── staging/                   # Chunked write staging area (gitignored)
-│   └── .gitkeep
-└── memory/                    # Session handoff (create as needed)
-    └── session.md
+│   └── _example-tree/         # Worked example
+├── Makefile                   # Build with ICU detection
+├── .gitlab-ci.yml             # Test + build + release pipeline
+├── CHANGELOG.md               # v1-v5 evolution
+└── go.mod                     # Go module
+
+# In consuming projects:
+your-project/
+├── .synth/                    # Dolt database (created by synthesist init)
+│   └── synthesist/.dolt/      # Database files (tracked in git)
+├── CLAUDE.md                  # or AGENTS.md -- references synthesist skill
+└── ...
 ```
 
 ## Configuration

@@ -8,6 +8,7 @@ staging/*
 
 # Go build artifacts
 /synthesist
+/synthesist-*
 dist/
 *.test
 *.out

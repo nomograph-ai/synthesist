@@ -3,6 +3,7 @@
   "tasks": [
     {
       "id": "t1",
+      "type": "task",
       "summary": "Create api_keys database table and model",
       "description": "Migration for api_keys table (id, user_id, key_hash, prefix, label, revoked_at, created_at). Model with create/verify/revoke methods. Key generation uses crypto.randomBytes.",
       "files": [
@@ -13,6 +14,7 @@
       "depends_on": [],
       "status": "pending",
       "gate": null,
+      "created": "2026-03-08",
       "acceptance": [
         {
           "criterion": "Migration creates api_keys table with required columns",
@@ -31,6 +33,7 @@
     },
     {
       "id": "t2",
+      "type": "task",
       "summary": "Add ApiKeyStrategy to auth middleware",
       "description": "New strategy that extracts API key from Authorization: Bearer sk_live_... header, looks up by prefix, verifies hash, and attaches user to request context. Register in middleware chain after JwtStrategy.",
       "files": [
@@ -41,6 +44,7 @@
       "depends_on": ["t1"],
       "status": "pending",
       "gate": null,
+      "created": "2026-03-08",
       "acceptance": [
         {
           "criterion": "ApiKeyStrategy file exists and exports the strategy",
@@ -63,6 +67,7 @@
     },
     {
       "id": "t3",
+      "type": "task",
       "summary": "Create API key management endpoints",
       "description": "POST /api/keys (create, returns raw key once), GET /api/keys (list user's keys, no hashes), DELETE /api/keys/:id (soft revoke). All require JWT auth — you manage keys via your session, use keys for programmatic access.",
       "files": [
@@ -73,6 +78,7 @@
       "depends_on": ["t1"],
       "status": "pending",
       "gate": null,
+      "created": "2026-03-08",
       "acceptance": [
         {
           "criterion": "POST /api/keys returns 201 with key prefix and raw key",
@@ -95,6 +101,7 @@
     },
     {
       "id": "t4",
+      "type": "task",
       "summary": "Integration test: full API key lifecycle",
       "description": "End-to-end test: create user, login, create API key, use API key to access protected endpoint, revoke key, verify access denied.",
       "files": [
@@ -103,6 +110,7 @@
       "depends_on": ["t2", "t3"],
       "status": "pending",
       "gate": "human",
+      "created": "2026-03-08",
       "acceptance": [
         {
           "criterion": "Integration test covers create, use, revoke, deny lifecycle",
