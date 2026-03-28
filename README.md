@@ -1,295 +1,301 @@
 # Synthesist
 
-A structured approach to decomposing large projects into spec files, agent roles,
-and orchestration patterns that LLMs can follow reliably.
+A specification graph manager for AI-augmented projects. Synthesist is a Go binary
+with an embedded Dolt database that tracks task DAGs, stakeholder intelligence,
+temporal dispositions, and retrospective patterns. LLM agents interact exclusively
+through CLI commands -- they never read or write data files directly.
 
-Named for the role aboard the *Theseus* in Peter Watts' *Blindsight* — the one
-crew member whose job isn't expertise, but coherence. The Synthesist sits among
-specialists and makes their outputs legible, directed, and whole.
+Named for the role aboard the *Theseus* in Peter Watts' *Blindsight* -- the one
+crew member whose job isn't expertise, but coherence.
 
-No orchestration schema is perfect. Like the Bicameral Order in Watts' *Echopraxia*,
-the only honest measure of a framework is its predictive power — does following
-this process reliably produce working systems? Synthesist is a bet that the answer
-is yes, if the specifications are sharp enough and the roles are clear enough.
+## Install
 
----
+### mise (recommended)
 
-## What This Is
+```toml
+# .mise.toml
+[tools]
+"ubi:nomograph/synthesist" = { version = "latest", exe = "synthesist", provider = "gitlab" }
+```
 
-Synthesist is a set of conventions for [OpenCode](https://opencode.ai) that gives
-you:
+### Build from source
 
-- **One primary agent** — handles the full loop: discuss, draft specs, iterate,
-  build. No plan/build handoff.
-- **Four subagents** — `@explore`, `@edit`, `@review`, `@verify`
-- **A spec format** — Markdown for human intent, JSON for machine state, with
-  executable acceptance criteria on every task
-- **A workflow** — Discuss → Draft → Iterate → Codify → Build → Verify, with
-  human gates at high-stakes transitions
-- **Context trees** — hierarchical spec organization that scopes agent context to
-  one domain at a time, with archive mechanics and cross-tree references
-- **Campaign coordination** — cross-spec dependency tracking with temporal horizons
-- **Concurrent session safety** — task ownership, aggressive commits, deconfliction
-- **Integrity tooling** — Python linter validates estate structure, references, schemas
-- **Temporal stakeholder intelligence** — dispositions with validity windows track what implementation choices upstream maintainers will accept
-- **Retrospective replay** — retro nodes with labeled transforms enable "play back this work onto a different project"
-- **Dolt-backed storage** — embedded database replaces JSON files; `synthesist` CLI binary owns all reads/writes
-
-Clone this repo, customize `prompts/instance.md` for your project, and start working.
+```bash
+git clone https://gitlab.com/nomograph/synthesist.git
+cd synthesist
+make build    # requires Go 1.26+, CGo, and ICU (see Building section)
+make install  # installs to $GOPATH/bin
+```
 
 ## Quick Start
 
 ```bash
-# Install via mise (after release)
-# "ubi:nomograph/synthesist" = { version = "v5.0.0", exe = "synthesist", provider = "gitlab" }
-
-# Or build from source
-git clone https://gitlab.com/nomograph/synthesist.git
-cd synthesist
-make build    # requires Go 1.26+ and libicu-dev
-
 # Initialize in your project
 cd your-project
 synthesist init
+
+# Create a task in the upstream/bootc spec (tree/spec format)
+synthesist task create upstream/bootc "Research bootc install architecture"
+
+# Track a stakeholder and their disposition
+synthesist stakeholder add upstream cgwalters --context "bootc maintainer"
+synthesist disposition add upstream/bootc cgwalters \
+  --topic "external tooling" --stance cautious --confidence inferred
+
+# Work through the task DAG
+synthesist task claim upstream/bootc t1
+# ... do the work ...
+synthesist task done upstream/bootc t1
+
+# See the full estate overview
 synthesist status
 ```
 
-## The Spec Format
+All output is JSON by default. Use `--human` for human-readable output.
 
-Every feature gets two files:
+## The Data Model
 
-| File | Owner | Purpose |
-|------|-------|---------|
-| `specs/<feature>/spec.md` | Human / Primary agent | What and why — goal, context, constraints, decisions |
-| `specs/<feature>/state.json` | Primary / Verify agent | What to do next — task DAG, status, acceptance criteria |
+Synthesist stores a temporal specification graph with six data layers and
+eight edge types.
 
-The separation is intentional. Agents reason over prose in spec.md. They execute
-from structured data in state.json. Humans review specs in their editor. Agents
-update state via tool calls. Git diff shows both.
+### Six data layers
 
-Each task in state.json has executable acceptance criteria:
+| Layer | What it tracks | Key tables |
+|-------|---------------|------------|
+| **Estate** | Trees (context domains) and threads (active workstreams) | `trees`, `threads` |
+| **Task DAG** | Tasks with dependencies, acceptance criteria, and status | `tasks`, `task_deps`, `acceptance` |
+| **Landscape** | Stakeholders, dispositions, signals, influences | `stakeholders`, `dispositions`, `signals`, `influences` |
+| **Directions** | Upstream technical trajectories with temporal validity | `directions`, `direction_impacts` |
+| **Patterns** | Named reusable approaches discovered through work | `patterns`, `pattern_observations` |
+| **Campaign + Archive** | Active/backlog spec tracking and archived spec records | `campaign_active`, `archives` |
 
-```json
-{
-  "id": "t1",
-  "summary": "Create data model",
-  "status": "pending",
-  "owner": null,
-  "acceptance": [
-    {
-      "criterion": "Model exports required interface",
-      "verify": "grep -q 'export.*XModel' src/models/x.ts"
-    },
-    {
-      "criterion": "Unit tests pass",
-      "verify": "npm test -- --grep 'XModel'"
-    }
-  ]
-}
+### Node types
+
+- **task** -- a unit of work with executable acceptance criteria
+- **stakeholder** -- a human actor relevant to the work (registered per-tree)
+- **disposition** -- a stakeholder's assessed stance on a technical direction (temporal)
+- **signal** -- immutable, timestamped evidence from a stakeholder action
+- **direction** -- an upstream technical trajectory with impact assessment
+- **pattern** -- a named, transferable approach discovered through retrospective analysis
+
+### Eight edge types
+
+| Edge | From | To | Purpose |
+|------|------|----|---------|
+| `depends_on` | task | task | DAG ordering |
+| `influences` | stakeholder | task | Who affects which work |
+| `disposition_of` | disposition | stakeholder | Stance on a topic |
+| `evidenced_by` | disposition | signal | What supports an assessment |
+| `impacts` | direction | spec | Which specs a trajectory affects |
+| `observed_in` | pattern | spec | Where a pattern was used |
+| `provenance` | task | task | "While doing X we discovered Y" (cross-spec) |
+| `supersedes` | disposition/direction | disposition/direction | Temporal replacement chain |
+
+### Temporal validity
+
+Dispositions and directions have `valid_from` / `valid_until` windows. When new
+evidence changes an assessment, the old record is superseded (not deleted) and a
+new one is created. History is preserved. The query "what did we think this
+person's stance was on date X?" resolves by filtering the validity windows.
+
+## The Skill File
+
+`synthesist skill` outputs the complete LLM behavioral contract -- the full
+command reference, rules, and usage patterns. This is the primary interface
+documentation for agents.
+
+Install it into any LLM harness by referencing the skill output in your agent
+instructions:
+
+```bash
+# For Claude Code -- add to AGENTS.md or CLAUDE.md:
+# "Run synthesist skill for the full command reference"
+
+# For OpenCode -- create a skill file:
+synthesist skill > .opencode/skills/synthesist/SKILL.md
+
+# For any other agent framework:
+synthesist skill >> your-agent-config
 ```
 
-The `verify` field is a shell command. Exit 0 means pass. The `@verify` agent
-runs every single one and doesn't trust self-reports.
+The tool is agent-agnostic. It works with Claude Code, OpenCode, Cursor, or any
+framework that gives an LLM access to shell commands.
 
-See `specs/SPEC_FORMAT.md` for the full schema, and `specs/_example-tree/` for a
-worked example with context trees.
+## Architecture
 
-## The Workflow
+### Dolt embedded database
 
-```
-1. Discuss    You describe intent. Primary agent asks clarifying questions.
-2. Draft      Primary agent writes spec.md + state.json to disk immediately.
-3. Iterate    Revise spec on disk until it's right. The file is the workspace.
-4. Codify     Write state.json task DAG with verify commands. Get approval.
-5. Build      Execute tasks in dependency order. Commit after each completion.
-6. Verify     @verify agent runs all acceptance criteria. Resets failures.
-```
-
-The primary agent handles the full loop in one context — no handoff between
-planning and building. The verify agent trusts nothing and runs tests itself.
-This prevents the common failure mode where an agent marks its own work as done
-without actually checking.
-
-## Agent Roles
-
-| Agent | Mode | Role | Tools | Steps |
-|-------|------|------|-------|-------|
-| `primary` | primary | Full loop: discuss, plan, build | full access | — |
-| `@explore` | subagent | Fast codebase search with countdown | read-only | 5 |
-| `@edit` | subagent | Targeted file changes from spec tasks | write, edit, bash | 15 |
-| `@review` | subagent | Cross-model code review | read-only | 15 |
-| `@verify` | subagent | Acceptance criteria verification | write, edit, bash | 20 |
-
-The `@review` agent uses a different model family than `primary`. Different
-training data catches different bugs.
-
-## Prompt Architecture
-
-The primary agent prompt is composed from two files:
-
-| File | Owner | Content |
-|------|-------|---------|
-| `prompts/framework.md` | Synthesist framework | Loop, write rules, explore rules, context rules, concurrency rules, session rules |
-| `prompts/instance.md` | Your project | Identity, skill tree, estate structure, project-specific overrides |
-
-Framework updates flow without merge conflicts on instance-specific content.
-Customize `prompts/instance.md` for your project — leave `framework.md` alone.
-
-## Context Trees
-
-For projects with multiple domains of work, **context trees** scope agent context
-to one area at a time. Each tree has its own campaign.json (active work) and
-archive.json (completed/deferred work).
+The Dolt database lives at `.synth/synthesist/.dolt/` inside the consuming project.
+Dolt is an embedded SQL database with git semantics -- content-addressed storage,
+branch/merge on data, and table-level diffing.
 
 ```
-specs/
-├── estate.json              # Meta-switchboard — all trees + session state
-├── my-service/              # One context tree
-│   ├── campaign.json        # Active + backlog specs
-│   ├── archive.json         # Archived specs (done, abandoned, deferred)
-│   ├── feature-a/           # A spec directory
-│   │   ├── spec.md
-│   │   └── state.json
-│   └── archive/             # Archived spec directories
-└── another-domain/
-    ├── campaign.json
-    └── archive.json
+your-project/
+├── .synth/                    # Dolt database (created by synthesist init)
+│   └── synthesist/.dolt/      # Database files
+├── AGENTS.md                  # or CLAUDE.md -- tells agent to use synthesist
+└── ...
 ```
 
-At session start, the agent reads `estate.json` to find the active tree, then
-loads only that tree's campaign. This keeps context focused and prevents sprawl.
+### Why not JSON files?
 
-Specs can reference each other across trees using typed cross-references
-(`blocked_by`, `informs`, `discovered_from`).
+v1-v4 stored all state as JSON files that LLM agents read and wrote directly. This
+worked for simple task DAGs but broke down with temporal stakeholder intelligence.
+Temporal queries across flat JSON files require loading everything and reconstructing
+relationships in memory. LLMs writing raw JSON are trusted to produce valid state
+transitions with no enforcement layer.
 
-## Campaigns
+### Why not SQLite?
 
-Within each tree, campaigns track cross-spec dependencies with two horizons:
+SQLite would require a separate JSON projection layer for git tracking. Dolt
+eliminates this by being both the database and the version-controlled artifact.
+`synthesist diff` shows table-level changes between commits without an external
+diffing tool.
 
-- **active** — what you're working on
-- **backlog** — what you're thinking about
+### Git-tracked .synth/ directory
 
-Archived work moves to `archive.json` with a reason: `completed`, `abandoned`,
-`superseded`, or `deferred`.
+The `.synth/` directory is tracked in git. When the binary writes data, it commits
+to both the Dolt internal history and the outer git repository. Other contributors
+pull the database as part of normal `git pull`. The tradeoff: `git diff` on `.synth/`
+is binary, but `synthesist diff` provides richer table-level diffs.
 
-Campaign state lives at `specs/<tree>/campaign.json`. See `specs/SPEC_FORMAT.md`
-for the full schema.
+### Binary owns all writes
 
-## Concurrent Sessions
+The `synthesist` binary is the single write path to the database. This enforces:
 
-Multiple sessions can work on the same spec tree safely:
+- Valid state transitions (a task can only go `pending -> in_progress -> done`)
+- Referential integrity (a disposition must reference an existing stakeholder)
+- Temporal consistency (superseding a disposition sets `valid_until` and creates the replacement atomically)
+- Automatic git commits on state changes (configurable with `--no-commit`)
 
-- Tasks have an `owner` field — check before claiming
-- Commit state.json after every task completion
-- Pull before starting work
-- Dependencies are respected across sessions
-
-This also enables autonomous execution: plan in one session, walk away, and
-agents pick up tasks independently.
+LLMs produce better results when constrained to well-formed operations (Yegge,
+Beads 2026). A CLI with typed commands prevents invalid states and handles
+computation LLMs are bad at -- temporal resolution, graph traversal, date math.
 
 ## Key Design Decisions
 
-**Why a single primary agent instead of plan/build split?**
+**Why Dolt over TerminusDB?** TerminusDB is graph-native with better traversal,
+but requires running a server. Synthesist needs an embedded database that compiles
+into a single binary.
 
-The original design had a read-only plan agent and a full-access build agent.
-In practice, the handoff between them lost context and required copy-paste.
-A single agent handling the full loop — with the trust boundary at human
-agreement ("build") rather than tool restrictions — proved strictly better
-over 16+ sessions of real work.
+**Why a binary at all?** A CLI with typed commands provides a stable API that
+decouples storage format from agent interface. Invalid state transitions are
+impossible. The binary handles things LLMs are bad at (date math, temporal
+queries, referential integrity checks) so agents can focus on what they're good
+at (reasoning over context, making implementation decisions).
 
-**Why Markdown + JSON instead of YAML for everything?**
+**Why temporal dispositions?** The delta between proposed implementation and what
+a maintainer will accept is the real cost of upstream contributions. Disposition
+tracking models that delta so agents make informed choices instead of contributing
+blind. The temporal model preserves history -- when a maintainer changes their
+mind, we can see the arc.
 
-Research on LLM format comprehension (Tam et al., arXiv 2408.02442) shows no
-structured format consistently outperforms others, and schema-constrained formats
-can degrade reasoning by 20–40%. We use Markdown (with XML sections) for the
-parts agents reason over, and JSON for the parts they update mechanically.
+**Why retrospective replay?** Retro nodes with labeled transforms enable "play
+back this work onto a different project." An agent reads the transforms (what moves
+were made and why), checks the landscape (what stakeholder constraints shaped
+choices), and generates a new spec adapted for the target context. This is the
+Synthesist's core competency -- making work transferable.
 
-**Why executable acceptance criteria?**
+**LLM simulation methodology.** Synthesist embodies a simulation approach to LLM
+tool design: constrain the agent to well-formed operations, handle computation
+externally, and let the agent focus on reasoning. This aligns with the Beads
+framework (Yegge 2026) for structured agent interactions, the Graphiti/Zep
+approach to temporal knowledge graphs, and the Howard & Matheson framing of
+decision analysis as structured information flow.
 
-If you can't write a shell command that checks whether a task is done, the task
-is underspecified. The verify agent runs every command itself — it doesn't ask
-"did you finish?" It checks.
+## Building
 
-**Why a separate verify agent?**
+### Prerequisites
 
-"Trust nothing, verify everything." The build agent self-reports are unreliable —
-not because the model lies, but because it optimizes for completion. A separate
-agent with the sole job of running tests catches the gap.
+- **Go 1.26+** with CGo enabled
+- **ICU libraries** (required by Dolt):
+  - macOS: `brew install icu4c@78` (or `brew install icu4c`)
+  - Linux: `apt-get install libicu-dev` (Debian/Ubuntu) or `dnf install libicu-devel` (Fedora)
 
-**Why human gates?**
+### Build commands
 
-Tasks that touch auth, data models, or public APIs get `"gate": "human"`. The
-agent stops and presents what it plans to do. This prevents the expensive class
-of errors where an agent makes a reasonable-but-wrong decision and builds on it.
+```bash
+make build      # Build the binary (./synthesist)
+make test       # Run all tests
+make install    # Install to $GOPATH/bin
+make lint       # Run go vet
+make check      # Build + run synthesist check against local specs
+make dev        # Build + show help
+make skill      # Build + output the LLM skill file
+make release    # Cross-compile for darwin/arm64, darwin/amd64, linux/amd64, linux/arm64
+```
 
-**Why cross-model review?**
+The Makefile auto-detects ICU on macOS via Homebrew and sets the correct
+`CGO_CFLAGS`, `CGO_CXXFLAGS`, and `CGO_LDFLAGS`.
 
-Different model families have different failure modes. Using one to review the
-other's work is cheap insurance.
+## CI/CD
+
+The GitLab CI pipeline (`.gitlab-ci.yml`) has four stages:
+
+| Stage | Runner | What it does |
+|-------|--------|-------------|
+| **test** | Group runner (storr) | `go vet`, `go test`, integration test (init + task lifecycle) |
+| **build** | Group runner (Linux), instance runner (macOS) | Cross-compile binaries |
+| **publish** | Group runner | Upload to GitLab Package Registry (generic packages) |
+| **release** | Group runner | Create GitLab Release with binary assets (tags only) |
+
+- Linux builds run on the `storr` group runner (storr.dunn.dev)
+- macOS builds run on the `saas-macos-medium-m1` instance runner (Apple Silicon)
+- The macOS job is `allow_failure: true` since the runner may not be available
+- The publish stage uploads both platforms plus checksums
+- Tag pushes also publish as `latest` for stable download URLs
+- Releases are created only on tag pushes
 
 ## Project Structure
 
 ```
 synthesist/
 ├── cmd/synthesist/            # CLI binary source
-│   ├── main.go
+│   ├── main.go                # Command dispatch + help text
 │   ├── skill.go               # LLM behavioral contract (synthesist skill)
+│   ├── cmd_init.go            # Estate initialization
 │   ├── cmd_task.go            # Task DAG commands
 │   ├── cmd_landscape.go       # Stakeholder intelligence commands
 │   ├── cmd_retro.go           # Retrospective + pattern commands
 │   └── cmd_status.go          # Estate overview + validation
 ├── internal/
 │   ├── store/store.go         # Dolt embedded database layer
-│   └── types/types.go         # Schema as Go types
+│   └── types/types.go         # Schema as Go types (enums, structs)
+├── prompts/
+│   ├── framework.md           # Agent behavioral framework (for OpenCode instances)
+│   └── instance.md            # Instance configuration template (for OpenCode)
 ├── specs/
-│   ├── estate.json            # Meta-switchboard
-│   ├── SPEC_FORMAT.md         # Schema reference (v5)
-│   ├── _template/             # Copy for new features
-│   └── _example-tree/         # Worked example
+│   └── SPEC_FORMAT.md         # Specification format reference (v5)
 ├── Makefile                   # Build with ICU detection
-├── .gitlab-ci.yml             # Test + build + release pipeline
+├── .gitlab-ci.yml             # Test + build + publish + release pipeline
 ├── CHANGELOG.md               # v1-v5 evolution
-└── go.mod                     # Go module
-
-# In consuming projects:
-your-project/
-├── .synth/                    # Dolt database (created by synthesist init)
-│   └── synthesist/.dolt/      # Database files (tracked in git)
-├── CLAUDE.md                  # or AGENTS.md -- references synthesist skill
-└── ...
+├── AGENTS.md                  # Agent bootstrap instructions
+└── go.mod                     # Go module (gitlab.com/nomograph/synthesist)
 ```
 
-## Configuration
+## Version History
 
-The `opencode.json` ships with Anthropic model IDs as defaults. Adjust for
-your provider:
+See [CHANGELOG.md](CHANGELOG.md) for the full history. Brief summary:
 
-```jsonc
-// GitLab Duo
-"model": "gitlab/duo-chat-sonnet-4-6"
-
-// Direct Anthropic
-"model": "anthropic/claude-sonnet-4"
-
-// Local via Ollama
-"model": "ollama/qwen3:32b"
-```
-
-The framework is provider-agnostic. The spec format, agent roles, and workflow
-work with any LLM that OpenCode supports.
+- **v5** (2026-03-28) -- Dolt embedded storage, Go CLI binary, temporal specification graphs
+- **v4** (2026-03-27) -- Concurrent session support with active threads
+- **v3** (2026-03-21) -- Context trees, estate switchboard, campaign coordination
+- **v2** (2026-03-18) -- Single primary agent, campaigns, concurrent sessions
+- **v1** (2026-03-15) -- Spec format, agent roles, executable acceptance criteria
 
 ## Sources and Influences
 
-| Project | What we took | What we left |
-|---------|-------------|--------------|
-| [Symphony](https://github.com/openai/symphony) (OpenAI) | WORKFLOW.md hybrid format, hook lifecycle, stall detection | Polling daemon, Linear integration |
-| [BMAD Method](https://github.com/bmad-code-org/BMAD-METHOD) | Scale-adaptive planning, human gates (HALT) | 12+ agent personas, npm packaging |
-| [GSD](https://github.com/glittercowboy/get-shit-done) | XML task format with `<verify>`, discuss-before-plan | Full artifact forest, config-driven modes |
-| [Gastown](https://github.com/steveyegge/gastown) (Steve Yegge) | Typed dependency graphs, quality scoring, "findings survive context death" | Dolt database, Go CLI, agent swarm |
-| [Ralph](https://github.com/snarktank/ralph) | Task sizing discipline, append-only progress log | Bash-loop-only orchestration |
-| [Metaswarm](https://github.com/dsifry/metaswarm) | "Trust nothing, verify everything", cross-model review | 18 agent personas, 9-phase SDLC |
-| Tam et al. (arXiv 2408.02442) | No structured format consistently wins; use natural language for reasoning | — |
+| Source | What we took |
+|--------|-------------|
+| [Beads](https://github.com/steveyegge/beads) (Steve Yegge, 2026) | Structured agent interactions, CLI as stable API, "constrain the LLM to well-formed operations" |
+| [Graphiti/Zep](https://github.com/getzep/graphiti) | Temporal knowledge graphs, bi-temporal entity modeling |
+| Howard & Matheson (1968) | Decision analysis as structured information flow |
+| [Symphony](https://github.com/openai/symphony) (OpenAI) | WORKFLOW.md hybrid format, stall detection |
+| [BMAD Method](https://github.com/bmad-code-org/BMAD-METHOD) | Scale-adaptive planning, human gates |
+| [Gastown](https://github.com/steveyegge/gastown) (Steve Yegge) | Typed dependency graphs, "findings survive context death" |
+| [Metaswarm](https://github.com/dsifry/metaswarm) | "Trust nothing, verify everything", cross-model review |
+| Tam et al. (arXiv 2408.02442) | No structured format consistently wins for LLM reasoning |
 
 ## License
 
-MIT
+MIT -- see [LICENSE](LICENSE).
