@@ -159,27 +159,48 @@ graph LR
 
 ### Temporal model
 
-Dispositions and directions carry `valid_from` / `valid_until`
-windows. Signals are bi-temporal: `date` (when it happened) and
-`recorded_date` (when we captured it). When new evidence changes an
-assessment, the old record is superseded -- not deleted. History is
-preserved.
+Dispositions and directions have validity windows. Signals are
+bi-temporal (event time vs record time). When evidence changes an
+assessment, the old record is superseded -- not deleted. The full
+history is preserved and queryable.
+
+This diagram shows how a disposition evolves as new signals arrive:
 
 ```mermaid
-gantt
-    title Disposition Timeline
-    dateFormat YYYY-MM-DD
-    section Stakeholder A
-        cautious (inferred)     :d1, 2026-03-01, 2026-03-19
-        supportive (documented) :d2, 2026-03-20, 2026-04-01
-    section Direction X
-        proposed                :dir1, 2026-02-15, 2026-03-10
-        committed               :dir2, 2026-03-11, 2026-04-01
-    section Signals
-        PR comment (event)      :milestone, 2026-03-05, 0d
-        Review (event)          :milestone, 2026-03-18, 0d
-        Discovered retroactively:milestone, 2026-03-20, 0d
+sequenceDiagram
+    participant Agent
+    participant Synthesist as synthesist
+    participant DB as Dolt DB
+
+    Note over Agent,DB: Mar 1 -- Initial assessment based on PR comments
+    Agent->>Synthesist: signal record (PR comment from Mar 1)
+    Synthesist->>DB: Signal s1 {date: Mar 1, recorded: Mar 1}
+    Agent->>Synthesist: disposition add --stance cautious --confidence inferred
+    Synthesist->>DB: Disposition d1 {stance: cautious, valid_from: Mar 1}
+
+    Note over Agent,DB: Mar 18 -- New review changes our read
+    Agent->>Synthesist: signal record (review from Mar 18)
+    Synthesist->>DB: Signal s2 {date: Mar 18, recorded: Mar 18}
+    Agent->>Synthesist: disposition supersede d1 --new-stance supportive --evidence s2
+    Synthesist->>DB: d1.valid_until = Mar 18, d1.superseded_by = d2
+    Synthesist->>DB: Disposition d2 {stance: supportive, valid_from: Mar 18, evidence: s2}
+
+    Note over Agent,DB: Mar 25 -- Discover a week-old comment we missed
+    Agent->>Synthesist: signal record --date Mar 20 (retroactive)
+    Synthesist->>DB: Signal s3 {date: Mar 20, recorded: Mar 25}
+
+    Note over DB: Query: "stance on Mar 10?" → d1 (cautious)<br/>Query: "stance on Mar 19?" → d2 (supportive)<br/>Query: "current stance?" → d2 (valid_until is null)
 ```
+
+Key properties:
+- **Dispositions** are never deleted, only superseded. Full history queryable by date.
+- **Signals** are immutable and bi-temporal. `date` is when the event happened.
+  `recorded_date` is when we captured it. This matters for retroactive discovery.
+- **Directions** follow the same temporal model. An upstream trajectory that moves
+  from `proposed` to `committed` creates a new direction record; the old one is
+  superseded.
+- **`synthesist stance <person>`** resolves the current disposition (valid_until is null).
+  **`synthesist stance <person> <topic>`** returns the full supersession chain.
 
 ### Node reference
 
