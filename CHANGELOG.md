@@ -12,7 +12,7 @@ are not semver -- they represent architectural generations of the framework.
 ### Architecture Decision: Dolt embedded storage
 
 Synthesist v5 replaces direct JSON file manipulation with a Dolt embedded
-database as the primary store, managed by the `synth` CLI binary.
+database as the primary store, managed by the `synthesist` CLI binary.
 
 **The problem**: v1-v4 stored all state as JSON files that LLM agents
 read and wrote directly. This worked for task DAGs but broke down when
@@ -23,14 +23,14 @@ relationships in memory. LLMs writing raw JSON are trusted to produce
 valid state transitions with no enforcement.
 
 **The decision**: Embed Dolt (git-for-data SQL database) in a Go binary
-(`synth`). The Dolt database lives inside the project repository,
+(`synthesist`). The Dolt database lives inside the project repository,
 tracked by git, portable between machines via push/pull. LLM agents
-interact exclusively through `synth` CLI commands -- they never touch
+interact exclusively through `synthesist` CLI commands -- they never touch
 data files directly. The binary validates all state transitions,
 handles temporal resolution, and manages git commits.
 
 **Why Dolt over SQLite**: Dolt provides git-native diffing on data
-(`synth diff` shows table-level changes between commits), branch/merge
+(`synthesist diff` shows table-level changes between commits), branch/merge
 on data, and content-addressed storage (unchanged data is stored once
 across versions). SQLite would require a separate JSON projection layer
 for git tracking -- Dolt eliminates this by being both the database and
@@ -48,8 +48,8 @@ provides a stable API that decouples the storage format from the
 agent interface.
 
 **Tradeoff accepted**: Human-readable `git diff` on spec data is lost.
-`synth diff` replaces it with richer table-level diffs. Given 99% LLM
-usage, this is the right tradeoff. `synth status --human` provides
+`synthesist diff` replaces it with richer table-level diffs. Given 99% LLM
+usage, this is the right tradeoff. `synthesist status --human` provides
 human-readable views on demand.
 
 ### Added
@@ -69,9 +69,9 @@ human-readable views on demand.
 - **Pattern registry**: named, reusable approaches per tree. Retro nodes
   reference patterns; patterns track where they've been observed.
   Queryable: "show me all transferable patterns."
-- **`synth` CLI binary** (Go + embedded Dolt): single binary for all
+- **`synthesist` CLI binary** (Go + embedded Dolt): single binary for all
   spec graph operations. Replaces direct JSON manipulation, Python
-  linter, and manual git commits. Ships with `synth skill` command
+  linter, and manual git commits. Ships with `synthesist skill` command
   that outputs the LLM behavioral contract.
 - **Waiting status**: tasks can be `waiting` with a `waiter` object
   containing a machine-checkable resolution command. For external
@@ -82,19 +82,19 @@ human-readable views on demand.
 ### Changed
 
 - **Storage**: JSON files managed by LLM agents -> Dolt embedded
-  database managed by `synth` binary
+  database managed by `synthesist` binary
 - **Task DAG**: gains `type` field (task vs retro), `created`/`completed`
   timestamps, `waiter` object for waiting status
 - **Status enum**: `pending | in_progress | done | blocked` ->
   adds `waiting`
-- **Write path**: agents call `synth` commands, not `Write(state.json)`
-- **Validation**: Python linter (lint-specs.py) -> `synth check`
-- **Git commits**: manual by agent -> automatic by `synth` (configurable)
+- **Write path**: agents call `synthesist` commands, not `Write(state.json)`
+- **Validation**: Python linter (lint-specs.py) -> `synthesist check`
+- **Git commits**: manual by agent -> automatic by `synthesist` (configurable)
 
 ### Removed
 
 - Direct JSON file manipulation by LLM agents
-- `tools/lint-specs.py` (replaced by `synth check`)
+- `tools/lint-specs.py` (replaced by `synthesist check`)
 
 ---
 

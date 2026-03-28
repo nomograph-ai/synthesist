@@ -1,5 +1,5 @@
-BINARY    := synth
-CMD       := ./cmd/synth
+BINARY    := synthesist
+CMD       := ./cmd/synthesist
 VERSION   := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 LDFLAGS   := -ldflags "-X main.version=$(VERSION)"
 
@@ -32,7 +32,7 @@ test:
 lint:
 	go vet ./...
 
-# Run synth check against local specs (if initialized)
+# Run synthesist check against local specs (if initialized)
 check: build
 	./$(BINARY) check
 

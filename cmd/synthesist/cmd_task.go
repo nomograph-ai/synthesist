@@ -12,7 +12,7 @@ import (
 
 func cmdTaskCreate(args []string) error {
 	if len(args) < 2 {
-		return fmt.Errorf("usage: synth task create <tree/spec> <summary> [--depends-on t1,t2] [--gate human] [--files f1,f2]")
+		return fmt.Errorf("usage: synthesist task create <tree/spec> <summary> [--depends-on t1,t2] [--gate human] [--files f1,f2]")
 	}
 	s, err := discoverStore()
 	if err != nil {
@@ -84,7 +84,7 @@ func cmdTaskCreate(args []string) error {
 
 func cmdTaskList(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: synth task list <tree/spec>")
+		return fmt.Errorf("usage: synthesist task list <tree/spec>")
 	}
 	s, err := discoverStore()
 	if err != nil {
@@ -146,7 +146,7 @@ func cmdTaskList(args []string) error {
 
 func cmdTaskClaim(args []string) error {
 	if len(args) < 2 {
-		return fmt.Errorf("usage: synth task claim <tree/spec> <task-id>")
+		return fmt.Errorf("usage: synthesist task claim <tree/spec> <task-id>")
 	}
 	s, err := discoverStore()
 	if err != nil {
@@ -189,7 +189,7 @@ func cmdTaskClaim(args []string) error {
 		}
 	}
 
-	ownerName := "synth"
+	ownerName := "synthesist"
 	_, err = s.DB.Exec("UPDATE tasks SET status = 'in_progress', owner = ? WHERE tree = ? AND spec = ? AND id = ?",
 		ownerName, tree, spec, taskID)
 	if err != nil {
@@ -205,7 +205,7 @@ func cmdTaskClaim(args []string) error {
 
 func cmdTaskDone(args []string) error {
 	if len(args) < 2 {
-		return fmt.Errorf("usage: synth task done <tree/spec> <task-id>")
+		return fmt.Errorf("usage: synthesist task done <tree/spec> <task-id>")
 	}
 	s, err := discoverStore()
 	if err != nil {
@@ -282,7 +282,7 @@ func cmdTaskDone(args []string) error {
 
 func cmdTaskWait(args []string) error {
 	if len(args) < 2 {
-		return fmt.Errorf("usage: synth task wait <tree/spec> <task-id> --reason '...' --external 'url' --check 'cmd' [--check-after YYYY-MM-DD]")
+		return fmt.Errorf("usage: synthesist task wait <tree/spec> <task-id> --reason '...' --external 'url' --check 'cmd' [--check-after YYYY-MM-DD]")
 	}
 	s, err := discoverStore()
 	if err != nil {
@@ -333,7 +333,7 @@ func cmdTaskWait(args []string) error {
 
 func cmdTaskBlock(args []string) error {
 	if len(args) < 2 {
-		return fmt.Errorf("usage: synth task block <tree/spec> <task-id>")
+		return fmt.Errorf("usage: synthesist task block <tree/spec> <task-id>")
 	}
 	s, err := discoverStore()
 	if err != nil {
@@ -359,7 +359,7 @@ func cmdTaskBlock(args []string) error {
 
 func cmdTaskReady(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: synth task ready <tree/spec>")
+		return fmt.Errorf("usage: synthesist task ready <tree/spec>")
 	}
 	s, err := discoverStore()
 	if err != nil {

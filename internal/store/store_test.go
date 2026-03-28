@@ -21,7 +21,7 @@ func TestInit(t *testing.T) {
 	defer s.Close()
 
 	// Verify .synth directory created
-	if _, err := os.Stat(filepath.Join(dir, ".synth", "synth", ".dolt")); err != nil {
+	if _, err := os.Stat(filepath.Join(dir, ".synth", "synthesist", ".dolt")); err != nil {
 		t.Fatalf("Dolt database not created: %v", err)
 	}
 

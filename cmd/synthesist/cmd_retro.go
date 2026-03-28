@@ -9,7 +9,7 @@ import (
 
 func cmdRetro(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: synth retro <create|show|transform> ...")
+		return fmt.Errorf("usage: synthesist retro <create|show|transform> ...")
 	}
 	switch args[0] {
 	case "create":
@@ -25,7 +25,7 @@ func cmdRetro(args []string) error {
 
 func cmdRetroCreate(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: synth retro create <tree/spec> --arc '...' --depends-on t8[,t9]")
+		return fmt.Errorf("usage: synthesist retro create <tree/spec> --arc '...' --depends-on t8[,t9]")
 	}
 	s, err := discoverStore()
 	if err != nil {
@@ -76,13 +76,13 @@ func cmdRetroCreate(args []string) error {
 	return jsonOut(map[string]any{
 		"id": "retro", "type": "retro", "tree": tree, "spec": spec,
 		"arc": arc, "status": "done",
-		"next": "use 'synth retro transform' to add transforms, then 'synth pattern register' for reusable patterns",
+		"next": "use 'synthesist retro transform' to add transforms, then 'synthesist pattern register' for reusable patterns",
 	})
 }
 
 func cmdRetroTransform(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: synth retro transform <tree/spec> --label '...' --description '...' [--transferable]")
+		return fmt.Errorf("usage: synthesist retro transform <tree/spec> --label '...' --description '...' [--transferable]")
 	}
 	s, err := discoverStore()
 	if err != nil {
@@ -138,7 +138,7 @@ func cmdRetroTransform(args []string) error {
 
 func cmdRetroShow(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: synth retro show <tree/spec>")
+		return fmt.Errorf("usage: synthesist retro show <tree/spec>")
 	}
 	s, err := discoverStore()
 	if err != nil {
@@ -204,7 +204,7 @@ func cmdRetroShow(args []string) error {
 
 func cmdPattern(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: synth pattern <register|list> ...")
+		return fmt.Errorf("usage: synthesist pattern <register|list> ...")
 	}
 	switch args[0] {
 	case "register":
@@ -218,7 +218,7 @@ func cmdPattern(args []string) error {
 
 func cmdPatternRegister(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: synth pattern register <tree> <id> --name '...' --description '...' [--transferability '...'] [--observed-in spec1,spec2]")
+		return fmt.Errorf("usage: synthesist pattern register <tree> <id> --name '...' --description '...' [--transferability '...'] [--observed-in spec1,spec2]")
 	}
 	s, err := discoverStore()
 	if err != nil {
@@ -271,7 +271,7 @@ func cmdPatternRegister(args []string) error {
 
 func cmdPatternList(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: synth pattern list <tree>")
+		return fmt.Errorf("usage: synthesist pattern list <tree>")
 	}
 	s, err := discoverStore()
 	if err != nil {
@@ -314,7 +314,7 @@ func cmdPatternList(args []string) error {
 
 func cmdReplay(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: synth replay <tree/spec>")
+		return fmt.Errorf("usage: synthesist replay <tree/spec>")
 	}
 	s, err := discoverStore()
 	if err != nil {

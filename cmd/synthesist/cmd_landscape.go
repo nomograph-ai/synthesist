@@ -9,7 +9,7 @@ import (
 
 func cmdStakeholder(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: synth stakeholder <add|list> ...")
+		return fmt.Errorf("usage: synthesist stakeholder <add|list> ...")
 	}
 	switch args[0] {
 	case "add":
@@ -23,7 +23,7 @@ func cmdStakeholder(args []string) error {
 
 func cmdStakeholderAdd(args []string) error {
 	if len(args) < 2 {
-		return fmt.Errorf("usage: synth stakeholder add <tree> <id> --context 'role' [--name 'Full Name'] [--orgs 'org1,org2']")
+		return fmt.Errorf("usage: synthesist stakeholder add <tree> <id> --context 'role' [--name 'Full Name'] [--orgs 'org1,org2']")
 	}
 	s, err := discoverStore()
 	if err != nil {
@@ -72,7 +72,7 @@ func cmdStakeholderAdd(args []string) error {
 
 func cmdStakeholderList(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: synth stakeholder list <tree>")
+		return fmt.Errorf("usage: synthesist stakeholder list <tree>")
 	}
 	s, err := discoverStore()
 	if err != nil {
@@ -115,7 +115,7 @@ func cmdStakeholderList(args []string) error {
 
 func cmdDisposition(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: synth disposition <add|list|supersede> ...")
+		return fmt.Errorf("usage: synthesist disposition <add|list|supersede> ...")
 	}
 	switch args[0] {
 	case "add":
@@ -131,7 +131,7 @@ func cmdDisposition(args []string) error {
 
 func cmdDispositionAdd(args []string) error {
 	if len(args) < 2 {
-		return fmt.Errorf("usage: synth disposition add <tree/spec> <stakeholder> --topic '...' --stance cautious --confidence inferred [--preferred '...']")
+		return fmt.Errorf("usage: synthesist disposition add <tree/spec> <stakeholder> --topic '...' --stance cautious --confidence inferred [--preferred '...']")
 	}
 	s, err := discoverStore()
 	if err != nil {
@@ -195,7 +195,7 @@ func cmdDispositionAdd(args []string) error {
 
 func cmdDispositionList(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: synth disposition list <tree/spec>")
+		return fmt.Errorf("usage: synthesist disposition list <tree/spec>")
 	}
 	s, err := discoverStore()
 	if err != nil {
@@ -240,7 +240,7 @@ func cmdDispositionList(args []string) error {
 
 func cmdDispositionSupersede(args []string) error {
 	if len(args) < 2 {
-		return fmt.Errorf("usage: synth disposition supersede <tree/spec> <disposition-id> --new-stance supportive [--evidence s1] [--preferred '...']")
+		return fmt.Errorf("usage: synthesist disposition supersede <tree/spec> <disposition-id> --new-stance supportive [--evidence s1] [--preferred '...']")
 	}
 	s, err := discoverStore()
 	if err != nil {
@@ -333,7 +333,7 @@ func cmdDispositionSupersede(args []string) error {
 
 func cmdSignal(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: synth signal <record|list> ...")
+		return fmt.Errorf("usage: synthesist signal <record|list> ...")
 	}
 	switch args[0] {
 	case "record":
@@ -347,7 +347,7 @@ func cmdSignal(args []string) error {
 
 func cmdSignalRecord(args []string) error {
 	if len(args) < 2 {
-		return fmt.Errorf("usage: synth signal record <tree/spec> <stakeholder> --source 'url' --type pr_comment --content '...' [--date YYYY-MM-DD] [--our-action '...'] [--interpretation '...']")
+		return fmt.Errorf("usage: synthesist signal record <tree/spec> <stakeholder> --source 'url' --type pr_comment --content '...' [--date YYYY-MM-DD] [--our-action '...'] [--interpretation '...']")
 	}
 	s, err := discoverStore()
 	if err != nil {
@@ -420,7 +420,7 @@ func cmdSignalRecord(args []string) error {
 
 func cmdSignalList(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: synth signal list <tree/spec>")
+		return fmt.Errorf("usage: synthesist signal list <tree/spec>")
 	}
 	s, err := discoverStore()
 	if err != nil {
@@ -465,7 +465,7 @@ func cmdSignalList(args []string) error {
 
 func cmdLandscape(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: synth landscape show <tree/spec>")
+		return fmt.Errorf("usage: synthesist landscape show <tree/spec>")
 	}
 	if args[0] != "show" {
 		return fmt.Errorf("unknown landscape subcommand: %s (did you mean 'show'?)", args[0])
@@ -475,7 +475,7 @@ func cmdLandscape(args []string) error {
 
 func cmdLandscapeShow(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: synth landscape show <tree/spec>")
+		return fmt.Errorf("usage: synthesist landscape show <tree/spec>")
 	}
 	s, err := discoverStore()
 	if err != nil {
@@ -569,7 +569,7 @@ func cmdLandscapeShow(args []string) error {
 
 func cmdStance(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: synth stance <stakeholder> [topic]")
+		return fmt.Errorf("usage: synthesist stance <stakeholder> [topic]")
 	}
 	s, err := discoverStore()
 	if err != nil {

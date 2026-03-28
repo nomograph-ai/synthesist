@@ -1,6 +1,6 @@
 // Package store manages the Dolt embedded database.
 // All spec graph data flows through here. The store is the single
-// write path -- LLMs and humans use synth commands, synth uses store.
+// write path -- LLMs and humans use synthesist commands, synthesist uses store.
 package store
 
 import (
@@ -23,18 +23,18 @@ type Store struct {
 	AutoCommit bool
 }
 
-// Open opens an existing synth database, or returns an error if not initialized.
+// Open opens an existing synthesist database, or returns an error if not initialized.
 func Open(root string) (*Store, error) {
 	abs, err := filepath.Abs(root)
 	if err != nil {
 		return nil, fmt.Errorf("resolving root: %w", err)
 	}
 	dbPath := filepath.Join(abs, ".synth")
-	// Dolt creates .synth/synth/.dolt/ (database name = subdirectory)
-	if _, err := os.Stat(filepath.Join(dbPath, "synth", ".dolt")); os.IsNotExist(err) {
-		return nil, fmt.Errorf("no synth database at %s -- run 'synth init'", dbPath)
+	// Dolt creates .synth/synthesist/.dolt/ (database name = subdirectory)
+	if _, err := os.Stat(filepath.Join(dbPath, "synthesist", ".dolt")); os.IsNotExist(err) {
+		return nil, fmt.Errorf("no synthesist database at %s -- run 'synthesist init'", dbPath)
 	}
-	dsn := "file://" + dbPath + "?commitname=synth&commitemail=synth@synthesist&database=synth"
+	dsn := "file://" + dbPath + "?commitname=synthesist&commitemail=synthesist@synthesist&database=synthesist"
 	db, err := sql.Open("dolt", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("opening dolt database: %w", err)
@@ -47,7 +47,7 @@ func Open(root string) (*Store, error) {
 	}, nil
 }
 
-// Init creates a new synth database with the schema.
+// Init creates a new synthesist database with the schema.
 func Init(root string) (*Store, error) {
 	abs, err := filepath.Abs(root)
 	if err != nil {
@@ -59,19 +59,19 @@ func Init(root string) (*Store, error) {
 	}
 
 	// First open without database to create it
-	bootDSN := "file://" + dbPath + "?commitname=synth&commitemail=synth@synthesist&create=true"
+	bootDSN := "file://" + dbPath + "?commitname=synthesist&commitemail=synthesist@synthesist&create=true"
 	bootDB, err := sql.Open("dolt", bootDSN)
 	if err != nil {
 		return nil, fmt.Errorf("opening dolt for bootstrap: %w", err)
 	}
-	if _, err := bootDB.Exec("CREATE DATABASE IF NOT EXISTS synth"); err != nil {
+	if _, err := bootDB.Exec("CREATE DATABASE IF NOT EXISTS synthesist"); err != nil {
 		bootDB.Close()
-		return nil, fmt.Errorf("creating synth database: %w", err)
+		return nil, fmt.Errorf("creating synthesist database: %w", err)
 	}
 	bootDB.Close()
 
 	// Reopen with database selected
-	dsn := "file://" + dbPath + "?commitname=synth&commitemail=synth@synthesist&database=synth"
+	dsn := "file://" + dbPath + "?commitname=synthesist&commitemail=synthesist@synthesist&database=synthesist"
 	db, err := sql.Open("dolt", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("opening dolt database: %w", err)
@@ -85,7 +85,7 @@ func Init(root string) (*Store, error) {
 	if err := s.createSchema(); err != nil {
 		return nil, fmt.Errorf("creating schema: %w", err)
 	}
-	if err := s.doltCommit("synth init: create schema"); err != nil {
+	if err := s.doltCommit("synthesist init: create schema"); err != nil {
 		return nil, fmt.Errorf("initial dolt commit: %w", err)
 	}
 	return s, nil
@@ -103,13 +103,13 @@ func Discover() (*Store, error) {
 		return nil, err
 	}
 	for {
-		check := filepath.Join(dir, ".synth", "synth", ".dolt")
+		check := filepath.Join(dir, ".synth", "synthesist", ".dolt")
 		if _, err := os.Stat(check); err == nil {
 			return Open(dir)
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			return nil, fmt.Errorf("no .synth database found in any parent directory -- run 'synth init'")
+			return nil, fmt.Errorf("no .synth database found in any parent directory -- run 'synthesist init'")
 		}
 		dir = parent
 	}
