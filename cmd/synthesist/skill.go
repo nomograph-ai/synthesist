@@ -22,6 +22,7 @@ They are referenced by ID across specs in that tree.
 **confidence**: documented | verified | inferred | speculative
 **signal type**: pr_comment | issue_comment | review | commit_message | chat | meeting | email | other
 **influence role**: maintainer | reviewer | approver | blocker | champion | observer
+**direction status**: committed | proposed | experimental | rejected
 **task status**: pending | in_progress | done | blocked | waiting
 
 ## When to use synthesist
@@ -76,6 +77,10 @@ synthesist disposition list <tree/spec>
 synthesist disposition supersede <tree/spec> <id> --new-stance supportive [--evidence <signal-id>]
 synthesist signal record <tree/spec> <stakeholder> --source "url" --type pr_comment --content "..." [--date YYYY-MM-DD] [--our-action "..."] [--interpretation "..."]
 synthesist signal list <tree/spec>
+
+synthesist direction add <tree> --project "org/repo" --topic "..." --status proposed --impact "..." [--owner stakeholder-id] [--timeline "..."]
+synthesist direction list <tree>
+synthesist direction impact <tree> <direction-id> --affected-tree "..." --affected-spec "..." --description "..."
 
 synthesist retro create <tree/spec> --arc "..." --depends-on t8[,t9]
 synthesist retro transform <tree/spec> --label "..." --description "..." [--transferable]

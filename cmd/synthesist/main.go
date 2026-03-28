@@ -65,6 +65,8 @@ func main() {
 		err = cmdDisposition(args)
 	case "signal":
 		err = cmdSignal(args)
+	case "direction":
+		err = cmdDirection(args)
 
 	// Retro + Patterns
 	case "retro":
@@ -126,6 +128,9 @@ Landscape:
   disposition supersede <spec>  Update a disposition with new evidence
   signal record <spec>          Record an observed signal
   signal list <spec>            List signals for a spec
+  direction add <tree>          Record a technical direction in a tree
+  direction list <tree>         List current directions (not superseded)
+  direction impact <tree> <id>  Link a direction to an affected spec
   landscape show <spec>         Full stakeholder graph for a spec
 
 Retro + Patterns:
