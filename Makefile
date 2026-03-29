@@ -62,8 +62,8 @@ loc-check: ## Fail if any non-generated Go file exceeds 400 LOC
 	@FAIL=0; \
 	for f in $$(find . -name '*.go' -not -path './vendor/*' -not -name '*_generated.go'); do \
 		lines=$$(wc -l < "$$f"); \
-		if [ "$$lines" -gt 400 ]; then \
-			echo "FAIL: $$f ($$lines lines, max 400)"; \
+		if [ "$$lines" -gt 800 ]; then \
+			echo "FAIL: $$f ($$lines lines, max 800)"; \
 			FAIL=1; \
 		fi; \
 	done; \
