@@ -17,7 +17,7 @@ func cmdInit(args []string) error {
 	// Check if already initialized
 	s, err := store.Open(dir)
 	if err == nil {
-		s.Close()
+		_ = s.Close()
 		return fmt.Errorf("already initialized at %s", dir)
 	}
 
@@ -25,7 +25,7 @@ func cmdInit(args []string) error {
 	if err != nil {
 		return fmt.Errorf("init failed: %w", err)
 	}
-	defer s.Close()
+	defer s.Close() //nolint:errcheck
 
 	result := map[string]any{
 		"status":  "initialized",

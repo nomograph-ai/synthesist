@@ -11,7 +11,7 @@ func cmdStatus(args []string) error {
 	if err != nil {
 		return err
 	}
-	defer s.Close()
+	defer s.Close() //nolint:errcheck
 
 	result := map[string]any{}
 
@@ -21,10 +21,12 @@ func cmdStatus(args []string) error {
 		var trees []map[string]any
 		for rows.Next() {
 			var name, status, desc string
-			rows.Scan(&name, &status, &desc)
+			if err := rows.Scan(&name, &status, &desc); err != nil {
+				return fmt.Errorf("scanning row: %w", err)
+			}
 			trees = append(trees, map[string]any{"name": name, "status": status, "description": desc})
 		}
-		rows.Close()
+		_ = rows.Close()
 		result["trees"] = trees
 	}
 
@@ -35,7 +37,9 @@ func cmdStatus(args []string) error {
 		for rows.Next() {
 			var id, tree, date, summary string
 			var spec, task *string
-			rows.Scan(&id, &tree, &spec, &task, &date, &summary)
+			if err := rows.Scan(&id, &tree, &spec, &task, &date, &summary); err != nil {
+				return fmt.Errorf("scanning row: %w", err)
+			}
 			t := map[string]any{"id": id, "tree": tree, "date": date, "summary": summary}
 			if spec != nil {
 				t["spec"] = *spec
@@ -45,18 +49,18 @@ func cmdStatus(args []string) error {
 			}
 			threads = append(threads, t)
 		}
-		rows.Close()
+		_ = rows.Close()
 		result["threads"] = threads
 	}
 
 	// Task summary across all specs
 	var pending, inProgress, done, waiting, blocked, cancelled int
-	s.DB.QueryRow("SELECT COUNT(*) FROM tasks WHERE status = 'pending'").Scan(&pending)
-	s.DB.QueryRow("SELECT COUNT(*) FROM tasks WHERE status = 'in_progress'").Scan(&inProgress)
-	s.DB.QueryRow("SELECT COUNT(*) FROM tasks WHERE status = 'done'").Scan(&done)
-	s.DB.QueryRow("SELECT COUNT(*) FROM tasks WHERE status = 'waiting'").Scan(&waiting)
-	s.DB.QueryRow("SELECT COUNT(*) FROM tasks WHERE status = 'blocked'").Scan(&blocked)
-	s.DB.QueryRow("SELECT COUNT(*) FROM tasks WHERE status = 'cancelled'").Scan(&cancelled)
+	_ = s.DB.QueryRow("SELECT COUNT(*) FROM tasks WHERE status = 'pending'").Scan(&pending)
+	_ = s.DB.QueryRow("SELECT COUNT(*) FROM tasks WHERE status = 'in_progress'").Scan(&inProgress)
+	_ = s.DB.QueryRow("SELECT COUNT(*) FROM tasks WHERE status = 'done'").Scan(&done)
+	_ = s.DB.QueryRow("SELECT COUNT(*) FROM tasks WHERE status = 'waiting'").Scan(&waiting)
+	_ = s.DB.QueryRow("SELECT COUNT(*) FROM tasks WHERE status = 'blocked'").Scan(&blocked)
+	_ = s.DB.QueryRow("SELECT COUNT(*) FROM tasks WHERE status = 'cancelled'").Scan(&cancelled)
 	result["task_counts"] = map[string]int{
 		"pending": pending, "in_progress": inProgress, "done": done,
 		"waiting": waiting, "blocked": blocked, "cancelled": cancelled,
@@ -80,25 +84,27 @@ func cmdStatus(args []string) error {
 		for rows.Next() {
 			var tree, spec, id, summary string
 			var gate *string
-			rows.Scan(&tree, &spec, &id, &summary, &gate)
+			if err := rows.Scan(&tree, &spec, &id, &summary, &gate); err != nil {
+				return fmt.Errorf("scanning row: %w", err)
+			}
 			r := map[string]any{"tree": tree, "spec": spec, "id": id, "summary": summary}
 			if gate != nil {
 				r["gate"] = *gate
 			}
 			ready = append(ready, r)
 		}
-		rows.Close()
+		_ = rows.Close()
 		result["ready_tasks"] = ready
 	}
 
 	// Stakeholder count
 	var stakeholderCount int
-	s.DB.QueryRow("SELECT COUNT(*) FROM stakeholders").Scan(&stakeholderCount)
+	_ = s.DB.QueryRow("SELECT COUNT(*) FROM stakeholders").Scan(&stakeholderCount)
 	result["stakeholder_count"] = stakeholderCount
 
 	// Pattern count
 	var patternCount int
-	s.DB.QueryRow("SELECT COUNT(*) FROM patterns").Scan(&patternCount)
+	_ = s.DB.QueryRow("SELECT COUNT(*) FROM patterns").Scan(&patternCount)
 	result["pattern_count"] = patternCount
 
 	enc := json.NewEncoder(os.Stdout)
@@ -111,7 +117,7 @@ func cmdCheck(args []string) error {
 	if err != nil {
 		return err
 	}
-	defer s.Close()
+	defer s.Close() //nolint:errcheck
 
 	var issues []map[string]string
 	addIssue := func(level, msg string) {
@@ -122,28 +128,34 @@ func cmdCheck(args []string) error {
 	rows, _ := s.DB.Query("SELECT tree, spec, id FROM tasks WHERE status = 'waiting' AND waiter_reason IS NULL")
 	for rows.Next() {
 		var tree, spec, id string
-		rows.Scan(&tree, &spec, &id)
+		if err := rows.Scan(&tree, &spec, &id); err != nil {
+			return fmt.Errorf("scanning row: %w", err)
+		}
 		addIssue("error", fmt.Sprintf("task %s/%s/%s has status=waiting but no waiter_reason", tree, spec, id))
 	}
-	rows.Close()
+	_ = rows.Close()
 
 	// Check: retro tasks must have arc
 	rows, _ = s.DB.Query("SELECT tree, spec, id FROM tasks WHERE type = 'retro' AND (arc IS NULL OR arc = '')")
 	for rows.Next() {
 		var tree, spec, id string
-		rows.Scan(&tree, &spec, &id)
+		if err := rows.Scan(&tree, &spec, &id); err != nil {
+			return fmt.Errorf("scanning row: %w", err)
+		}
 		addIssue("error", fmt.Sprintf("retro task %s/%s/%s missing arc field", tree, spec, id))
 	}
-	rows.Close()
+	_ = rows.Close()
 
 	// Check: dispositions with valid_until should have superseded_by
 	rows, _ = s.DB.Query("SELECT tree, spec, id FROM dispositions WHERE valid_until IS NOT NULL AND superseded_by IS NULL")
 	for rows.Next() {
 		var tree, spec, id string
-		rows.Scan(&tree, &spec, &id)
+		if err := rows.Scan(&tree, &spec, &id); err != nil {
+			return fmt.Errorf("scanning row: %w", err)
+		}
 		addIssue("warn", fmt.Sprintf("disposition %s/%s/%s has valid_until but no superseded_by", tree, spec, id))
 	}
-	rows.Close()
+	_ = rows.Close()
 
 	// Check: task dependencies reference existing tasks
 	// NOTE: NOT IN tuple used as workaround for Dolt LEFT JOIN bug
@@ -154,10 +166,12 @@ func cmdCheck(args []string) error {
 	`)
 	for rows.Next() {
 		var tree, spec, taskID, dep string
-		rows.Scan(&tree, &spec, &taskID, &dep)
+		if err := rows.Scan(&tree, &spec, &taskID, &dep); err != nil {
+			return fmt.Errorf("scanning row: %w", err)
+		}
 		addIssue("error", fmt.Sprintf("task %s/%s/%s depends on %s which does not exist", tree, spec, taskID, dep))
 	}
-	rows.Close()
+	_ = rows.Close()
 
 	// Check: influence references existing stakeholders
 	// NOTE: NOT IN tuple used as workaround for Dolt LEFT JOIN / NOT EXISTS bug
@@ -169,10 +183,12 @@ func cmdCheck(args []string) error {
 	`)
 	for rows.Next() {
 		var tree, spec, stakeholder string
-		rows.Scan(&tree, &spec, &stakeholder)
+		if err := rows.Scan(&tree, &spec, &stakeholder); err != nil {
+			return fmt.Errorf("scanning row: %w", err)
+		}
 		addIssue("error", fmt.Sprintf("influence in %s/%s references unknown stakeholder %s", tree, spec, stakeholder))
 	}
-	rows.Close()
+	_ = rows.Close()
 
 	// Check: disposition references existing stakeholders
 	// NOTE: NOT IN tuple used as workaround for Dolt LEFT JOIN / NOT EXISTS bug
@@ -183,10 +199,12 @@ func cmdCheck(args []string) error {
 	`)
 	for rows.Next() {
 		var tree, spec, id, stakeholder string
-		rows.Scan(&tree, &spec, &id, &stakeholder)
+		if err := rows.Scan(&tree, &spec, &id, &stakeholder); err != nil {
+			return fmt.Errorf("scanning row: %w", err)
+		}
 		addIssue("error", fmt.Sprintf("disposition %s/%s/%s references unknown stakeholder %s", tree, spec, id, stakeholder))
 	}
-	rows.Close()
+	_ = rows.Close()
 
 	errorCount := 0
 	warnCount := 0
@@ -207,7 +225,9 @@ func cmdCheck(args []string) error {
 
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
-	enc.Encode(result)
+	if err := enc.Encode(result); err != nil {
+		return err
+	}
 
 	if errorCount > 0 {
 		return fmt.Errorf("%d errors found", errorCount)

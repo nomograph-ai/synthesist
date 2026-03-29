@@ -8,7 +8,7 @@ import (
 
 func cmdSpec(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: synthesist spec <create|show|update> ...")
+		return fmt.Errorf("usage: synthesist spec <create|show|update> ...") //nolint:staticcheck
 	}
 	switch args[0] {
 	case "create":
@@ -30,7 +30,7 @@ func cmdSpecCreate(args []string) error {
 	if err != nil {
 		return err
 	}
-	defer s.Close()
+	defer s.Close() //nolint:errcheck
 
 	tree, spec, err := parseTreeSpec(args[0])
 	if err != nil {
@@ -68,7 +68,9 @@ func cmdSpecCreate(args []string) error {
 		return fmt.Errorf("creating spec: %w", err)
 	}
 
-	s.Commit(fmt.Sprintf("spec(%s/%s): create", tree, spec))
+	if err := s.Commit(fmt.Sprintf("spec(%s/%s): create", tree, spec)); err != nil {
+		return err
+	}
 	return jsonOut(map[string]any{"tree": tree, "spec": spec, "goal": goal, "created": store.Today()})
 }
 
@@ -80,7 +82,7 @@ func cmdSpecShow(args []string) error {
 	if err != nil {
 		return err
 	}
-	defer s.Close()
+	defer s.Close() //nolint:errcheck
 
 	tree, spec, err := parseTreeSpec(args[0])
 	if err != nil {
@@ -111,11 +113,21 @@ func cmdSpecShow(args []string) error {
 
 	// Task summary
 	var pending, inProgress, done, blocked, waiting int
-	s.DB.QueryRow("SELECT COUNT(*) FROM tasks WHERE tree = ? AND spec = ? AND status = 'pending'", tree, spec).Scan(&pending)
-	s.DB.QueryRow("SELECT COUNT(*) FROM tasks WHERE tree = ? AND spec = ? AND status = 'in_progress'", tree, spec).Scan(&inProgress)
-	s.DB.QueryRow("SELECT COUNT(*) FROM tasks WHERE tree = ? AND spec = ? AND status = 'done'", tree, spec).Scan(&done)
-	s.DB.QueryRow("SELECT COUNT(*) FROM tasks WHERE tree = ? AND spec = ? AND status = 'blocked'", tree, spec).Scan(&blocked)
-	s.DB.QueryRow("SELECT COUNT(*) FROM tasks WHERE tree = ? AND spec = ? AND status = 'waiting'", tree, spec).Scan(&waiting)
+	if err := s.DB.QueryRow("SELECT COUNT(*) FROM tasks WHERE tree = ? AND spec = ? AND status = 'pending'", tree, spec).Scan(&pending); err != nil {
+		return fmt.Errorf("scanning count: %w", err)
+	}
+	if err := s.DB.QueryRow("SELECT COUNT(*) FROM tasks WHERE tree = ? AND spec = ? AND status = 'in_progress'", tree, spec).Scan(&inProgress); err != nil {
+		return fmt.Errorf("scanning count: %w", err)
+	}
+	if err := s.DB.QueryRow("SELECT COUNT(*) FROM tasks WHERE tree = ? AND spec = ? AND status = 'done'", tree, spec).Scan(&done); err != nil {
+		return fmt.Errorf("scanning count: %w", err)
+	}
+	if err := s.DB.QueryRow("SELECT COUNT(*) FROM tasks WHERE tree = ? AND spec = ? AND status = 'blocked'", tree, spec).Scan(&blocked); err != nil {
+		return fmt.Errorf("scanning count: %w", err)
+	}
+	if err := s.DB.QueryRow("SELECT COUNT(*) FROM tasks WHERE tree = ? AND spec = ? AND status = 'waiting'", tree, spec).Scan(&waiting); err != nil {
+		return fmt.Errorf("scanning count: %w", err)
+	}
 	result["task_counts"] = map[string]int{
 		"pending": pending, "in_progress": inProgress, "done": done,
 		"blocked": blocked, "waiting": waiting,
@@ -131,14 +143,16 @@ func cmdSpecShow(args []string) error {
 		var targetTree, targetSpec string
 		var seq int
 		var desc *string
-		rows.Scan(&targetTree, &targetSpec, &seq, &desc)
+		if err := rows.Scan(&targetTree, &targetSpec, &seq, &desc); err != nil {
+			return fmt.Errorf("scanning row: %w", err)
+		}
 		p := map[string]any{"target_tree": targetTree, "target_spec": targetSpec, "seq": seq}
 		if desc != nil {
 			p["description"] = *desc
 		}
 		propagates = append(propagates, p)
 	}
-	rows.Close()
+	_ = rows.Close()
 	if len(propagates) > 0 {
 		result["propagates_to"] = propagates
 	}
@@ -152,14 +166,16 @@ func cmdSpecShow(args []string) error {
 	for rows.Next() {
 		var sourceTree, sourceSpec string
 		var desc *string
-		rows.Scan(&sourceTree, &sourceSpec, &desc)
+		if err := rows.Scan(&sourceTree, &sourceSpec, &desc); err != nil {
+			return fmt.Errorf("scanning row: %w", err)
+		}
 		a := map[string]any{"source_tree": sourceTree, "source_spec": sourceSpec}
 		if desc != nil {
 			a["description"] = *desc
 		}
 		affectedBy = append(affectedBy, a)
 	}
-	rows.Close()
+	_ = rows.Close()
 	if len(affectedBy) > 0 {
 		result["affected_by"] = affectedBy
 	}
@@ -175,7 +191,7 @@ func cmdSpecUpdate(args []string) error {
 	if err != nil {
 		return err
 	}
-	defer s.Close()
+	defer s.Close() //nolint:errcheck
 
 	tree, spec, err := parseTreeSpec(args[0])
 	if err != nil {
@@ -192,14 +208,22 @@ func cmdSpecUpdate(args []string) error {
 	for i := 1; i < len(args)-1; i += 2 {
 		switch args[i] {
 		case "--goal":
-			s.DB.Exec("UPDATE specs SET goal = ? WHERE tree = ? AND id = ?", args[i+1], tree, spec)
+			if _, err := s.DB.Exec("UPDATE specs SET goal = ? WHERE tree = ? AND id = ?", args[i+1], tree, spec); err != nil {
+				return fmt.Errorf("updating goal: %w", err)
+			}
 		case "--constraints":
-			s.DB.Exec("UPDATE specs SET constraints = ? WHERE tree = ? AND id = ?", args[i+1], tree, spec)
+			if _, err := s.DB.Exec("UPDATE specs SET constraints = ? WHERE tree = ? AND id = ?", args[i+1], tree, spec); err != nil {
+				return fmt.Errorf("updating constraints: %w", err)
+			}
 		case "--decisions":
-			s.DB.Exec("UPDATE specs SET decisions = ? WHERE tree = ? AND id = ?", args[i+1], tree, spec)
+			if _, err := s.DB.Exec("UPDATE specs SET decisions = ? WHERE tree = ? AND id = ?", args[i+1], tree, spec); err != nil {
+				return fmt.Errorf("updating decisions: %w", err)
+			}
 		}
 	}
 
-	s.Commit(fmt.Sprintf("spec(%s/%s): update", tree, spec))
+	if err := s.Commit(fmt.Sprintf("spec(%s/%s): update", tree, spec)); err != nil {
+		return err
+	}
 	return cmdSpecShow([]string{args[0]})
 }

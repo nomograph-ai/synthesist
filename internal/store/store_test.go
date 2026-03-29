@@ -18,7 +18,7 @@ func TestInit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Init failed: %v", err)
 	}
-	defer s.Close()
+	defer s.Close() //nolint:errcheck
 
 	// Verify .synth directory created
 	if _, err := os.Stat(filepath.Join(dir, ".synth", "synthesist", ".dolt")); err != nil {
@@ -42,14 +42,14 @@ func TestOpen(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Init failed: %v", err)
 	}
-	s.Close()
+	_ = s.Close()
 
 	// Reopen
 	s2, err := Open(dir)
 	if err != nil {
 		t.Fatalf("Open failed: %v", err)
 	}
-	defer s2.Close()
+	defer s2.Close() //nolint:errcheck
 
 	var count int
 	err = s2.DB.QueryRow("SELECT COUNT(*) FROM tasks").Scan(&count)
@@ -73,7 +73,7 @@ func TestTaskCRUD(t *testing.T) {
 		t.Fatalf("Init failed: %v", err)
 	}
 	s.AutoCommit = false // don't try git operations in tests
-	defer s.Close()
+	defer s.Close()      //nolint:errcheck
 
 	// Create a task
 	_, err = s.DB.Exec(
@@ -122,15 +122,21 @@ func TestTaskDependencies(t *testing.T) {
 		t.Fatalf("Init failed: %v", err)
 	}
 	s.AutoCommit = false
-	defer s.Close()
+	defer s.Close() //nolint:errcheck
 
 	// Create two tasks
-	s.DB.Exec("INSERT INTO tasks (tree, spec, id, type, summary, status, created) VALUES (?, ?, ?, ?, ?, ?, ?)",
-		"h", "s", "t1", "task", "First", "pending", Today())
-	s.DB.Exec("INSERT INTO tasks (tree, spec, id, type, summary, status, created) VALUES (?, ?, ?, ?, ?, ?, ?)",
-		"h", "s", "t2", "task", "Second", "pending", Today())
-	s.DB.Exec("INSERT INTO task_deps (tree, spec, task_id, depends_on) VALUES (?, ?, ?, ?)",
-		"h", "s", "t2", "t1")
+	if _, err := s.DB.Exec("INSERT INTO tasks (tree, spec, id, type, summary, status, created) VALUES (?, ?, ?, ?, ?, ?, ?)",
+		"h", "s", "t1", "task", "First", "pending", Today()); err != nil {
+		t.Fatalf("Insert t1 failed: %v", err)
+	}
+	if _, err := s.DB.Exec("INSERT INTO tasks (tree, spec, id, type, summary, status, created) VALUES (?, ?, ?, ?, ?, ?, ?)",
+		"h", "s", "t2", "task", "Second", "pending", Today()); err != nil {
+		t.Fatalf("Insert t2 failed: %v", err)
+	}
+	if _, err := s.DB.Exec("INSERT INTO task_deps (tree, spec, task_id, depends_on) VALUES (?, ?, ?, ?)",
+		"h", "s", "t2", "t1"); err != nil {
+		t.Fatalf("Insert task_dep failed: %v", err)
+	}
 
 	// t1 should be ready (no deps), t2 should not (depends on t1)
 	var readyCount int
@@ -152,7 +158,9 @@ func TestTaskDependencies(t *testing.T) {
 	}
 
 	// Complete t1
-	s.DB.Exec("UPDATE tasks SET status = 'done' WHERE tree = 'h' AND spec = 's' AND id = 't1'")
+	if _, err := s.DB.Exec("UPDATE tasks SET status = 'done' WHERE tree = 'h' AND spec = 's' AND id = 't1'"); err != nil {
+		t.Fatalf("Complete t1 failed: %v", err)
+	}
 
 	// Now both should show t2 as ready
 	err = s.DB.QueryRow(`
@@ -180,7 +188,7 @@ func TestStakeholderAndDisposition(t *testing.T) {
 		t.Fatalf("Init failed: %v", err)
 	}
 	s.AutoCommit = false
-	defer s.Close()
+	defer s.Close() //nolint:errcheck
 
 	// Add stakeholder
 	_, err = s.DB.Exec("INSERT INTO stakeholders (tree, id, context) VALUES (?, ?, ?)",
@@ -213,15 +221,19 @@ func TestStakeholderAndDisposition(t *testing.T) {
 	}
 
 	// Supersede with new disposition
-	s.DB.Exec(
+	if _, err = s.DB.Exec(
 		"UPDATE dispositions SET valid_until = ?, superseded_by = 'd2' WHERE tree = 'upstream' AND spec = 'upstream/auth-api' AND id = 'd1'",
 		Today(),
-	)
-	s.DB.Exec(
+	); err != nil {
+		t.Fatalf("Supersede old disposition failed: %v", err)
+	}
+	if _, err = s.DB.Exec(
 		"INSERT INTO dispositions (tree, spec, id, stakeholder_id, topic, stance, confidence, valid_from) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
 		"upstream", "upstream/auth-api", "d2", "mwilson",
 		"API versioning strategy", "supportive", "documented", Today(),
-	)
+	); err != nil {
+		t.Fatalf("Insert new disposition failed: %v", err)
+	}
 
 	// Query should return the new one
 	err = s.DB.QueryRow(
@@ -243,10 +255,12 @@ func TestSignalBiTemporal(t *testing.T) {
 		t.Fatalf("Init failed: %v", err)
 	}
 	s.AutoCommit = false
-	defer s.Close()
+	defer s.Close() //nolint:errcheck
 
-	s.DB.Exec("INSERT INTO stakeholders (tree, id, context) VALUES (?, ?, ?)",
-		"upstream", "testuser", "test maintainer")
+	if _, err := s.DB.Exec("INSERT INTO stakeholders (tree, id, context) VALUES (?, ?, ?)",
+		"upstream", "testuser", "test maintainer"); err != nil {
+		t.Fatalf("Insert stakeholder failed: %v", err)
+	}
 
 	// Record a signal from 2 weeks ago, discovered today
 	_, err = s.DB.Exec(
@@ -279,7 +293,7 @@ func TestDirections(t *testing.T) {
 		t.Fatalf("Init failed: %v", err)
 	}
 	s.AutoCommit = false
-	defer s.Close()
+	defer s.Close() //nolint:errcheck
 
 	_, err = s.DB.Exec(
 		"INSERT INTO directions (tree, id, project, topic, status, impact, valid_from) VALUES (?, ?, ?, ?, ?, ?, ?)",

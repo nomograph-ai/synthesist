@@ -6,7 +6,7 @@ import (
 
 func cmdTree(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: synthesist tree <create|list> ...")
+		return fmt.Errorf("usage: synthesist tree <create|list> ...") //nolint:staticcheck
 	}
 	switch args[0] {
 	case "create":
@@ -26,7 +26,7 @@ func cmdTreeCreate(args []string) error {
 	if err != nil {
 		return err
 	}
-	defer s.Close()
+	defer s.Close() //nolint:errcheck
 
 	name := args[0]
 	description := ""
@@ -46,7 +46,9 @@ func cmdTreeCreate(args []string) error {
 		return fmt.Errorf("creating tree: %w", err)
 	}
 
-	s.Commit(fmt.Sprintf("estate: create tree %s", name))
+	if err := s.Commit(fmt.Sprintf("estate: create tree %s", name)); err != nil {
+		return err
+	}
 	return jsonOut(map[string]any{"name": name, "status": status, "description": description})
 }
 
@@ -55,18 +57,20 @@ func cmdTreeList(args []string) error {
 	if err != nil {
 		return err
 	}
-	defer s.Close()
+	defer s.Close() //nolint:errcheck
 
 	rows, err := s.DB.Query("SELECT name, status, description FROM trees ORDER BY name")
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	trees := make([]map[string]any, 0)
 	for rows.Next() {
 		var name, status, desc string
-		rows.Scan(&name, &status, &desc)
+		if err := rows.Scan(&name, &status, &desc); err != nil {
+			return fmt.Errorf("scanning row: %w", err)
+		}
 		trees = append(trees, map[string]any{"name": name, "status": status, "description": desc})
 	}
 	return jsonOut(map[string]any{"trees": trees})

@@ -7,7 +7,7 @@ import (
 
 func cmdPropagation(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: synthesist propagation <add|list|check> ...")
+		return fmt.Errorf("usage: synthesist propagation <add|list|check> ...") //nolint:staticcheck
 	}
 	switch args[0] {
 	case "add":
@@ -29,7 +29,7 @@ func cmdPropagationAdd(args []string) error {
 	if err != nil {
 		return err
 	}
-	defer s.Close()
+	defer s.Close() //nolint:errcheck
 
 	sourceTree, sourceSpec, err := parseTreeSpec(args[0])
 	if err != nil {
@@ -64,7 +64,9 @@ func cmdPropagationAdd(args []string) error {
 		return fmt.Errorf("adding propagation link: %w", err)
 	}
 
-	s.Commit(fmt.Sprintf("propagation: %s/%s -> %s/%s (seq %d)", sourceTree, sourceSpec, targetTree, targetSpec, seq))
+	if err := s.Commit(fmt.Sprintf("propagation: %s/%s -> %s/%s (seq %d)", sourceTree, sourceSpec, targetTree, targetSpec, seq)); err != nil {
+		return err
+	}
 	return jsonOut(map[string]any{
 		"source": sourceTree + "/" + sourceSpec,
 		"target": targetTree + "/" + targetSpec,
@@ -80,7 +82,7 @@ func cmdPropagationList(args []string) error {
 	if err != nil {
 		return err
 	}
-	defer s.Close()
+	defer s.Close() //nolint:errcheck
 
 	tree, spec, err := parseTreeSpec(args[0])
 	if err != nil {
@@ -97,14 +99,16 @@ func cmdPropagationList(args []string) error {
 		var targetTree, targetSpec string
 		var seq int
 		var desc *string
-		rows.Scan(&targetTree, &targetSpec, &seq, &desc)
+		if err := rows.Scan(&targetTree, &targetSpec, &seq, &desc); err != nil {
+			return fmt.Errorf("scanning row: %w", err)
+		}
 		d := map[string]any{"target": targetTree + "/" + targetSpec, "seq": seq}
 		if desc != nil {
 			d["description"] = *desc
 		}
 		downstream = append(downstream, d)
 	}
-	rows.Close()
+	_ = rows.Close()
 
 	// Upstream: what specs' changes affect this one
 	rows, _ = s.DB.Query(
@@ -116,14 +120,16 @@ func cmdPropagationList(args []string) error {
 		var sourceTree, sourceSpec string
 		var seq int
 		var desc *string
-		rows.Scan(&sourceTree, &sourceSpec, &seq, &desc)
+		if err := rows.Scan(&sourceTree, &sourceSpec, &seq, &desc); err != nil {
+			return fmt.Errorf("scanning row: %w", err)
+		}
 		u := map[string]any{"source": sourceTree + "/" + sourceSpec, "seq": seq}
 		if desc != nil {
 			u["description"] = *desc
 		}
 		upstream = append(upstream, u)
 	}
-	rows.Close()
+	_ = rows.Close()
 
 	return jsonOut(map[string]any{
 		"spec":       tree + "/" + spec,
@@ -143,7 +149,7 @@ func cmdPropagationCheck(args []string) error {
 	if err != nil {
 		return err
 	}
-	defer s.Close()
+	defer s.Close() //nolint:errcheck
 
 	tree, spec, err := parseTreeSpec(args[0])
 	if err != nil {
@@ -152,8 +158,10 @@ func cmdPropagationCheck(args []string) error {
 
 	// Get source's latest completion
 	var sourceLastCompleted *string
-	s.DB.QueryRow("SELECT MAX(completed) FROM tasks WHERE tree = ? AND spec = ? AND status = 'done'",
-		tree, spec).Scan(&sourceLastCompleted)
+	if err := s.DB.QueryRow("SELECT MAX(completed) FROM tasks WHERE tree = ? AND spec = ? AND status = 'done'",
+		tree, spec).Scan(&sourceLastCompleted); err != nil {
+		return fmt.Errorf("scanning source completion: %w", err)
+	}
 
 	if sourceLastCompleted == nil {
 		return jsonOut(map[string]any{"spec": tree + "/" + spec, "stale_targets": []any{}, "message": "no completed tasks in source"})
@@ -169,11 +177,15 @@ func cmdPropagationCheck(args []string) error {
 		var targetTree, targetSpec string
 		var seq int
 		var desc *string
-		rows.Scan(&targetTree, &targetSpec, &seq, &desc)
+		if err := rows.Scan(&targetTree, &targetSpec, &seq, &desc); err != nil {
+			return fmt.Errorf("scanning row: %w", err)
+		}
 
 		var targetLastCompleted *string
-		s.DB.QueryRow("SELECT MAX(completed) FROM tasks WHERE tree = ? AND spec = ? AND status = 'done'",
-			targetTree, targetSpec).Scan(&targetLastCompleted)
+		if err := s.DB.QueryRow("SELECT MAX(completed) FROM tasks WHERE tree = ? AND spec = ? AND status = 'done'",
+			targetTree, targetSpec).Scan(&targetLastCompleted); err != nil {
+			return fmt.Errorf("scanning target completion: %w", err)
+		}
 
 		if targetLastCompleted == nil || *targetLastCompleted < *sourceLastCompleted {
 			entry := map[string]any{
@@ -191,7 +203,7 @@ func cmdPropagationCheck(args []string) error {
 			stale = append(stale, entry)
 		}
 	}
-	rows.Close()
+	_ = rows.Close()
 
 	return jsonOut(map[string]any{
 		"spec":          tree + "/" + spec,

@@ -8,7 +8,7 @@ import (
 
 func cmdDiscovery(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: synthesist discovery <add|list> ...")
+		return fmt.Errorf("usage: synthesist discovery <add|list> ...") //nolint:staticcheck
 	}
 	switch args[0] {
 	case "add":
@@ -28,7 +28,7 @@ func cmdDiscoveryAdd(args []string) error {
 	if err != nil {
 		return err
 	}
-	defer s.Close()
+	defer s.Close() //nolint:errcheck
 
 	tree, spec, err := parseTreeSpec(args[0])
 	if err != nil {
@@ -61,10 +61,12 @@ func cmdDiscoveryAdd(args []string) error {
 	rows, _ := s.DB.Query("SELECT id FROM discoveries WHERE tree = ? AND spec = ?", tree, spec)
 	for rows.Next() {
 		var id string
-		rows.Scan(&id)
+		if err := rows.Scan(&id); err != nil {
+			return fmt.Errorf("scanning row: %w", err)
+		}
 		ids = append(ids, id)
 	}
-	rows.Close()
+	_ = rows.Close()
 	newID := store.NextID("f", ids)
 
 	var impactPtr, actionPtr, authorPtr *string
@@ -85,7 +87,9 @@ func cmdDiscoveryAdd(args []string) error {
 		return fmt.Errorf("adding discovery: %w", err)
 	}
 
-	s.Commit(fmt.Sprintf("discovery(%s/%s): %s", tree, spec, newID))
+	if err := s.Commit(fmt.Sprintf("discovery(%s/%s): %s", tree, spec, newID)); err != nil {
+		return err
+	}
 	return jsonOut(map[string]any{"id": newID, "tree": tree, "spec": spec, "finding": finding, "date": date})
 }
 
@@ -97,7 +101,7 @@ func cmdDiscoveryList(args []string) error {
 	if err != nil {
 		return err
 	}
-	defer s.Close()
+	defer s.Close() //nolint:errcheck
 
 	tree, spec, err := parseTreeSpec(args[0])
 	if err != nil {
@@ -110,13 +114,15 @@ func cmdDiscoveryList(args []string) error {
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	discoveries := make([]map[string]any, 0)
 	for rows.Next() {
 		var id, date, finding string
 		var author, impact, action *string
-		rows.Scan(&id, &date, &author, &finding, &impact, &action)
+		if err := rows.Scan(&id, &date, &author, &finding, &impact, &action); err != nil {
+			return fmt.Errorf("scanning row: %w", err)
+		}
 		d := map[string]any{"id": id, "date": date, "finding": finding}
 		if author != nil {
 			d["author"] = *author

@@ -1,0 +1,28 @@
+{
+  "pattern_count": 0,
+  "ready_tasks": [
+    {
+      "id": "t1",
+      "spec": "spec",
+      "summary": "A task",
+      "tree": "test"
+    }
+  ],
+  "stakeholder_count": 0,
+  "task_counts": {
+    "blocked": 0,
+    "cancelled": 0,
+    "done": 0,
+    "in_progress": 0,
+    "pending": 1,
+    "waiting": 0
+  },
+  "threads": null,
+  "trees": [
+    {
+      "description": "Test tree",
+      "name": "test",
+      "status": "active"
+    }
+  ]
+}

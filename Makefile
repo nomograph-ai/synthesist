@@ -26,11 +26,14 @@ clean:
 	rm -f $(BINARY)
 	go clean -cache
 
-test:
+test: build
 	go test ./...
 
+golden-update: build
+	go test ./cmd/synthesist -update
+
 lint:
-	go vet ./...
+	golangci-lint run ./...
 
 # Run synthesist check against local specs (if initialized)
 check: build

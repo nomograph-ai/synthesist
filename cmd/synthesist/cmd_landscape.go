@@ -9,7 +9,7 @@ import (
 
 func cmdStakeholder(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: synthesist stakeholder <add|list> ...")
+		return fmt.Errorf("usage: synthesist stakeholder <add|list> ...") //nolint:staticcheck
 	}
 	switch args[0] {
 	case "add":
@@ -29,7 +29,7 @@ func cmdStakeholderAdd(args []string) error {
 	if err != nil {
 		return err
 	}
-	defer s.Close()
+	defer s.Close() //nolint:errcheck
 
 	tree := args[0]
 	id := args[1]
@@ -62,11 +62,15 @@ func cmdStakeholderAdd(args []string) error {
 	}
 
 	for _, org := range orgs {
-		s.DB.Exec("INSERT IGNORE INTO stakeholder_orgs (tree, stakeholder_id, org) VALUES (?, ?, ?)",
-			tree, id, strings.TrimSpace(org))
+		if _, err := s.DB.Exec("INSERT IGNORE INTO stakeholder_orgs (tree, stakeholder_id, org) VALUES (?, ?, ?)",
+			tree, id, strings.TrimSpace(org)); err != nil {
+			return fmt.Errorf("inserting stakeholder org: %w", err)
+		}
 	}
 
-	s.Commit(fmt.Sprintf("landscape(%s): add stakeholder %s", tree, id))
+	if err := s.Commit(fmt.Sprintf("landscape(%s): add stakeholder %s", tree, id)); err != nil {
+		return err
+	}
 	return jsonOut(map[string]any{"tree": tree, "id": id, "context": context})
 }
 
@@ -78,20 +82,22 @@ func cmdStakeholderList(args []string) error {
 	if err != nil {
 		return err
 	}
-	defer s.Close()
+	defer s.Close() //nolint:errcheck
 
 	tree := args[0]
 	rows, err := s.DB.Query("SELECT id, name, context FROM stakeholders WHERE tree = ? ORDER BY id", tree)
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck //nolint:errcheck
 
 	var stakeholders []map[string]any
 	for rows.Next() {
 		var id, context string
 		var name *string
-		rows.Scan(&id, &name, &context)
+		if err := rows.Scan(&id, &name, &context); err != nil {
+			return fmt.Errorf("scanning row: %w", err)
+		}
 		sh := map[string]any{"id": id, "context": context}
 		if name != nil {
 			sh["name"] = *name
@@ -101,10 +107,12 @@ func cmdStakeholderList(args []string) error {
 		var orgs []string
 		for orgRows.Next() {
 			var org string
-			orgRows.Scan(&org)
+			if err := orgRows.Scan(&org); err != nil {
+				return fmt.Errorf("scanning row: %w", err)
+			}
 			orgs = append(orgs, org)
 		}
-		orgRows.Close()
+		_ = orgRows.Close()
 		if len(orgs) > 0 {
 			sh["orgs"] = orgs
 		}
@@ -115,7 +123,7 @@ func cmdStakeholderList(args []string) error {
 
 func cmdDisposition(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: synthesist disposition <add|list|supersede> ...")
+		return fmt.Errorf("usage: synthesist disposition <add|list|supersede> ...") //nolint:staticcheck
 	}
 	switch args[0] {
 	case "add":
@@ -137,7 +145,7 @@ func cmdDispositionAdd(args []string) error {
 	if err != nil {
 		return err
 	}
-	defer s.Close()
+	defer s.Close() //nolint:errcheck
 
 	tree, spec, err := parseTreeSpec(args[0])
 	if err != nil {
@@ -167,10 +175,12 @@ func cmdDispositionAdd(args []string) error {
 	rows, _ := s.DB.Query("SELECT id FROM dispositions WHERE tree = ? AND spec = ?", tree, spec)
 	for rows.Next() {
 		var id string
-		rows.Scan(&id)
+		if err := rows.Scan(&id); err != nil {
+			return fmt.Errorf("scanning row: %w", err)
+		}
 		ids = append(ids, id)
 	}
-	rows.Close()
+	_ = rows.Close()
 	newID := store.NextID("d", ids)
 
 	var preferredPtr *string
@@ -186,7 +196,9 @@ func cmdDispositionAdd(args []string) error {
 		return fmt.Errorf("inserting disposition: %w", err)
 	}
 
-	s.Commit(fmt.Sprintf("landscape(%s/%s): disposition %s -- %s is %s on %s", tree, spec, newID, stakeholderID, stance, topic))
+	if err := s.Commit(fmt.Sprintf("landscape(%s/%s): disposition %s -- %s is %s on %s", tree, spec, newID, stakeholderID, stance, topic)); err != nil {
+		return err
+	}
 	return jsonOut(map[string]any{
 		"id": newID, "stakeholder": stakeholderID, "topic": topic,
 		"stance": stance, "confidence": confidence,
@@ -201,7 +213,7 @@ func cmdDispositionList(args []string) error {
 	if err != nil {
 		return err
 	}
-	defer s.Close()
+	defer s.Close() //nolint:errcheck
 
 	tree, spec, err := parseTreeSpec(args[0])
 	if err != nil {
@@ -215,13 +227,15 @@ func cmdDispositionList(args []string) error {
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var dispositions []map[string]any
 	for rows.Next() {
 		var id, stakeholder, topic, stance, confidence, validFrom string
 		var preferred, validUntil *string
-		rows.Scan(&id, &stakeholder, &topic, &stance, &preferred, &confidence, &validFrom, &validUntil)
+		if err := rows.Scan(&id, &stakeholder, &topic, &stance, &preferred, &confidence, &validFrom, &validUntil); err != nil {
+			return fmt.Errorf("scanning row: %w", err)
+		}
 		d := map[string]any{
 			"id": id, "stakeholder": stakeholder, "topic": topic,
 			"stance": stance, "confidence": confidence, "valid_from": validFrom,
@@ -246,7 +260,7 @@ func cmdDispositionSupersede(args []string) error {
 	if err != nil {
 		return err
 	}
-	defer s.Close()
+	defer s.Close() //nolint:errcheck
 
 	tree, spec, err := parseTreeSpec(args[0])
 	if err != nil {
@@ -285,17 +299,21 @@ func cmdDispositionSupersede(args []string) error {
 	rows, _ := s.DB.Query("SELECT id FROM dispositions WHERE tree = ? AND spec = ?", tree, spec)
 	for rows.Next() {
 		var id string
-		rows.Scan(&id)
+		if err := rows.Scan(&id); err != nil {
+			return fmt.Errorf("scanning row: %w", err)
+		}
 		ids = append(ids, id)
 	}
-	rows.Close()
+	_ = rows.Close()
 	newID := store.NextID("d", ids)
 
 	today := store.Today()
 
 	// Supersede old
-	s.DB.Exec("UPDATE dispositions SET valid_until = ?, superseded_by = ? WHERE tree = ? AND spec = ? AND id = ?",
-		today, newID, tree, spec, oldID)
+	if _, err := s.DB.Exec("UPDATE dispositions SET valid_until = ?, superseded_by = ? WHERE tree = ? AND spec = ? AND id = ?",
+		today, newID, tree, spec, oldID); err != nil {
+		return fmt.Errorf("superseding disposition: %w", err)
+	}
 
 	// Insert new
 	var preferredPtr *string
@@ -310,16 +328,20 @@ func cmdDispositionSupersede(args []string) error {
 		evidencePtr = &evidence
 	}
 
-	s.DB.Exec(
+	if _, err := s.DB.Exec(
 		"INSERT INTO dispositions (tree, spec, id, stakeholder_id, topic, stance, preferred_approach, confidence, evidence, valid_from) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 		tree, spec, newID, stakeholder, topic, newStance, preferredPtr, confidence, evidencePtr, today,
-	)
+	); err != nil {
+		return fmt.Errorf("inserting new disposition: %w", err)
+	}
 
 	commitMsg := fmt.Sprintf("landscape(%s/%s): supersede %s -> %s (%s now %s on %s)", tree, spec, oldID, newID, stakeholder, newStance, topic)
 	if evidence != "" {
 		commitMsg += fmt.Sprintf(" [evidence: %s]", evidence)
 	}
-	s.Commit(commitMsg)
+	if err := s.Commit(commitMsg); err != nil {
+		return err
+	}
 
 	out := map[string]any{
 		"old_id": oldID, "new_id": newID, "stakeholder": stakeholder,
@@ -333,7 +355,7 @@ func cmdDispositionSupersede(args []string) error {
 
 func cmdSignal(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: synthesist signal <record|list> ...")
+		return fmt.Errorf("usage: synthesist signal <record|list> ...") //nolint:staticcheck
 	}
 	switch args[0] {
 	case "record":
@@ -353,7 +375,7 @@ func cmdSignalRecord(args []string) error {
 	if err != nil {
 		return err
 	}
-	defer s.Close()
+	defer s.Close() //nolint:errcheck
 
 	tree, spec, err := parseTreeSpec(args[0])
 	if err != nil {
@@ -389,10 +411,12 @@ func cmdSignalRecord(args []string) error {
 	rows, _ := s.DB.Query("SELECT id FROM signals WHERE tree = ? AND spec = ?", tree, spec)
 	for rows.Next() {
 		var id string
-		rows.Scan(&id)
+		if err := rows.Scan(&id); err != nil {
+			return fmt.Errorf("scanning row: %w", err)
+		}
 		ids = append(ids, id)
 	}
-	rows.Close()
+	_ = rows.Close()
 	newID := store.NextID("s", ids)
 
 	var ourActionPtr, interpPtr *string
@@ -411,7 +435,9 @@ func cmdSignalRecord(args []string) error {
 		return fmt.Errorf("inserting signal: %w", err)
 	}
 
-	s.Commit(fmt.Sprintf("landscape(%s/%s): signal %s from %s", tree, spec, newID, stakeholderID))
+	if err := s.Commit(fmt.Sprintf("landscape(%s/%s): signal %s from %s", tree, spec, newID, stakeholderID)); err != nil {
+		return err
+	}
 	return jsonOut(map[string]any{
 		"id": newID, "stakeholder": stakeholderID, "date": date,
 		"source_type": sourceType, "recorded_date": store.Today(),
@@ -426,7 +452,7 @@ func cmdSignalList(args []string) error {
 	if err != nil {
 		return err
 	}
-	defer s.Close()
+	defer s.Close() //nolint:errcheck
 
 	tree, spec, err := parseTreeSpec(args[0])
 	if err != nil {
@@ -440,13 +466,15 @@ func cmdSignalList(args []string) error {
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var signals []map[string]any
 	for rows.Next() {
 		var id, stakeholder, date, recordedDate, source, sourceType, content string
 		var ourAction, interpretation *string
-		rows.Scan(&id, &stakeholder, &date, &recordedDate, &source, &sourceType, &content, &ourAction, &interpretation)
+		if err := rows.Scan(&id, &stakeholder, &date, &recordedDate, &source, &sourceType, &content, &ourAction, &interpretation); err != nil {
+			return fmt.Errorf("scanning row: %w", err)
+		}
 		sig := map[string]any{
 			"id": id, "stakeholder": stakeholder, "date": date,
 			"recorded_date": recordedDate, "source": source,
@@ -481,7 +509,7 @@ func cmdLandscapeShow(args []string) error {
 	if err != nil {
 		return err
 	}
-	defer s.Close()
+	defer s.Close() //nolint:errcheck
 
 	tree, spec, err := parseTreeSpec(args[0])
 	if err != nil {
@@ -499,7 +527,9 @@ func cmdLandscapeShow(args []string) error {
 	for rows.Next() {
 		var id, stakeholder, context, topic, stance, confidence, validFrom string
 		var preferred *string
-		rows.Scan(&id, &stakeholder, &context, &topic, &stance, &preferred, &confidence, &validFrom)
+		if err := rows.Scan(&id, &stakeholder, &context, &topic, &stance, &preferred, &confidence, &validFrom); err != nil {
+			return fmt.Errorf("scanning row: %w", err)
+		}
 		d := map[string]any{
 			"id": id, "stakeholder": stakeholder, "stakeholder_context": context,
 			"topic": topic, "stance": stance, "confidence": confidence, "valid_from": validFrom,
@@ -509,7 +539,7 @@ func cmdLandscapeShow(args []string) error {
 		}
 		dispositions = append(dispositions, d)
 	}
-	rows.Close()
+	_ = rows.Close()
 	result["dispositions"] = dispositions
 
 	// Signals
@@ -520,13 +550,15 @@ func cmdLandscapeShow(args []string) error {
 	signals := make([]map[string]any, 0)
 	for rows.Next() {
 		var id, stakeholder, context, date, source, sourceType, content string
-		rows.Scan(&id, &stakeholder, &context, &date, &source, &sourceType, &content)
+		if err := rows.Scan(&id, &stakeholder, &context, &date, &source, &sourceType, &content); err != nil {
+			return fmt.Errorf("scanning row: %w", err)
+		}
 		signals = append(signals, map[string]any{
 			"id": id, "stakeholder": stakeholder, "stakeholder_context": context,
 			"date": date, "source": source, "source_type": sourceType, "content": content,
 		})
 	}
-	rows.Close()
+	_ = rows.Close()
 	result["signals"] = signals
 
 	// Influences
@@ -537,12 +569,14 @@ func cmdLandscapeShow(args []string) error {
 	influences := make([]map[string]any, 0)
 	for rows.Next() {
 		var stakeholder, context, taskID, role string
-		rows.Scan(&stakeholder, &context, &taskID, &role)
+		if err := rows.Scan(&stakeholder, &context, &taskID, &role); err != nil {
+			return fmt.Errorf("scanning row: %w", err)
+		}
 		influences = append(influences, map[string]any{
 			"stakeholder": stakeholder, "context": context, "task": taskID, "role": role,
 		})
 	}
-	rows.Close()
+	_ = rows.Close()
 	result["influences"] = influences
 
 	// Directions affecting this spec
@@ -555,13 +589,15 @@ func cmdLandscapeShow(args []string) error {
 	directions := make([]map[string]any, 0)
 	for rows.Next() {
 		var id, project, topic, status, impact, desc string
-		rows.Scan(&id, &project, &topic, &status, &impact, &desc)
+		if err := rows.Scan(&id, &project, &topic, &status, &impact, &desc); err != nil {
+			return fmt.Errorf("scanning row: %w", err)
+		}
 		directions = append(directions, map[string]any{
 			"id": id, "project": project, "topic": topic,
 			"status": status, "impact": impact, "impact_on_spec": desc,
 		})
 	}
-	rows.Close()
+	_ = rows.Close()
 	result["directions"] = directions
 
 	return jsonOut(result)
@@ -575,7 +611,7 @@ func cmdStance(args []string) error {
 	if err != nil {
 		return err
 	}
-	defer s.Close()
+	defer s.Close() //nolint:errcheck
 
 	stakeholderID := args[0]
 	var topic string
@@ -583,7 +619,11 @@ func cmdStance(args []string) error {
 		topic = args[1]
 	}
 
-	var rows interface{ Next() bool; Scan(...any) error; Close() error }
+	var rows interface {
+		Next() bool
+		Scan(...any) error
+		Close() error
+	}
 	if topic != "" {
 		// Full history for this person + topic
 		r, err := s.DB.Query(
@@ -605,14 +645,16 @@ func cmdStance(args []string) error {
 		}
 		rows = r
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var dispositions []map[string]any
 	for rows.Next() {
 		if topic != "" {
 			var tree, spec, id, stance, confidence, validFrom string
 			var preferred, validUntil *string
-			rows.Scan(&tree, &spec, &id, &stance, &preferred, &confidence, &validFrom, &validUntil)
+			if err := rows.Scan(&tree, &spec, &id, &stance, &preferred, &confidence, &validFrom, &validUntil); err != nil {
+				return fmt.Errorf("scanning row: %w", err)
+			}
 			d := map[string]any{
 				"tree": tree, "spec": spec, "id": id, "stance": stance,
 				"confidence": confidence, "valid_from": validFrom,
@@ -628,7 +670,9 @@ func cmdStance(args []string) error {
 		} else {
 			var tree, spec, id, dtopic, stance, confidence, validFrom string
 			var preferred *string
-			rows.Scan(&tree, &spec, &id, &dtopic, &stance, &preferred, &confidence, &validFrom)
+			if err := rows.Scan(&tree, &spec, &id, &dtopic, &stance, &preferred, &confidence, &validFrom); err != nil {
+				return fmt.Errorf("scanning row: %w", err)
+			}
 			d := map[string]any{
 				"tree": tree, "spec": spec, "id": id, "topic": dtopic,
 				"stance": stance, "confidence": confidence, "valid_from": validFrom,
