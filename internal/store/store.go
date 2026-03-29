@@ -250,8 +250,9 @@ func (s *Store) ActiveBranch() (string, error) {
 
 // EnsureSession switches to the session branch if Session is set.
 // Called after Open/Discover to set up session isolation.
+// Special case: Session="main" operates directly on main (no branch switch).
 func (s *Store) EnsureSession() error {
-	if Session == "" {
+	if Session == "" || Session == "main" {
 		return nil
 	}
 	branches, err := s.ListBranches()

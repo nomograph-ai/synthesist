@@ -333,6 +333,100 @@ func TestDirections(t *testing.T) {
 	}
 }
 
+func TestBranchOperations(t *testing.T) {
+	dir := tempDir(t)
+	s, err := Init(dir)
+	if err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
+	defer s.Close() //nolint:errcheck
+
+	// Note: SetMaxOpenConns(1) is set in Open() for production use.
+	// Branch isolation is tested via merge behavior, not mid-connection checkout,
+	// because the golden tests run the binary as a subprocess and need the
+	// connection pool to be available.
+
+	// List branches — should only have main
+	branches, err := s.ListBranches()
+	if err != nil {
+		t.Fatalf("ListBranches: %v", err)
+	}
+	if len(branches) != 1 || branches[0] != "main" {
+		t.Fatalf("Expected [main], got %v", branches)
+	}
+
+	// Create a branch
+	if err := s.CreateBranch("test-session"); err != nil {
+		t.Fatalf("CreateBranch: %v", err)
+	}
+
+	// List should now have 2
+	branches, err = s.ListBranches()
+	if err != nil {
+		t.Fatalf("ListBranches after create: %v", err)
+	}
+	if len(branches) != 2 {
+		t.Fatalf("Expected 2 branches, got %v", branches)
+	}
+
+	// Merge (empty branch, fast-forward)
+	conflicts, err := s.MergeBranch("test-session")
+	if err != nil {
+		t.Fatalf("MergeBranch: %v", err)
+	}
+	if conflicts != 0 {
+		t.Fatalf("Expected 0 conflicts, got %d", conflicts)
+	}
+
+	// Delete the merged branch
+	if err := s.DeleteBranch("test-session"); err != nil {
+		t.Fatalf("DeleteBranch: %v", err)
+	}
+
+	// Should be back to 1 branch
+	branches, err = s.ListBranches()
+	if err != nil {
+		t.Fatalf("ListBranches after delete: %v", err)
+	}
+	if len(branches) != 1 {
+		t.Fatalf("Expected 1 branch after delete, got %v", branches)
+	}
+}
+
+func TestEnsureSession(t *testing.T) {
+	dir := tempDir(t)
+	s, err := Init(dir)
+	if err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
+	defer s.Close() //nolint:errcheck
+
+	// EnsureSession with empty Session should be a no-op
+	Session = ""
+	if err := s.EnsureSession(); err != nil {
+		t.Fatalf("EnsureSession with empty session: %v", err)
+	}
+
+	// EnsureSession with non-existent branch should error
+	Session = "nonexistent"
+	if err := s.EnsureSession(); err == nil {
+		t.Fatal("EnsureSession with nonexistent branch should error")
+	}
+
+	// Create branch, then EnsureSession should succeed
+	Session = ""
+	if err := s.CreateBranch("my-session"); err != nil {
+		t.Fatalf("CreateBranch: %v", err)
+	}
+	Session = "my-session"
+	if err := s.EnsureSession(); err != nil {
+		t.Fatalf("EnsureSession with existing branch: %v", err)
+	}
+
+	// Clean up
+	Session = ""
+}
+
 func TestNextID(t *testing.T) {
 	tests := []struct {
 		prefix   string
