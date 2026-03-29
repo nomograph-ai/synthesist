@@ -146,11 +146,11 @@ func cmdCheck(args []string) error {
 	rows.Close()
 
 	// Check: task dependencies reference existing tasks
+	// NOTE: NOT IN tuple used as workaround for Dolt LEFT JOIN bug
 	rows, _ = s.DB.Query(`
 		SELECT d.tree, d.spec, d.task_id, d.depends_on
 		FROM task_deps d
-		LEFT JOIN tasks t ON d.tree = t.tree AND d.spec = t.spec AND d.depends_on = t.id
-		WHERE t.id IS NULL
+		WHERE (d.tree, d.spec, d.depends_on) NOT IN (SELECT tree, spec, id FROM tasks)
 	`)
 	for rows.Next() {
 		var tree, spec, taskID, dep string
@@ -160,11 +160,12 @@ func cmdCheck(args []string) error {
 	rows.Close()
 
 	// Check: influence references existing stakeholders
+	// NOTE: NOT IN tuple used as workaround for Dolt LEFT JOIN / NOT EXISTS bug
+	// where correlated subqueries return false positives on full table scans.
 	rows, _ = s.DB.Query(`
 		SELECT i.tree, i.spec, i.stakeholder_id
 		FROM influences i
-		LEFT JOIN stakeholders s ON i.tree = s.tree AND i.stakeholder_id = s.id
-		WHERE s.id IS NULL
+		WHERE (i.tree, i.stakeholder_id) NOT IN (SELECT tree, id FROM stakeholders)
 	`)
 	for rows.Next() {
 		var tree, spec, stakeholder string
@@ -174,11 +175,11 @@ func cmdCheck(args []string) error {
 	rows.Close()
 
 	// Check: disposition references existing stakeholders
+	// NOTE: NOT IN tuple used as workaround for Dolt LEFT JOIN / NOT EXISTS bug
 	rows, _ = s.DB.Query(`
 		SELECT d.tree, d.spec, d.id, d.stakeholder_id
 		FROM dispositions d
-		LEFT JOIN stakeholders s ON d.tree = s.tree AND d.stakeholder_id = s.id
-		WHERE s.id IS NULL
+		WHERE (d.tree, d.stakeholder_id) NOT IN (SELECT tree, id FROM stakeholders)
 	`)
 	for rows.Next() {
 		var tree, spec, id, stakeholder string
