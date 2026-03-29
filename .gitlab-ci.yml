@@ -26,6 +26,7 @@ test:
   script:
     - golangci-lint run ./...
     - make loc-check
+    - go build -o synthesist ./cmd/synthesist
     - go test -v -count=1 ./...
 
 test:integration:
