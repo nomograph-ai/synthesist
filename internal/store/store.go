@@ -85,7 +85,7 @@ func Init(root string) (*Store, error) {
 	if err := s.createSchema(); err != nil {
 		return nil, fmt.Errorf("creating schema: %w", err)
 	}
-	if err := s.doltCommit("synthesist init: create schema"); err != nil {
+	if err := s.DoltCommit("synthesist init: create schema"); err != nil {
 		return nil, fmt.Errorf("initial dolt commit: %w", err)
 	}
 	return s, nil
@@ -120,8 +120,8 @@ func (s *Store) Close() error {
 	return s.DB.Close()
 }
 
-// doltCommit creates a Dolt commit (internal database versioning).
-func (s *Store) doltCommit(message string) error {
+// DoltCommit creates a Dolt commit (internal database versioning).
+func (s *Store) DoltCommit(message string) error {
 	_, err := s.DB.Exec("CALL DOLT_ADD('-A')")
 	if err != nil {
 		return fmt.Errorf("dolt add: %w", err)
@@ -162,12 +162,108 @@ func (s *Store) GitCommit(message string) error {
 	return nil
 }
 
-// Commit commits to both Dolt and git.
+// Commit commits to Dolt, and to git only if on main branch.
+// Session branches only commit to Dolt — git commit happens on merge.
 func (s *Store) Commit(message string) error {
-	if err := s.doltCommit(message); err != nil {
+	if err := s.DoltCommit(message); err != nil {
 		return err
 	}
+	// Skip git commit when on a session branch
+	if Session != "" {
+		return nil
+	}
 	return s.GitCommit(message)
+}
+
+// --- Session / Branch operations ---
+
+// Session holds the active session ID. When set, all operations happen
+// on a Dolt branch named after the session. Set via --session flag or
+// SYNTHESIST_SESSION env var in main.go.
+var Session string
+
+// CreateBranch creates a new Dolt branch from current HEAD.
+func (s *Store) CreateBranch(name string) error {
+	_, err := s.DB.Exec("CALL dolt_branch(?)", name)
+	if err != nil {
+		return fmt.Errorf("creating branch %s: %w", name, err)
+	}
+	return nil
+}
+
+// SwitchBranch checks out a Dolt branch for the current connection.
+func (s *Store) SwitchBranch(name string) error {
+	_, err := s.DB.Exec("CALL dolt_checkout(?)", name)
+	if err != nil {
+		return fmt.Errorf("switching to branch %s: %w", name, err)
+	}
+	return nil
+}
+
+// DeleteBranch deletes a Dolt branch.
+func (s *Store) DeleteBranch(name string) error {
+	_, err := s.DB.Exec("CALL dolt_branch('-D', ?)", name)
+	if err != nil {
+		return fmt.Errorf("deleting branch %s: %w", name, err)
+	}
+	return nil
+}
+
+// MergeBranch merges a named branch into main. Returns conflict count.
+func (s *Store) MergeBranch(name string) (int, error) {
+	if err := s.SwitchBranch("main"); err != nil {
+		return 0, err
+	}
+	var hash string
+	var ff, conflicts int
+	var message string
+	if err := s.DB.QueryRow("CALL dolt_merge(?)", name).Scan(&hash, &ff, &conflicts, &message); err != nil {
+		return 0, fmt.Errorf("merging branch %s: %w", name, err)
+	}
+	return conflicts, nil
+}
+
+// ListBranches returns all Dolt branch names.
+func (s *Store) ListBranches() ([]string, error) {
+	rows, err := s.DB.Query("SELECT name FROM dolt_branches ORDER BY name")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close() //nolint:errcheck
+	var branches []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, fmt.Errorf("scanning branch: %w", err)
+		}
+		branches = append(branches, name)
+	}
+	return branches, nil
+}
+
+// ActiveBranch returns the current Dolt branch name.
+func (s *Store) ActiveBranch() (string, error) {
+	var branch string
+	err := s.DB.QueryRow("SELECT active_branch()").Scan(&branch)
+	return branch, err
+}
+
+// EnsureSession switches to the session branch if Session is set.
+// Called after Open/Discover to set up session isolation.
+func (s *Store) EnsureSession() error {
+	if Session == "" {
+		return nil
+	}
+	branches, err := s.ListBranches()
+	if err != nil {
+		return err
+	}
+	for _, b := range branches {
+		if b == Session {
+			return s.SwitchBranch(Session)
+		}
+	}
+	return fmt.Errorf("session %q not found — run 'synthesist session start %s' first", Session, Session)
 }
 
 // Today returns today's date as YYYY-MM-DD.

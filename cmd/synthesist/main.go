@@ -12,7 +12,7 @@ var version = "dev" // set by -ldflags "-X main.version=..."
 // noCommit disables auto-commit when --no-commit is passed globally.
 var noCommit bool
 
-// discoverStore wraps store.Discover and applies the --no-commit flag.
+// discoverStore wraps store.Discover, applies flags, and ensures session branch.
 func discoverStore() (*store.Store, error) {
 	s, err := store.Discover()
 	if err != nil {
@@ -21,18 +21,29 @@ func discoverStore() (*store.Store, error) {
 	if noCommit {
 		s.AutoCommit = false
 	}
+	if err := s.EnsureSession(); err != nil {
+		_ = s.Close()
+		return nil, err
+	}
 	return s, nil
 }
 
 func main() {
-	// Strip --no-commit from os.Args before dispatching to subcommands.
+	// Strip global flags from os.Args before dispatching to subcommands.
 	var filtered []string
 	for _, arg := range os.Args {
-		if arg == "--no-commit" {
+		switch {
+		case arg == "--no-commit":
 			noCommit = true
-		} else {
+		case len(arg) > 10 && arg[:10] == "--session=":
+			store.Session = arg[10:]
+		default:
 			filtered = append(filtered, arg)
 		}
+	}
+	// Also check SYNTHESIST_SESSION env var (flag takes precedence)
+	if store.Session == "" {
+		store.Session = os.Getenv("SYNTHESIST_SESSION")
 	}
 	os.Args = filtered
 
@@ -101,6 +112,10 @@ func main() {
 		err = cmdStance(args)
 	case "replay":
 		err = cmdReplay(args)
+
+	// Sessions
+	case "session":
+		err = cmdSession(args)
 
 	// Meta
 	case "skill":
