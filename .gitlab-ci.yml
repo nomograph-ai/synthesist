@@ -22,8 +22,10 @@ test:
   image: golang:1.26
   before_script:
     - apt-get update -qq && apt-get install -y -qq libicu-dev > /dev/null 2>&1
+    - go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
   script:
-    - go vet ./...
+    - golangci-lint run ./...
+    - make loc-check
     - go test -v -count=1 ./...
 
 test:integration:
