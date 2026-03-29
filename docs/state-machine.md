@@ -10,29 +10,77 @@ each phase.
 You MUST follow these rules when mediating between the human and synthesist.
 The human never calls synthesist directly — you are the complete interface.
 
+### Session Start Sequence
+
+Every session begins with this exact sequence:
+1. `synthesist session start <descriptive-name>` — create your session branch
+2. `synthesist phase set orient` — declare you are in ORIENT
+3. `synthesist status` — read the estate
+4. Present the status to the human in plain language (see Display Rules)
+5. Ask the human what they want to focus on
+
 ### Display Rules
-1. When showing task trees, ALWAYS use grouped tables (phase header, then table with ID/Task/Deps columns). Never show raw JSON to the human.
-2. When the task tree changes, show a diff table (added/cancelled/rewired) BEFORE showing current state.
-3. Cancelled tasks are summarized as a count, never listed individually.
-4. When entering ORIENT, present status as plain language, not command output.
+
+1. When showing task trees, ALWAYS use grouped tables. Example format:
+
+   **Session Store Layer**
+
+   | ID | Task | Deps |
+   |----|------|------|
+   | s1 | Add branch operations to store.go | — |
+   | s2 | Add EnsureSession for auto-checkout | s1 |
+   | s3 | Commit skips GitCommit on session branches | s2 |
+
+   Never show raw JSON to the human. Process all synthesist output
+   into this format before presenting.
+
+2. When the task tree changes, show a diff table BEFORE the current state:
+
+   **Changes**
+
+   | Action | ID | Description |
+   |--------|----|-------------|
+   | added | s4 | Wire --session flag into main.go |
+   | cancelled | s1 | Replaced by s34 with correct deps |
+
+3. Cancelled tasks: summarize as count (e.g., "27 cancelled, hidden").
+   Show cancellation reasons only when reviewing history.
+
+4. When entering ORIENT, present status as plain language:
+   "3 trees active. 22 tasks pending across 4 specs. Ready tasks:
+   gkg-bench/t16 (run analysis), packaging/t7 (GitLab release)."
+   NOT the raw JSON from `synthesist status`.
+
+5. Always use `--active` flag when running `task list` to hide cancelled
+   tasks by default.
 
 ### Phase Rules
-1. You must declare your current phase with `synthesist phase set <phase>`.
-2. You cannot claim tasks in PLAN phase. You cannot create tasks in EXECUTE phase.
-3. The transition from PLAN to EXECUTE requires passing through AGREE.
-4. AGREE means: present the full plan, state assumptions, identify decision points, and WAIT for explicit human approval. "Ready to proceed?" followed by proceeding is NOT approval.
-5. After each task in EXECUTE, enter REFLECT: assess if the plan still holds.
-6. If the plan changes, enter REPLAN, show the diff, then go back to AGREE.
 
-### Pre-Execution Protocol
-1. State your assumptions explicitly before starting work.
-2. Confirm scope: what files/repos will be touched.
-3. Identify which tasks are autonomous vs need human input.
+1. After every phase transition, run `synthesist phase set <phase>`.
+2. You cannot claim tasks in PLAN. You cannot create tasks in EXECUTE.
+3. PLAN → EXECUTE must pass through AGREE.
+4. AGREE means: present the full plan in grouped table format, state
+   assumptions, identify decision points, and WAIT for explicit human
+   approval. "Ready to proceed?" followed by proceeding is NOT approval.
+   The human must say "yes", "proceed", "approved", or equivalent.
+5. After each task in EXECUTE, enter REFLECT: assess if the plan holds.
+6. If the plan changes, enter REPLAN, show the diff, then go to AGREE.
+
+### Pre-Execution Protocol (in AGREE phase)
+
+Present to the human:
+1. The full task tree in grouped table format
+2. Your assumptions
+3. Scope: what files/repos will be touched
+4. Which tasks are autonomous vs need human input
+5. What "done" looks like
 
 ### Error Protocol
+
 1. Never retry a failed approach silently — explain what failed.
-2. When a task is harder than expected, remodel it (REPLAN) rather than pushing through.
-3. Record all discoveries in synthesist, not just in chat. Chat context dies; synthesist persists.
+2. When a task is harder than expected, remodel it (REPLAN → AGREE).
+3. Record all discoveries in synthesist, not just in chat.
+   Chat context dies; synthesist persists.
 
 ## Phases
 
