@@ -78,6 +78,7 @@ type CLI struct {
 	// Database
 	Migrate MigrateCmd `cmd:"" help:"Check or run database migrations"`
 	Export  ExportCmd  `cmd:"" help:"Export all tables as JSON"`
+	Import  ImportCmd  `cmd:"" help:"Import tables from JSON (export format)"`
 
 	// Meta
 	Skill   SkillCmd   `cmd:"" help:"Output synthesist skill file"`
@@ -112,6 +113,12 @@ func (c *ScaffoldCmd) Run() error { return cmdScaffold() }
 type ExportCmd struct{}
 
 func (c *ExportCmd) Run() error { return cmdExport() }
+
+type ImportCmd struct {
+	File string `arg:"" optional:"" help:"JSON file to import (stdin if omitted)"`
+}
+
+func (c *ImportCmd) Run() error { return cmdImport(c) }
 
 type MigrateCmd struct{}
 
@@ -667,13 +674,15 @@ func (c *SessionPruneCmd) Run() error { return cmdSessionPrune(c) }
 
 func main() {
 	// Strip global flags from os.Args before kong parses.
-	// This preserves the original behavior where --no-commit and
-	// --session=<id> can appear anywhere in the arg list.
+	// These can appear anywhere in the arg list.
 	var filtered []string
+	var forcePhase bool
 	for _, arg := range os.Args {
 		switch {
 		case arg == "--no-commit":
 			noCommit = true
+		case arg == "--force":
+			forcePhase = true
 		case len(arg) > 10 && arg[:10] == "--session=":
 			store.Session = arg[10:]
 		default:
@@ -726,6 +735,48 @@ func main() {
 		_, _ = fmt.Fprintf(os.Stderr, "  start a session:  synthesist session start <session-id>\n")
 		_, _ = fmt.Fprintf(os.Stderr, "  then:             synthesist --session=<id> %s\n", cmdPath)
 		os.Exit(1)
+	}
+
+	// Phase enforcement: check if the operation is allowed in the current phase.
+	// Only enforced for write operations (reads always allowed).
+	// --force (stripped from os.Args above) bypasses enforcement.
+	if !readOnlyCommands[topCmd] && !readOnlySubcommands[subCmd] && !forcePhase && topCmd != "phase" {
+		if s, err := store.Discover(); err == nil {
+			var phase string
+			if qErr := s.DB.QueryRow("SELECT name FROM phase WHERE id = 1").Scan(&phase); qErr == nil {
+				violation := ""
+				switch phase {
+				case "orient":
+					violation = "no writes allowed in ORIENT phase"
+				case "plan":
+					if topCmd == "task" && (subCmd == "claim" || subCmd == "done" || subCmd == "block") {
+						violation = "cannot claim/complete tasks in PLAN phase — transition to EXECUTE first"
+					}
+				case "agree":
+					violation = "no operations in AGREE phase — present the plan and wait for human approval"
+				case "execute":
+					if topCmd == "task" && subCmd == "create" {
+						violation = "cannot create tasks in EXECUTE phase — transition to REPLAN first"
+					}
+					if topCmd == "task" && subCmd == "cancel" {
+						violation = "cannot cancel tasks in EXECUTE phase — transition to REPLAN first"
+					}
+					if topCmd == "spec" && subCmd == "create" {
+						violation = "cannot create specs in EXECUTE phase — transition to REPLAN first"
+					}
+				case "report":
+					violation = "no writes allowed in REPORT phase"
+				}
+				if violation != "" {
+					_, _ = fmt.Fprintf(os.Stderr, "error: phase violation (%s): %s\n", phase, violation)
+					_, _ = fmt.Fprintf(os.Stderr, "  current phase: %s\n", phase)
+					_, _ = fmt.Fprintf(os.Stderr, "  use --force to override\n")
+					_ = s.Close()
+					os.Exit(1)
+				}
+			}
+			_ = s.Close()
+		}
 	}
 
 	err := ctx.Run()

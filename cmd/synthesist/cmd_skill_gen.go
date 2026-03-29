@@ -13,13 +13,18 @@ import (
 func generateSkillContent(cli any) string {
 	var b strings.Builder
 
+	// Behavioral contract FIRST — this is what governs LLM behavior.
+	// Command reference second. The LLM must internalize the rules
+	// before it sees the commands, not after.
+	b.WriteString("# Synthesist -- Specification Graph Manager\n\n")
+	b.WriteString("You are the complete mediation layer between the human and synthesist.\n")
+	b.WriteString("The human never calls synthesist directly.\n\n")
+	b.WriteString(docs.StateMachine)
+	b.WriteString("\n")
 	b.WriteString(skillPreamble)
 	b.WriteString("\n## Core commands\n\n```\n")
 	writeCommands(&b, "synthesist", reflect.TypeOf(cli))
 	b.WriteString("```\n")
-	b.WriteString("\n## Authored behavioral rules\n\n")
-	b.WriteString(docs.StateMachine)
-	b.WriteString("\n")
 	return b.String()
 }
 
@@ -128,7 +133,7 @@ func writeLeaf(b *strings.Builder, name string, t reflect.Type, parentTag reflec
 	b.WriteString(line + "\n")
 }
 
-const skillPreamble = `# Synthesist -- Specification Graph Manager
+const skillPreamble = `## Command Reference
 
 You have access to the ` + "`synthesist`" + ` CLI tool. Use it for ALL specification
 management. Do not read or write spec data files directly. The tool
