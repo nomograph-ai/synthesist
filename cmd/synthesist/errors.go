@@ -60,7 +60,7 @@ func ErrAlreadyOwned(taskID, owner string) error {
 
 // InvalidFormatError indicates a malformed input.
 type InvalidFormatError struct {
-	Input   string
+	Input    string
 	Expected string
 }
 

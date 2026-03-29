@@ -8,7 +8,7 @@ import (
 
 func cmdDirection(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: synthesist direction <add|list|impact> ...")
+		return fmt.Errorf("usage: synthesist direction <add|list|impact> ...") //nolint:staticcheck
 	}
 	switch args[0] {
 	case "add":
@@ -30,7 +30,7 @@ func cmdDirectionAdd(args []string) error {
 	if err != nil {
 		return err
 	}
-	defer s.Close()
+	defer s.Close() //nolint:errcheck //nolint:errcheck
 
 	tree := args[0]
 
@@ -60,10 +60,12 @@ func cmdDirectionAdd(args []string) error {
 	rows, _ := s.DB.Query("SELECT id FROM directions WHERE tree = ?", tree)
 	for rows.Next() {
 		var id string
-		rows.Scan(&id)
+		if err := rows.Scan(&id); err != nil {
+			return fmt.Errorf("scanning row: %w", err)
+		}
 		ids = append(ids, id)
 	}
-	rows.Close()
+	_ = rows.Close()
 	newID := store.NextID("dir", ids)
 
 	var ownerPtr, timelinePtr *string
@@ -82,7 +84,9 @@ func cmdDirectionAdd(args []string) error {
 		return fmt.Errorf("inserting direction: %w", err)
 	}
 
-	s.Commit(fmt.Sprintf("landscape(%s): direction %s -- %s in %s (%s)", tree, newID, topic, project, status))
+	if err := s.Commit(fmt.Sprintf("landscape(%s): direction %s -- %s in %s (%s)", tree, newID, topic, project, status)); err != nil {
+		return err
+	}
 	return jsonOut(map[string]any{
 		"id": newID, "tree": tree, "project": project,
 		"topic": topic, "status": status, "impact": impact,
@@ -97,7 +101,7 @@ func cmdDirectionList(args []string) error {
 	if err != nil {
 		return err
 	}
-	defer s.Close()
+	defer s.Close() //nolint:errcheck
 
 	tree := args[0]
 	rows, err := s.DB.Query(
@@ -107,13 +111,15 @@ func cmdDirectionList(args []string) error {
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var directions []map[string]any
 	for rows.Next() {
 		var id, project, topic, status, impact, validFrom string
 		var owner, timeline *string
-		rows.Scan(&id, &project, &topic, &status, &owner, &timeline, &impact, &validFrom)
+		if err := rows.Scan(&id, &project, &topic, &status, &owner, &timeline, &impact, &validFrom); err != nil {
+			return fmt.Errorf("scanning row: %w", err)
+		}
 		d := map[string]any{
 			"id": id, "project": project, "topic": topic,
 			"status": status, "impact": impact, "valid_from": validFrom,
@@ -137,7 +143,7 @@ func cmdDirectionImpact(args []string) error {
 	if err != nil {
 		return err
 	}
-	defer s.Close()
+	defer s.Close() //nolint:errcheck
 
 	tree := args[0]
 	directionID := args[1]
@@ -172,7 +178,9 @@ func cmdDirectionImpact(args []string) error {
 		return fmt.Errorf("inserting direction impact: %w", err)
 	}
 
-	s.Commit(fmt.Sprintf("landscape(%s): direction %s impacts %s/%s", tree, directionID, affectedTree, affectedSpec))
+	if err := s.Commit(fmt.Sprintf("landscape(%s): direction %s impacts %s/%s", tree, directionID, affectedTree, affectedSpec)); err != nil {
+		return err
+	}
 	return jsonOut(map[string]any{
 		"direction_id": directionID, "affected_tree": affectedTree,
 		"affected_spec": affectedSpec, "description": description,

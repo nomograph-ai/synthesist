@@ -8,7 +8,7 @@ import (
 
 func cmdThread(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: synthesist thread <create|list|update|prune> ...")
+		return fmt.Errorf("usage: synthesist thread <create|list|update|prune> ...") //nolint:staticcheck
 	}
 	switch args[0] {
 	case "create":
@@ -28,7 +28,7 @@ func cmdThreadCreate(args []string) error {
 	if err != nil {
 		return err
 	}
-	defer s.Close()
+	defer s.Close() //nolint:errcheck
 
 	threadID := args[0]
 	var tree, summary, date string
@@ -62,7 +62,9 @@ func cmdThreadCreate(args []string) error {
 		return fmt.Errorf("creating thread: %w", err)
 	}
 
-	s.Commit(fmt.Sprintf("estate: create thread %s", threadID))
+	if err := s.Commit(fmt.Sprintf("estate: create thread %s", threadID)); err != nil {
+		return err
+	}
 	return jsonOut(map[string]any{"id": threadID, "tree": tree, "summary": summary, "date": date})
 }
 
@@ -71,19 +73,21 @@ func cmdThreadList(args []string) error {
 	if err != nil {
 		return err
 	}
-	defer s.Close()
+	defer s.Close() //nolint:errcheck
 
 	rows, err := s.DB.Query("SELECT id, tree, spec, task, date, summary FROM threads ORDER BY date DESC")
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	threads := make([]map[string]any, 0)
 	for rows.Next() {
 		var id, tree, date, summary string
 		var spec, task *string
-		rows.Scan(&id, &tree, &spec, &task, &date, &summary)
+		if err := rows.Scan(&id, &tree, &spec, &task, &date, &summary); err != nil {
+			return fmt.Errorf("scanning row: %w", err)
+		}
 		t := map[string]any{"id": id, "tree": tree, "date": date, "summary": summary}
 		if spec != nil {
 			t["spec"] = *spec

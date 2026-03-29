@@ -20,7 +20,7 @@ func cmdTaskCreate(args []string) error {
 	if err != nil {
 		return err
 	}
-	defer s.Close()
+	defer s.Close() //nolint:errcheck
 
 	tree, spec, err := parseTreeSpec(args[0])
 	if err != nil {
@@ -65,10 +65,12 @@ func cmdTaskCreate(args []string) error {
 		if err != nil {
 			return err
 		}
-		defer rows.Close()
+		defer rows.Close() //nolint:errcheck
 		for rows.Next() {
 			var id string
-			rows.Scan(&id)
+			if err := rows.Scan(&id); err != nil {
+				return fmt.Errorf("scanning row: %w", err)
+			}
 			ids = append(ids, id)
 		}
 		newID = store.NextID("t", ids)
@@ -93,12 +95,16 @@ func cmdTaskCreate(args []string) error {
 	}
 
 	for _, dep := range dependsOn {
-		s.DB.Exec("INSERT INTO task_deps (tree, spec, task_id, depends_on) VALUES (?, ?, ?, ?)",
-			tree, spec, newID, strings.TrimSpace(dep))
+		if _, err := s.DB.Exec("INSERT INTO task_deps (tree, spec, task_id, depends_on) VALUES (?, ?, ?, ?)",
+			tree, spec, newID, strings.TrimSpace(dep)); err != nil {
+			return fmt.Errorf("inserting task dep: %w", err)
+		}
 	}
 	for _, f := range files {
-		s.DB.Exec("INSERT INTO task_files (tree, spec, task_id, path) VALUES (?, ?, ?, ?)",
-			tree, spec, newID, strings.TrimSpace(f))
+		if _, err := s.DB.Exec("INSERT INTO task_files (tree, spec, task_id, path) VALUES (?, ?, ?, ?)",
+			tree, spec, newID, strings.TrimSpace(f)); err != nil {
+			return fmt.Errorf("inserting task file: %w", err)
+		}
 	}
 
 	if err := s.Commit(fmt.Sprintf("spec(%s/%s): add task %s -- %s", tree, spec, newID, summary)); err != nil {
@@ -129,7 +135,7 @@ func cmdTaskList(args []string) error {
 	if err != nil {
 		return err
 	}
-	defer s.Close()
+	defer s.Close() //nolint:errcheck
 
 	tree, spec, err := parseTreeSpec(filteredArgs[0])
 	if err != nil {
@@ -143,19 +149,23 @@ func cmdTaskList(args []string) error {
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var tasks []taskListEntry
 	for rows.Next() {
 		var t taskListEntry
-		rows.Scan(&t.id, &t.typ, &t.summary, &t.status, &t.owner, &t.created, &t.completed, &t.gate)
+		if err := rows.Scan(&t.id, &t.typ, &t.summary, &t.status, &t.owner, &t.created, &t.completed, &t.gate); err != nil {
+			return fmt.Errorf("scanning row: %w", err)
+		}
 		depRows, _ := s.DB.Query("SELECT depends_on FROM task_deps WHERE tree = ? AND spec = ? AND task_id = ?", tree, spec, t.id)
 		for depRows.Next() {
 			var d string
-			depRows.Scan(&d)
+			if err := depRows.Scan(&d); err != nil {
+				return fmt.Errorf("scanning row: %w", err)
+			}
 			t.deps = append(t.deps, d)
 		}
-		depRows.Close()
+		_ = depRows.Close()
 		tasks = append(tasks, t)
 	}
 
@@ -207,7 +217,7 @@ func taskListHuman(tree, spec string, tasks []taskListEntry) error {
 		}
 	}
 
-	fmt.Fprintf(os.Stdout, "**%s/%s** -- %d/%d done\n\n", tree, spec, done, len(tasks))
+	_, _ = fmt.Fprintf(os.Stdout, "**%s/%s** -- %d/%d done\n\n", tree, spec, done, len(tasks))
 
 	var rows [][]string
 	for _, t := range tasks {
@@ -231,9 +241,9 @@ func taskListHuman(tree, spec string, tasks []taskListEntry) error {
 		tablewriter.WithRenderer(renderer.NewMarkdown()),
 	)
 	for _, row := range rows {
-		table.Append(row)
+		_ = table.Append(row)
 	}
-	table.Render()
+	_ = table.Render()
 	return nil
 }
 
@@ -245,7 +255,7 @@ func cmdTaskClaim(args []string) error {
 	if err != nil {
 		return err
 	}
-	defer s.Close()
+	defer s.Close() //nolint:errcheck
 
 	tree, spec, err := parseTreeSpec(args[0])
 	if err != nil {
@@ -273,10 +283,12 @@ func cmdTaskClaim(args []string) error {
 		"SELECT d.depends_on, t.status FROM task_deps d JOIN tasks t ON d.tree = t.tree AND d.spec = t.spec AND d.depends_on = t.id WHERE d.tree = ? AND d.spec = ? AND d.task_id = ?",
 		tree, spec, taskID,
 	)
-	defer depRows.Close()
+	defer depRows.Close() //nolint:errcheck
 	for depRows.Next() {
 		var depID, depStatus string
-		depRows.Scan(&depID, &depStatus)
+		if err := depRows.Scan(&depID, &depStatus); err != nil {
+			return fmt.Errorf("scanning row: %w", err)
+		}
 		if depStatus != "done" {
 			return fmt.Errorf("dependency %s is %s, not done", depID, depStatus)
 		}
@@ -304,7 +316,7 @@ func cmdTaskDone(args []string) error {
 	if err != nil {
 		return err
 	}
-	defer s.Close()
+	defer s.Close() //nolint:errcheck
 
 	tree, spec, err := parseTreeSpec(args[0])
 	if err != nil {
@@ -331,12 +343,14 @@ func cmdTaskDone(args []string) error {
 		if err != nil {
 			return err
 		}
-		defer acRows.Close()
+		defer acRows.Close() //nolint:errcheck
 
 		for acRows.Next() {
 			var seq int
 			var criterion, verifyCmd string
-			acRows.Scan(&seq, &criterion, &verifyCmd)
+			if err := acRows.Scan(&seq, &criterion, &verifyCmd); err != nil {
+				return fmt.Errorf("scanning row: %w", err)
+			}
 
 			cmd := exec.Command("sh", "-c", verifyCmd)
 			cmd.Dir = s.Root
@@ -370,15 +384,17 @@ func cmdTaskDone(args []string) error {
 		}
 	} else {
 		note := "acceptance criteria failed"
-		_, err = s.DB.Exec(
+		if _, err = s.DB.Exec(
 			"UPDATE tasks SET status = 'pending', owner = NULL, failure_note = ? WHERE tree = ? AND spec = ? AND id = ?",
 			note, tree, spec, taskID,
-		)
+		); err != nil {
+			return err
+		}
 	}
 
 	return jsonOut(map[string]any{
 		"id": taskID, "all_passed": allPass,
-		"status": map[bool]string{true: "done", false: "pending"}[allPass],
+		"status":   map[bool]string{true: "done", false: "pending"}[allPass],
 		"criteria": results,
 	})
 }
@@ -391,7 +407,7 @@ func cmdTaskWait(args []string) error {
 	if err != nil {
 		return err
 	}
-	defer s.Close()
+	defer s.Close() //nolint:errcheck
 
 	tree, spec, err := parseTreeSpec(args[0])
 	if err != nil {
@@ -442,7 +458,7 @@ func cmdTaskBlock(args []string) error {
 	if err != nil {
 		return err
 	}
-	defer s.Close()
+	defer s.Close() //nolint:errcheck
 
 	tree, spec, err := parseTreeSpec(args[0])
 	if err != nil {
@@ -456,7 +472,9 @@ func cmdTaskBlock(args []string) error {
 		return err
 	}
 
-	s.Commit(fmt.Sprintf("spec(%s/%s): %s blocked", tree, spec, taskID))
+	if err := s.Commit(fmt.Sprintf("spec(%s/%s): %s blocked", tree, spec, taskID)); err != nil {
+		return err
+	}
 	return jsonOut(map[string]any{"id": taskID, "status": "blocked"})
 }
 
@@ -468,7 +486,7 @@ func cmdTaskReady(args []string) error {
 	if err != nil {
 		return err
 	}
-	defer s.Close()
+	defer s.Close() //nolint:errcheck
 
 	tree, spec, err := parseTreeSpec(args[0])
 	if err != nil {
@@ -491,13 +509,15 @@ func cmdTaskReady(args []string) error {
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var ready []map[string]any
 	for rows.Next() {
 		var id, typ, summary string
 		var gate *string
-		rows.Scan(&id, &typ, &summary, &gate)
+		if err := rows.Scan(&id, &typ, &summary, &gate); err != nil {
+			return fmt.Errorf("scanning row: %w", err)
+		}
 		t := map[string]any{"id": id, "type": typ, "summary": summary}
 		if gate != nil {
 			t["gate"] = *gate
@@ -516,7 +536,7 @@ func cmdTaskAcceptance(args []string) error {
 	if err != nil {
 		return err
 	}
-	defer s.Close()
+	defer s.Close() //nolint:errcheck
 
 	tree, spec, err := parseTreeSpec(args[0])
 	if err != nil {
@@ -538,8 +558,10 @@ func cmdTaskAcceptance(args []string) error {
 	}
 
 	var maxSeq int
-	s.DB.QueryRow("SELECT COALESCE(MAX(seq), 0) FROM acceptance WHERE tree = ? AND spec = ? AND task_id = ?",
-		tree, spec, taskID).Scan(&maxSeq)
+	if err := s.DB.QueryRow("SELECT COALESCE(MAX(seq), 0) FROM acceptance WHERE tree = ? AND spec = ? AND task_id = ?",
+		tree, spec, taskID).Scan(&maxSeq); err != nil {
+		return fmt.Errorf("scanning max seq: %w", err)
+	}
 
 	_, err = s.DB.Exec("INSERT INTO acceptance (tree, spec, task_id, seq, criterion, verify_cmd) VALUES (?, ?, ?, ?, ?, ?)",
 		tree, spec, taskID, maxSeq+1, criterion, verify)
@@ -547,7 +569,9 @@ func cmdTaskAcceptance(args []string) error {
 		return fmt.Errorf("adding acceptance criterion: %w", err)
 	}
 
-	s.Commit(fmt.Sprintf("spec(%s/%s): acceptance on %s", tree, spec, taskID))
+	if err := s.Commit(fmt.Sprintf("spec(%s/%s): acceptance on %s", tree, spec, taskID)); err != nil {
+		return err
+	}
 	return jsonOut(map[string]any{"task": taskID, "seq": maxSeq + 1, "criterion": criterion})
 }
 
@@ -559,7 +583,7 @@ func cmdTaskCancel(args []string) error {
 	if err != nil {
 		return err
 	}
-	defer s.Close()
+	defer s.Close() //nolint:errcheck
 
 	tree, spec, err := parseTreeSpec(args[0])
 	if err != nil {
@@ -585,7 +609,9 @@ func cmdTaskCancel(args []string) error {
 		return err
 	}
 
-	s.Commit(fmt.Sprintf("spec(%s/%s): cancel %s", tree, spec, taskID))
+	if err := s.Commit(fmt.Sprintf("spec(%s/%s): cancel %s", tree, spec, taskID)); err != nil {
+		return err
+	}
 	return jsonOut(map[string]any{"id": taskID, "status": "cancelled"})
 }
 

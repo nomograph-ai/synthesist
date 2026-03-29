@@ -1,0 +1,18 @@
+version: "2"
+
+linters:
+  enable:
+    - errcheck
+    - staticcheck
+    - bodyclose
+    - govet
+    - ineffassign
+    - unused
+
+  settings:
+    errcheck:
+      check-type-assertions: true
+
+issues:
+  exclude-dirs:
+    - vendor

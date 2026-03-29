@@ -1,0 +1,14 @@
+{
+  "trees": [
+    {
+      "description": "First tree",
+      "name": "alpha",
+      "status": "active"
+    },
+    {
+      "description": "Second tree",
+      "name": "beta",
+      "status": "active"
+    }
+  ]
+}

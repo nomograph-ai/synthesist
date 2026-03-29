@@ -65,10 +65,10 @@ func Init(root string) (*Store, error) {
 		return nil, fmt.Errorf("opening dolt for bootstrap: %w", err)
 	}
 	if _, err := bootDB.Exec("CREATE DATABASE IF NOT EXISTS synthesist"); err != nil {
-		bootDB.Close()
+		_ = bootDB.Close()
 		return nil, fmt.Errorf("creating synthesist database: %w", err)
 	}
-	bootDB.Close()
+	_ = bootDB.Close()
 
 	// Reopen with database selected
 	dsn := "file://" + dbPath + "?commitname=synthesist&commitemail=synthesist@synthesist&database=synthesist"
@@ -480,8 +480,12 @@ func (s *Store) createSchema() error {
 	}
 
 	// Set defaults
-	s.DB.Exec("INSERT IGNORE INTO config (key_name, value) VALUES ('version', '5')")
-	s.DB.Exec("INSERT IGNORE INTO config (key_name, value) VALUES ('auto_commit', 'true')")
+	if _, err := s.DB.Exec("INSERT IGNORE INTO config (key_name, value) VALUES ('version', '5')"); err != nil {
+		return fmt.Errorf("setting default version: %w", err)
+	}
+	if _, err := s.DB.Exec("INSERT IGNORE INTO config (key_name, value) VALUES ('auto_commit', 'true')"); err != nil {
+		return fmt.Errorf("setting default auto_commit: %w", err)
+	}
 
 	return nil
 }

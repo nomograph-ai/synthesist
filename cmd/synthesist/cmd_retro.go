@@ -9,7 +9,7 @@ import (
 
 func cmdRetro(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: synthesist retro <create|show|transform> ...")
+		return fmt.Errorf("usage: synthesist retro <create|show|transform> ...") //nolint:staticcheck
 	}
 	switch args[0] {
 	case "create":
@@ -31,7 +31,7 @@ func cmdRetroCreate(args []string) error {
 	if err != nil {
 		return err
 	}
-	defer s.Close()
+	defer s.Close() //nolint:errcheck
 
 	tree, spec, err := parseTreeSpec(args[0])
 	if err != nil {
@@ -56,8 +56,10 @@ func cmdRetroCreate(args []string) error {
 
 	// Compute duration if possible
 	var createdDate string
-	s.DB.QueryRow("SELECT MIN(created) FROM tasks WHERE tree = ? AND spec = ? AND type = 'task'",
-		tree, spec).Scan(&createdDate)
+	if err := s.DB.QueryRow("SELECT MIN(created) FROM tasks WHERE tree = ? AND spec = ? AND type = 'task'",
+		tree, spec).Scan(&createdDate); err != nil {
+		return fmt.Errorf("scanning created date: %w", err)
+	}
 
 	_, err = s.DB.Exec(
 		"INSERT INTO tasks (tree, spec, id, type, summary, status, created, completed, arc) VALUES (?, ?, 'retro', 'retro', ?, 'done', ?, ?, ?)",
@@ -68,11 +70,15 @@ func cmdRetroCreate(args []string) error {
 	}
 
 	for _, dep := range dependsOn {
-		s.DB.Exec("INSERT INTO task_deps (tree, spec, task_id, depends_on) VALUES (?, ?, 'retro', ?)",
-			tree, spec, strings.TrimSpace(dep))
+		if _, err := s.DB.Exec("INSERT INTO task_deps (tree, spec, task_id, depends_on) VALUES (?, ?, 'retro', ?)",
+			tree, spec, strings.TrimSpace(dep)); err != nil {
+			return fmt.Errorf("inserting retro dep: %w", err)
+		}
 	}
 
-	s.Commit(fmt.Sprintf("retro(%s/%s): create retrospective", tree, spec))
+	if err := s.Commit(fmt.Sprintf("retro(%s/%s): create retrospective", tree, spec)); err != nil {
+		return err
+	}
 	return jsonOut(map[string]any{
 		"id": "retro", "type": "retro", "tree": tree, "spec": spec,
 		"arc": arc, "status": "done",
@@ -88,7 +94,7 @@ func cmdRetroTransform(args []string) error {
 	if err != nil {
 		return err
 	}
-	defer s.Close()
+	defer s.Close() //nolint:errcheck
 
 	tree, spec, err := parseTreeSpec(args[0])
 	if err != nil {
@@ -119,8 +125,10 @@ func cmdRetroTransform(args []string) error {
 
 	// Get next seq
 	var maxSeq int
-	s.DB.QueryRow("SELECT COALESCE(MAX(seq), 0) FROM transforms WHERE tree = ? AND spec = ? AND task_id = 'retro'",
-		tree, spec).Scan(&maxSeq)
+	if err := s.DB.QueryRow("SELECT COALESCE(MAX(seq), 0) FROM transforms WHERE tree = ? AND spec = ? AND task_id = 'retro'",
+		tree, spec).Scan(&maxSeq); err != nil {
+		return fmt.Errorf("scanning max seq: %w", err)
+	}
 
 	_, err = s.DB.Exec(
 		"INSERT INTO transforms (tree, spec, task_id, seq, label, description, transferable) VALUES (?, ?, 'retro', ?, ?, ?, ?)",
@@ -130,7 +138,9 @@ func cmdRetroTransform(args []string) error {
 		return fmt.Errorf("inserting transform: %w", err)
 	}
 
-	s.Commit(fmt.Sprintf("retro(%s/%s): transform -- %s", tree, spec, label))
+	if err := s.Commit(fmt.Sprintf("retro(%s/%s): transform -- %s", tree, spec, label)); err != nil {
+		return err
+	}
 	return jsonOut(map[string]any{
 		"seq": maxSeq + 1, "label": label, "transferable": transferable,
 	})
@@ -144,7 +154,7 @@ func cmdRetroShow(args []string) error {
 	if err != nil {
 		return err
 	}
-	defer s.Close()
+	defer s.Close() //nolint:errcheck
 
 	tree, spec, err := parseTreeSpec(args[0])
 	if err != nil {
@@ -177,12 +187,14 @@ func cmdRetroShow(args []string) error {
 		var seq int
 		var label, desc string
 		var transferable bool
-		rows.Scan(&seq, &label, &desc, &transferable)
+		if err := rows.Scan(&seq, &label, &desc, &transferable); err != nil {
+			return fmt.Errorf("scanning row: %w", err)
+		}
 		transforms = append(transforms, map[string]any{
 			"seq": seq, "label": label, "description": desc, "transferable": transferable,
 		})
 	}
-	rows.Close()
+	_ = rows.Close()
 	result["transforms"] = transforms
 
 	// Linked patterns
@@ -193,10 +205,12 @@ func cmdRetroShow(args []string) error {
 	var patterns []map[string]any
 	for rows.Next() {
 		var id, name, desc string
-		rows.Scan(&id, &name, &desc)
+		if err := rows.Scan(&id, &name, &desc); err != nil {
+			return fmt.Errorf("scanning row: %w", err)
+		}
 		patterns = append(patterns, map[string]any{"id": id, "name": name, "description": desc})
 	}
-	rows.Close()
+	_ = rows.Close()
 	result["patterns"] = patterns
 
 	return jsonOut(result)
@@ -204,7 +218,7 @@ func cmdRetroShow(args []string) error {
 
 func cmdPattern(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: synthesist pattern <register|list> ...")
+		return fmt.Errorf("usage: synthesist pattern <register|list> ...") //nolint:staticcheck
 	}
 	switch args[0] {
 	case "register":
@@ -224,7 +238,7 @@ func cmdPatternRegister(args []string) error {
 	if err != nil {
 		return err
 	}
-	defer s.Close()
+	defer s.Close() //nolint:errcheck
 
 	tree := args[0]
 	patternID := args[1]
@@ -261,11 +275,15 @@ func cmdPatternRegister(args []string) error {
 	}
 
 	for _, obs := range observedIn {
-		s.DB.Exec("INSERT INTO pattern_observations (tree, pattern_id, observed_in) VALUES (?, ?, ?)",
-			tree, patternID, strings.TrimSpace(obs))
+		if _, err := s.DB.Exec("INSERT INTO pattern_observations (tree, pattern_id, observed_in) VALUES (?, ?, ?)",
+			tree, patternID, strings.TrimSpace(obs)); err != nil {
+			return fmt.Errorf("inserting pattern observation: %w", err)
+		}
 	}
 
-	s.Commit(fmt.Sprintf("pattern(%s): register %s -- %s", tree, patternID, name))
+	if err := s.Commit(fmt.Sprintf("pattern(%s): register %s -- %s", tree, patternID, name)); err != nil {
+		return err
+	}
 	return jsonOut(map[string]any{"tree": tree, "id": patternID, "name": name})
 }
 
@@ -277,20 +295,22 @@ func cmdPatternList(args []string) error {
 	if err != nil {
 		return err
 	}
-	defer s.Close()
+	defer s.Close() //nolint:errcheck
 
 	tree := args[0]
 	rows, err := s.DB.Query("SELECT id, name, description, transferability, first_observed FROM patterns WHERE tree = ? ORDER BY first_observed DESC", tree)
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var patterns []map[string]any
 	for rows.Next() {
 		var id, name, desc, firstObs string
 		var transferability *string
-		rows.Scan(&id, &name, &desc, &transferability, &firstObs)
+		if err := rows.Scan(&id, &name, &desc, &transferability, &firstObs); err != nil {
+			return fmt.Errorf("scanning row: %w", err)
+		}
 		p := map[string]any{"id": id, "name": name, "description": desc, "first_observed": firstObs}
 		if transferability != nil {
 			p["transferability"] = *transferability
@@ -300,10 +320,12 @@ func cmdPatternList(args []string) error {
 		var obs []string
 		for obsRows.Next() {
 			var o string
-			obsRows.Scan(&o)
+			if err := obsRows.Scan(&o); err != nil {
+				return fmt.Errorf("scanning row: %w", err)
+			}
 			obs = append(obs, o)
 		}
-		obsRows.Close()
+		_ = obsRows.Close()
 		if len(obs) > 0 {
 			p["observed_in"] = obs
 		}
@@ -320,7 +342,7 @@ func cmdReplay(args []string) error {
 	if err != nil {
 		return err
 	}
-	defer s.Close()
+	defer s.Close() //nolint:errcheck
 
 	tree, spec, err := parseTreeSpec(args[0])
 	if err != nil {
@@ -336,7 +358,9 @@ func cmdReplay(args []string) error {
 	for rows.Next() {
 		var id, typ, summary, status string
 		var arc *string
-		rows.Scan(&id, &typ, &summary, &status, &arc)
+		if err := rows.Scan(&id, &typ, &summary, &status, &arc); err != nil {
+			return fmt.Errorf("scanning row: %w", err)
+		}
 		t := map[string]any{"id": id, "type": typ, "summary": summary, "status": status}
 		if arc != nil {
 			t["arc"] = *arc
@@ -346,16 +370,18 @@ func cmdReplay(args []string) error {
 		var deps []string
 		for depRows.Next() {
 			var d string
-			depRows.Scan(&d)
+			if err := depRows.Scan(&d); err != nil {
+				return fmt.Errorf("scanning row: %w", err)
+			}
 			deps = append(deps, d)
 		}
-		depRows.Close()
+		_ = depRows.Close()
 		if len(deps) > 0 {
 			t["depends_on"] = deps
 		}
 		tasks = append(tasks, t)
 	}
-	rows.Close()
+	_ = rows.Close()
 	result["task_dag"] = tasks
 
 	// Retro transforms
@@ -367,12 +393,14 @@ func cmdReplay(args []string) error {
 	for tRows.Next() {
 		var label, desc string
 		var transferable bool
-		tRows.Scan(&label, &desc, &transferable)
+		if err := tRows.Scan(&label, &desc, &transferable); err != nil {
+			return fmt.Errorf("scanning row: %w", err)
+		}
 		transforms = append(transforms, map[string]any{
 			"label": label, "description": desc, "transferable": transferable,
 		})
 	}
-	tRows.Close()
+	_ = tRows.Close()
 	result["transforms"] = transforms
 
 	// Patterns
@@ -383,10 +411,12 @@ func cmdReplay(args []string) error {
 	var patterns []map[string]any
 	for rows.Next() {
 		var id, name, desc string
-		rows.Scan(&id, &name, &desc)
+		if err := rows.Scan(&id, &name, &desc); err != nil {
+			return fmt.Errorf("scanning row: %w", err)
+		}
 		patterns = append(patterns, map[string]any{"id": id, "name": name, "description": desc})
 	}
-	rows.Close()
+	_ = rows.Close()
 	result["patterns"] = patterns
 
 	// Landscape summary
@@ -398,14 +428,16 @@ func cmdReplay(args []string) error {
 	for rows.Next() {
 		var stakeholder, topic, stance, confidence string
 		var preferred *string
-		rows.Scan(&stakeholder, &topic, &stance, &confidence, &preferred)
+		if err := rows.Scan(&stakeholder, &topic, &stance, &confidence, &preferred); err != nil {
+			return fmt.Errorf("scanning row: %w", err)
+		}
 		l := map[string]any{"stakeholder": stakeholder, "topic": topic, "stance": stance, "confidence": confidence}
 		if preferred != nil {
 			l["preferred_approach"] = *preferred
 		}
 		landscape = append(landscape, l)
 	}
-	rows.Close()
+	_ = rows.Close()
 	result["landscape"] = landscape
 
 	return jsonOut(result)
