@@ -563,6 +563,13 @@ func (s *Store) createSchema() error {
 			PRIMARY KEY (tree, spec, id)
 		)`,
 
+		// --- Phase (workflow state machine) ---
+		`CREATE TABLE IF NOT EXISTS phase (
+			id INT PRIMARY KEY DEFAULT 1,
+			name VARCHAR(32) NOT NULL DEFAULT 'orient',
+			updated DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+
 		// --- Meta ---
 		`CREATE TABLE IF NOT EXISTS config (
 			key_name VARCHAR(255) PRIMARY KEY,

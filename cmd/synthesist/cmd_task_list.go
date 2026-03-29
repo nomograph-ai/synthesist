@@ -36,6 +36,9 @@ func cmdTaskList(c *TaskListCmd) error {
 		if err := rows.Scan(&t.id, &t.typ, &t.summary, &t.status, &t.owner, &t.created, &t.completed, &t.gate); err != nil {
 			return fmt.Errorf("scanning row: %w", err)
 		}
+		if c.Active && t.status == "cancelled" {
+			continue
+		}
 		depRows, _ := s.DB.Query("SELECT depends_on FROM task_deps WHERE tree = ? AND spec = ? AND task_id = ?", tree, spec, t.id)
 		for depRows.Next() {
 			var d string
