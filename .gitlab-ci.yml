@@ -24,10 +24,10 @@ test:
     - apt-get update -qq && apt-get install -y -qq libicu-dev > /dev/null 2>&1
     - go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
   script:
-    - golangci-lint run ./...
+    - make build
+    - make lint
     - make loc-check
-    - go build -o synthesist ./cmd/synthesist
-    - go test -v -count=1 ./...
+    - make test
 
 test:integration:
   stage: test
