@@ -1,12 +1,16 @@
 # Synthesist
 
-A specification graph manager for AI-augmented projects. Synthesist is a Go binary
-with an embedded Dolt database that tracks task DAGs, stakeholder intelligence,
-temporal dispositions, and retrospective patterns. LLM agents interact exclusively
-through CLI commands -- they never read or write data files directly.
+A specification graph manager for AI-augmented projects. Synthesist is an
+LLM-mediated tool -- the human never calls it directly. The LLM is the
+complete interface: it reads estate state, presents plans, gets human
+approval, executes work, and reports results. Under the hood, a Go binary
+with an embedded Dolt database tracks task DAGs, stakeholder intelligence,
+temporal dispositions, and retrospective patterns. LLM agents interact
+exclusively through CLI commands -- they never read or write data files
+directly.
 
-Named for the role aboard the *Theseus* in Peter Watts' *Blindsight* -- the one
-crew member whose job isn't expertise, but coherence.
+Named for the role aboard the *Theseus* in Peter Watts' *Blindsight* -- the
+one crew member whose job isn't expertise, but coherence.
 
 ## Install
 
@@ -34,23 +38,25 @@ make install  # installs to $GOPATH/bin
 cd your-project
 synthesist init
 
+# Start a session (required for concurrent work, recommended always)
+synthesist session start my-session
+
 # Create a spec with goal and constraints (tree/spec format)
-synthesist spec create upstream/auth-service \
+synthesist --session=my-session spec create upstream/auth-service \
   --goal "Migrate auth API from v2 to v3" \
   --constraints "Backward compatible. No breaking changes to existing clients."
 
 # Add tasks to the spec
-synthesist task create upstream/auth-service "Research API versioning strategy"
+synthesist --session=my-session task create upstream/auth-service \
+  "Research API versioning strategy"
 
-# Track a stakeholder and their disposition
-synthesist stakeholder add upstream mwilson --context "auth-service maintainer"
-synthesist disposition add upstream/auth-service mwilson \
-  --topic "API versioning" --stance cautious --confidence inferred
-
-# Work through the task DAG
-synthesist task claim upstream/auth-service t1
+# Claim and complete tasks
+synthesist --session=my-session task claim upstream/auth-service t1
 # ... do the work ...
-synthesist task done upstream/auth-service t1
+synthesist --session=my-session task done upstream/auth-service t1
+
+# Merge session back to main (commits to git)
+synthesist session merge my-session
 
 # See the full estate overview
 synthesist status
@@ -241,28 +247,112 @@ Key properties:
 | `observed_in` | pattern | spec | Where a pattern has been applied |
 | `propagates_to` | spec | spec | "When this spec changes, target needs updates" (ordered) |
 
-## The Skill File
+## Workflow State Machine
 
-`synthesist skill` outputs the complete LLM behavioral contract -- the full
-command reference, rules, and usage patterns. This is the primary interface
-documentation for agents.
+The LLM agent follows a 7-phase state machine when mediating between the
+human and synthesist. The human never calls synthesist directly -- the LLM
+is the complete interface, and this state machine governs how it behaves.
 
-Install it into any LLM harness by referencing the skill output in your agent
-instructions:
-
-```bash
-# For Claude Code -- add to AGENTS.md or CLAUDE.md:
-# "Run synthesist skill for the full command reference"
-
-# For OpenCode -- create a skill file:
-synthesist skill > .opencode/skills/synthesist/SKILL.md
-
-# For any other agent framework:
-synthesist skill >> your-agent-config
+```mermaid
+stateDiagram-v2
+    [*] --> ORIENT
+    ORIENT --> PLAN : human indicates work
+    PLAN --> AGREE : LLM presents plan
+    AGREE --> EXECUTE : human approves
+    AGREE --> PLAN : human requests changes
+    EXECUTE --> REFLECT : task completes
+    REFLECT --> EXECUTE : plan holds
+    REFLECT --> REPLAN : plan needs changing
+    REPLAN --> AGREE : must get concurrence
+    REFLECT --> REPORT : all tasks done
+    REPORT --> [*]
 ```
 
-The tool is agent-agnostic. It works with Claude Code, OpenCode, Cursor, or any
-framework that gives an LLM access to shell commands.
+**ORIENT** -- Build a shared mental model of where things stand. The LLM
+reads estate state and presents it in plain language. No writes.
+
+**PLAN** -- Model the work before doing it. Create specs and tasks. Task
+claims are forbidden in this phase.
+
+**AGREE** -- Explicit human checkpoint. The LLM presents the full plan,
+states assumptions, identifies decision points, and waits for approval.
+"Ready to proceed?" followed by proceeding without a response is NOT
+approval.
+
+**EXECUTE** -- Claim and complete tasks in dependency order. Task creation
+is forbidden in this phase (that would be changing the plan without
+agreement).
+
+**REFLECT** -- After each task, assess whether the plan still holds. If
+it does, continue executing. If not, enter REPLAN.
+
+**REPLAN** -- Modify the plan (add/cancel/rewire tasks), then return to
+AGREE. The human must concur with every plan change before execution
+resumes.
+
+**REPORT** -- Summarize what was accomplished. Record retrospective
+patterns for future transfer.
+
+The `synthesist phase` command lets the agent declare its current phase.
+Synthesist validates that attempted operations are allowed in that phase.
+See [docs/state-machine.md](docs/state-machine.md) for the full behavioral
+contract including display rules, pre-execution protocol, and error
+protocol.
+
+## Concurrent Sessions
+
+Multiple LLM sessions can work in the same project simultaneously. Each
+session operates on its own Dolt branch, isolating writes until merge.
+
+```mermaid
+sequenceDiagram
+    participant LLM1 as Claude Session A
+    participant Synth as synthesist (Dolt DB)
+    participant LLM2 as Claude Session B
+
+    Note over LLM1,LLM2: Both sessions work in the same directory, same .synth/
+
+    LLM1->>Synth: session start session-a
+    Synth-->>LLM1: branch created
+
+    LLM2->>Synth: session start session-b
+    Synth-->>LLM2: branch created
+
+    par Session A works on spec-alpha
+        LLM1->>Synth: --session=session-a task create spec-alpha/t1
+        LLM1->>Synth: --session=session-a task claim spec-alpha/t1
+        LLM1->>Synth: --session=session-a task done spec-alpha/t1
+    and Session B works on spec-beta
+        LLM2->>Synth: --session=session-b task create spec-beta/t1
+        LLM2->>Synth: --session=session-b task claim spec-beta/t1
+        LLM2->>Synth: --session=session-b task done spec-beta/t1
+    end
+
+    LLM1->>Synth: session merge session-a
+    Synth-->>LLM1: merged to main (row-level)
+
+    LLM2->>Synth: session merge session-b
+    Synth-->>LLM2: merged to main (0 conflicts)
+```
+
+Key properties of the session model:
+
+- **Dolt branches isolate writes.** Each session operates on its own branch
+  of the embedded database. One session's task creation, claims, and
+  completions are invisible to other sessions until merge.
+
+- **Merge is row-level, not binary blob.** Unlike git (which would see
+  `.synth/` as a binary blob and conflict on every concurrent write), Dolt
+  merges at the row level. Two sessions writing to different specs merge
+  cleanly with zero conflicts.
+
+- **Atomic task claim prevents double-claiming.** When a session claims a
+  task, the claim is atomic within the session's branch. On merge, if two
+  sessions claimed the same task, Dolt detects the row-level conflict.
+
+- **Git commits only happen on merge to main.** Individual session
+  operations do not create git commits. The merge operation commits both the
+  Dolt state and the outer git repository in one step.
 
 ## Architecture
 
@@ -276,7 +366,7 @@ branch/merge on data, and table-level diffing.
 your-project/
 ├── .synth/                    # Dolt database (created by synthesist init)
 │   └── synthesist/.dolt/      # Database files
-├── AGENTS.md                  # or CLAUDE.md -- tells agent to use synthesist
+├── CLAUDE.md                  # tells agent to use synthesist
 └── ...
 ```
 
@@ -306,56 +396,11 @@ is binary, but `synthesist diff` provides richer table-level diffs.
 
 The command tree is defined as Go structs with Kong struct tags. Kong
 parses flags and arguments from the struct definitions, giving typed flag
-parsing without a separate flag-registration layer. The `synthesist skill`
-command generates the LLM skill file from struct reflection -- the skill
-file is always in sync with the actual command tree because it reads the
-same structs that Kong uses for parsing.
-
-### Session infrastructure
-
-Concurrent sessions are built on Dolt branching. Each session gets its own
-Dolt branch; merges reconcile data when sessions complete.
-
-```bash
-synthesist session start <name>    # create a session branch
-synthesist session merge <name>    # merge session back to main
-synthesist session list            # show active sessions
-synthesist session status          # current session info
-synthesist session prune           # clean up stale sessions
-```
-
-The `--session` flag or `SYNTHESIST_SESSION` environment variable selects
-the active session for any command. Task claims are atomic within a session
-to prevent TOCTOU races when multiple agents work concurrently.
-
-### LLM workflow state machine
-
-The LLM agent follows a 7-phase state machine when mediating between the
-human and synthesist:
-
-```
-ORIENT → PLAN → AGREE → EXECUTE ↔ REFLECT → REPORT
-                  ↑                    |
-                  └──── REPLAN ←───────┘
-```
-
-- **ORIENT** -- build a shared mental model (reads only)
-- **PLAN** -- model the work before doing it (create specs/tasks)
-- **AGREE** -- explicit human checkpoint before execution
-- **EXECUTE** -- claim and complete tasks in dependency order
-- **REFLECT** -- assess whether the plan still holds after each task
-- **REPLAN** -- modify the plan, then return to AGREE
-- **REPORT** -- summarize what was accomplished
-
-The `synthesist phase` command lets the agent declare its current phase.
-Synthesist validates that attempted operations are allowed in that phase
-(e.g., task claims are forbidden in PLAN, task creation is forbidden in
-EXECUTE). The phase is advisory and can be overridden with `--force`.
-
-The skill file (output of `synthesist skill`) embeds the full behavioral
-contract including display rules, phase rules, pre-execution protocol,
-and error protocol. See [docs/state-machine.md](docs/state-machine.md)
-for the complete specification.
+parsing without a separate flag-registration layer. Wrong flags fail at
+compile time, not at runtime. The `synthesist skill` command generates the
+LLM skill file from struct reflection -- the skill file is always in sync
+with the actual command tree because it reads the same structs that Kong
+uses for parsing.
 
 ### Binary owns all writes
 
@@ -369,6 +414,71 @@ The `synthesist` binary is the single write path to the database. This enforces:
 LLMs produce better results when constrained to well-formed operations (Yegge,
 Beads 2026). A CLI with typed commands prevents invalid states and handles
 computation LLMs are bad at -- temporal resolution, graph traversal, date math.
+
+### LLM-maintainability conventions
+
+The codebase enforces conventions that make it tractable for LLM agents to
+navigate and modify:
+
+- **Centralized errors:** All command errors use typed constructors in
+  `errors.go`, never inline `fmt.Errorf`. An LLM can read the error
+  catalog in one file.
+- **Package READMEs:** Each package has a README explaining its purpose,
+  dependencies, and key types.
+- **Golden tests:** Regression tests in `tests/golden/` with
+  `make golden-update` for regeneration.
+- **golangci-lint:** errcheck, staticcheck, bodyclose enabled. Zero-warning
+  policy enforced by `make lint`.
+- **400 LOC limit:** Enforced by `make loc-check`. No non-generated Go
+  file exceeds 400 lines. Files that were too large have been split:
+  `cmd_landscape.go` became `cmd_landscape_show.go`, `cmd_disposition.go`,
+  `cmd_signal.go`, `cmd_stakeholder.go`, and `cmd_stance.go`;
+  `cmd_task.go` became `cmd_task_create.go`, `cmd_task_lifecycle.go`,
+  `cmd_task_list.go`, `cmd_task_query.go`, and `cmd_task_helpers.go`;
+  `cmd_retro.go` became `cmd_retro_create.go`, `cmd_replay.go`, and
+  `cmd_pattern.go`.
+- **Zero-warning policy:** The CI pipeline runs `golangci-lint run ./...`
+  and `make loc-check`. Any warning or oversized file fails the build.
+
+### Generated skill file
+
+The skill file has two layers:
+
+1. **Command reference** -- generated from Kong struct reflection. Every
+   command, flag, and argument is extracted from the same Go structs that
+   Kong uses for parsing. The reference cannot drift from the code because
+   it is the code.
+
+2. **Authored behavioral rules** -- embedded from
+   [docs/state-machine.md](docs/state-machine.md). Phase rules, display
+   rules, pre-execution protocol, and error protocol. These are authored
+   content that describe how the LLM should behave, not what commands
+   exist.
+
+The two layers are concatenated by `synthesist skill` into a single output
+that serves as the complete UI specification for LLM consumers.
+
+## The Skill File
+
+`synthesist skill` outputs the complete LLM behavioral contract -- the full
+command reference, rules, and usage patterns. This is the primary interface
+documentation for agents. The skill file IS the UI specification: it defines
+not just what commands exist, but how the LLM should sequence them, what to
+show the human, and when to ask for approval.
+
+Install it into any LLM harness by referencing the skill output in your agent
+instructions:
+
+```bash
+# For Claude Code -- add to CLAUDE.md:
+# "Run synthesist skill for the full command reference"
+
+# For any other agent framework:
+synthesist skill >> your-agent-config
+```
+
+The tool is agent-agnostic. It works with Claude Code, Cursor, or any
+framework that gives an LLM access to shell commands.
 
 ## Key Design Decisions
 
@@ -394,20 +504,26 @@ were made and why), checks the landscape (what stakeholder constraints shaped
 choices), and generates a new spec adapted for the target context. This is the
 Synthesist's core competency -- making work transferable.
 
-**LLM-maintainability conventions.** The codebase enforces conventions that make
-it tractable for LLM agents to navigate and modify: centralized error
-constructors in `errors.go` (never inline `fmt.Errorf`), package-level
-README files explaining each package's purpose, golden tests in
-`tests/golden/` for regression detection, a strict 400 LOC limit per file
-enforced by `make loc-check`, and zero-warning linting via golangci-lint
-(errcheck, staticcheck, bodyclose). These constraints mean an LLM can
-understand any single file in isolation and verify its changes cheaply.
-Files that were too large have been split: `cmd_landscape.go` became
-`cmd_landscape_show.go`, `cmd_disposition.go`, `cmd_signal.go`,
-`cmd_stakeholder.go`, and `cmd_stance.go`; `cmd_task.go` became
-`cmd_task_create.go`, `cmd_task_lifecycle.go`, `cmd_task_list.go`,
-`cmd_task_query.go`, and `cmd_task_helpers.go`; `cmd_retro.go` became
-`cmd_retro_create.go`, `cmd_replay.go`, and `cmd_pattern.go`.
+**Why sessions over git branches?** The `.synth/` directory is a binary blob to
+git. Two git branches modifying `.synth/` concurrently will always conflict on
+merge -- git cannot diff binary database files. Dolt sessions solve this by
+branching the data inside the database, where merge operates at the row level.
+Two sessions that touch different specs merge cleanly. Two sessions that touch
+the same row produce a structured conflict that the binary can resolve or
+surface, rather than a binary blob conflict that requires manual intervention.
+
+**Why a workflow state machine?** Without enforcement, LLMs skip planning and
+jump straight to execution. They present a plan and immediately start working
+without waiting for human approval. The state machine makes the AGREE phase
+mandatory -- the LLM cannot claim tasks until the human has explicitly approved
+the plan. This is not a soft guideline; synthesist validates that the current
+phase allows the attempted operation.
+
+**Why a generated skill file?** Handwritten documentation drifts from code.
+The skill file is generated from the same Kong structs that define the CLI,
+so the command reference is always accurate. The behavioral rules are authored
+content embedded from `docs/state-machine.md`, but they are versioned alongside
+the code and included in the binary's output. One command, one source of truth.
 
 **LLM simulation methodology.** Synthesist embodies a simulation approach to LLM
 tool design: constrain the agent to well-formed operations, handle computation
@@ -415,44 +531,6 @@ externally, and let the agent focus on reasoning. This aligns with the Beads
 framework (Yegge 2026) for structured agent interactions, the Graphiti/Zep
 approach to temporal knowledge graphs, and the Howard & Matheson framing of
 decision analysis as structured information flow.
-
-## Building
-
-### Prerequisites
-
-- **Go 1.26+** with CGo enabled
-- **ICU libraries** (required by Dolt):
-  - macOS: `brew install icu4c@78` (or `brew install icu4c`)
-  - Linux: `apt-get install libicu-dev` (Debian/Ubuntu) or `dnf install libicu-devel` (Fedora)
-
-### Build commands
-
-```bash
-make build          # Build the binary (./synthesist)
-make test           # Run all tests
-make install        # Install to $GOPATH/bin
-make lint           # golangci-lint (errcheck, staticcheck, bodyclose)
-make check          # Build + run synthesist check against local specs
-make dev            # Build + show help
-make skill          # Build + output the LLM skill file
-make golden-update  # Regenerate golden test files (tests/golden/)
-make loc-check      # Fail if any non-generated Go file exceeds 400 LOC
-make release        # Cross-compile for darwin/arm64, darwin/amd64, linux/amd64, linux/arm64
-```
-
-The Makefile auto-detects ICU on macOS via Homebrew and sets the correct
-`CGO_CFLAGS`, `CGO_CXXFLAGS`, and `CGO_LDFLAGS`.
-
-## Version History
-
-See [CHANGELOG.md](CHANGELOG.md) for the full history. Brief summary:
-
-- **v5.1** (2026-03-29) -- LLM-maintainability refactor, Kong migration, session infrastructure, workflow state machine
-- **v5.0** (2026-03-28) -- Dolt embedded storage, Go CLI binary, temporal specification graphs
-- **v4** (2026-03-27) -- Concurrent session support with active threads
-- **v3** (2026-03-21) -- Context trees, estate switchboard, campaign coordination
-- **v2** (2026-03-18) -- Single primary agent, campaigns, concurrent sessions
-- **v1** (2026-03-15) -- Spec format, agent roles, executable acceptance criteria
 
 ## Sources and Influences
 
@@ -552,6 +630,45 @@ align rather than invest in paths that will be replaced.
 -- connects Boyd's observe-orient-decide-act cycle to graph query
 patterns. Resonates with our cycle: observe (signals), orient
 (dispositions), decide (task strategy), act (contribution).
+
+## Building
+
+### Prerequisites
+
+- **Go 1.26+** with CGo enabled
+- **ICU libraries** (required by Dolt):
+  - macOS: `brew install icu4c@78` (or `brew install icu4c`)
+  - Linux: `apt-get install libicu-dev` (Debian/Ubuntu) or `dnf install libicu-devel` (Fedora)
+- **golangci-lint** (for `make lint`)
+
+### Build commands
+
+```bash
+make build          # Build the binary (./synthesist)
+make test           # Run all tests
+make install        # Install to $GOPATH/bin
+make lint           # golangci-lint (errcheck, staticcheck, bodyclose)
+make check          # Build + run synthesist check against local specs
+make dev            # Build + show help
+make skill          # Build + output the LLM skill file
+make golden-update  # Regenerate golden test files (tests/golden/)
+make loc-check      # Fail if any non-generated Go file exceeds 400 LOC
+make release        # Cross-compile for darwin/arm64, darwin/amd64, linux/amd64, linux/arm64
+make clean          # Remove binary and build cache
+```
+
+The Makefile auto-detects ICU on macOS via Homebrew and sets the correct
+`CGO_CFLAGS`, `CGO_CXXFLAGS`, and `CGO_LDFLAGS`.
+
+## Version History
+
+See [CHANGELOG.md](CHANGELOG.md) for the full history.
+
+- **v5.0.0** (2026-03-29) -- Dolt embedded storage, Go CLI binary, temporal specification graphs, Kong CLI framework, concurrent sessions on Dolt branches, workflow state machine, LLM-maintainability refactor (errors.go catalog, package READMEs, golden tests, golangci-lint, 400 LOC limit, file splitting)
+- **v4** (2026-03-27) -- Concurrent session support with active threads
+- **v3** (2026-03-21) -- Context trees, estate switchboard, campaign coordination
+- **v2** (2026-03-18) -- Single primary agent, campaigns, concurrent sessions
+- **v1** (2026-03-15) -- Spec format, agent roles, executable acceptance criteria
 
 ## License
 

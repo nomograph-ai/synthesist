@@ -6,63 +6,7 @@ Versions represent architectural generations, not semver.
 
 ---
 
-## [v5.1.0] -- 2026-03-29
-
-LLM-maintainability refactor. Every change in this release exists to make
-the codebase tractable for LLM agents to navigate, modify, and verify.
-
-### LLM-maintainability conventions
-
-- Centralized error constructors in `cmd/synthesist/errors.go` — all
-  command errors use typed constructors, never inline `fmt.Errorf`
-- Package-level README files explain each package's purpose and key types
-- Golden tests in `tests/golden/` with `make golden-update` for regeneration
-- golangci-lint replaces `go vet` — errcheck, staticcheck, bodyclose
-  enabled. Zero-warning policy enforced by `make lint`
-- 400 LOC limit per file enforced by `make loc-check`
-
-### File splitting
-
-Large command files split into single-concern files (13 files from 3):
-
-- `cmd_landscape.go` → `cmd_landscape_show.go`, `cmd_disposition.go`,
-  `cmd_signal.go`, `cmd_stakeholder.go`, `cmd_stance.go`
-- `cmd_task.go` → `cmd_task_create.go`, `cmd_task_lifecycle.go`,
-  `cmd_task_list.go`, `cmd_task_query.go`, `cmd_task_helpers.go`
-- `cmd_retro.go` → `cmd_retro_create.go`, `cmd_replay.go`, `cmd_pattern.go`
-
-### Kong migration
-
-Command tree defined as Go structs with Kong struct tags. Typed flag
-parsing replaces manual flag registration. The `synthesist skill` command
-generates the LLM skill file from struct reflection — the skill file is
-always in sync with the actual command tree.
-
-### Session infrastructure
-
-Concurrent sessions built on Dolt branching. Each session gets its own
-Dolt branch; merges reconcile data when sessions complete.
-
-- `synthesist session start/merge/list/status/prune` commands
-- `--session` flag and `SYNTHESIST_SESSION` environment variable
-- Atomic task claim prevents TOCTOU race when multiple agents claim tasks
-  concurrently across sessions
-
-### Workflow state machine
-
-7-phase LLM behavioral contract:
-ORIENT → PLAN → AGREE → EXECUTE ↔ REFLECT → REPORT (with REPLAN).
-
-- `synthesist phase` command for phase declaration and validation
-- Phase rules enforced: no task claims in PLAN, no task creation in
-  EXECUTE, mandatory AGREE checkpoint between PLAN and EXECUTE
-- Full behavioral contract (display rules, phase rules, error protocol)
-  embedded in the skill file output
-- Specification: [docs/state-machine.md](docs/state-machine.md)
-
----
-
-## [v5.0.0] -- 2026-03-28
+## [v5.0.0] -- 2026-03-29
 
 Synthesist is now a Go binary with an embedded Dolt database. The
 repository contains only the binary source, its tests, and documentation.
@@ -102,6 +46,55 @@ transforms for cross-project replay.
 dispositions, signals), directions, retro + patterns, and queries
 (landscape show, stance, replay). `synthesist skill` outputs the full
 LLM behavioral contract.
+
+### Kong migration
+
+Command tree defined as Go structs with Kong struct tags. Typed flag
+parsing replaces manual flag registration. The `synthesist skill` command
+generates the LLM skill file from struct reflection -- the skill file is
+always in sync with the actual command tree.
+
+### Session infrastructure
+
+Concurrent sessions built on Dolt branching. Each session gets its own
+Dolt branch; merges reconcile data when sessions complete.
+
+- `synthesist session start/merge/list/status/prune` commands
+- `--session` flag and `SYNTHESIST_SESSION` environment variable
+- Atomic task claim prevents TOCTOU race when multiple agents claim tasks
+  concurrently across sessions
+
+### Workflow state machine
+
+7-phase LLM behavioral contract:
+ORIENT -> PLAN -> AGREE -> EXECUTE <-> REFLECT -> REPORT (with REPLAN).
+
+- `synthesist phase` command for phase declaration and validation
+- Phase rules enforced: no task claims in PLAN, no task creation in
+  EXECUTE, mandatory AGREE checkpoint between PLAN and EXECUTE
+- Full behavioral contract (display rules, phase rules, error protocol)
+  embedded in the skill file output
+- Specification: [docs/state-machine.md](docs/state-machine.md)
+
+### LLM-maintainability conventions
+
+- Centralized error constructors in `cmd/synthesist/errors.go` -- all
+  command errors use typed constructors, never inline `fmt.Errorf`
+- Package-level README files explain each package's purpose and key types
+- Golden tests in `tests/golden/` with `make golden-update` for regeneration
+- golangci-lint replaces `go vet` -- errcheck, staticcheck, bodyclose
+  enabled. Zero-warning policy enforced by `make lint`
+- 400 LOC limit per file enforced by `make loc-check`
+
+### File splitting
+
+Large command files split into single-concern files (13 files from 3):
+
+- `cmd_landscape.go` -> `cmd_landscape_show.go`, `cmd_disposition.go`,
+  `cmd_signal.go`, `cmd_stakeholder.go`, `cmd_stance.go`
+- `cmd_task.go` -> `cmd_task_create.go`, `cmd_task_lifecycle.go`,
+  `cmd_task_list.go`, `cmd_task_query.go`, `cmd_task_helpers.go`
+- `cmd_retro.go` -> `cmd_retro_create.go`, `cmd_replay.go`, `cmd_pattern.go`
 
 ### Quality
 
