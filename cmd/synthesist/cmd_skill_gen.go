@@ -175,8 +175,8 @@ signals are per-spec (` + "`tree/spec`" + ` format).
 
 ## When to use synthesist
 
-- Bootstrapping: ` + "`synthesist init`" + ` then ` + "`synthesist tree create`" + `
-- Starting a session: ` + "`synthesist status`" + ` to see estate overview
+- New project setup: ` + "`synthesist scaffold`" + ` creates CLAUDE.md, .mise.toml, and .synth/ database
+- Starting a session: ` + "`synthesist session start <name>`" + ` then ` + "`synthesist status`" + `
 - Planning work: ` + "`synthesist spec create`" + ` then ` + "`synthesist task create`" + `
 - Executing work: ` + "`synthesist task claim`" + ` then ` + "`synthesist task done`" + ` when verified
 - Blocking a task: ` + "`synthesist task block`" + ` for internal blockers
@@ -191,6 +191,8 @@ signals are per-spec (` + "`tree/spec`" + ` format).
 - Checking health: ` + "`synthesist check`" + ` validates everything
 - Replaying work: ` + "`synthesist replay <spec>`" + ` to get a playbook for adaptation
 - Checking schema: ` + "`synthesist migrate`" + ` to check database version and pending migrations
+- Backup: ` + "`synthesist export`" + ` dumps all tables to JSON
+- Cleaning stale sessions: ` + "`synthesist session prune`" + ` merges and removes inactive branches
 
 ## Output
 
