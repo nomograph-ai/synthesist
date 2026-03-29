@@ -263,26 +263,14 @@ func cmdTaskClaim(args []string) error {
 	}
 	taskID := args[1]
 
-	// Check current status
-	var status string
-	var owner *string
-	err = s.DB.QueryRow("SELECT status, owner FROM tasks WHERE tree = ? AND spec = ? AND id = ?",
-		tree, spec, taskID).Scan(&status, &owner)
-	if err != nil {
-		return fmt.Errorf("task not found: %s/%s/%s", tree, spec, taskID)
-	}
-	if status != "pending" {
-		return fmt.Errorf("task %s is %s, not pending", taskID, status)
-	}
-	if owner != nil && *owner != "" {
-		return fmt.Errorf("task %s already owned by %s", taskID, *owner)
-	}
-
-	// Check deps are done
-	depRows, _ := s.DB.Query(
+	// Check deps are done (before attempting claim)
+	depRows, err := s.DB.Query(
 		"SELECT d.depends_on, t.status FROM task_deps d JOIN tasks t ON d.tree = t.tree AND d.spec = t.spec AND d.depends_on = t.id WHERE d.tree = ? AND d.spec = ? AND d.task_id = ?",
 		tree, spec, taskID,
 	)
+	if err != nil {
+		return Wrap("checking dependencies", err)
+	}
 	defer depRows.Close() //nolint:errcheck
 	for depRows.Next() {
 		var depID, depStatus string
@@ -290,15 +278,33 @@ func cmdTaskClaim(args []string) error {
 			return fmt.Errorf("scanning row: %w", err)
 		}
 		if depStatus != "done" {
-			return fmt.Errorf("dependency %s is %s, not done", depID, depStatus)
+			return ErrWrongState("dependency", depID, depStatus, "done")
 		}
 	}
 
+	// Atomic claim: UPDATE only if status=pending and no owner.
+	// Rows affected = 0 means either not found, wrong state, or already owned.
 	ownerName := "synthesist"
-	_, err = s.DB.Exec("UPDATE tasks SET status = 'in_progress', owner = ? WHERE tree = ? AND spec = ? AND id = ?",
+	res, err := s.DB.Exec(
+		"UPDATE tasks SET status = 'in_progress', owner = ? WHERE tree = ? AND spec = ? AND id = ? AND status = 'pending' AND (owner IS NULL OR owner = '')",
 		ownerName, tree, spec, taskID)
 	if err != nil {
 		return err
+	}
+	affected, _ := res.RowsAffected()
+	if affected == 0 {
+		// Determine why: not found, wrong state, or already owned
+		var status string
+		var owner *string
+		err = s.DB.QueryRow("SELECT status, owner FROM tasks WHERE tree = ? AND spec = ? AND id = ?",
+			tree, spec, taskID).Scan(&status, &owner)
+		if err != nil {
+			return ErrNotFound("task", fmt.Sprintf("%s/%s/%s", tree, spec, taskID))
+		}
+		if owner != nil && *owner != "" {
+			return ErrAlreadyOwned(taskID, *owner)
+		}
+		return ErrWrongState("task", taskID, status, "pending")
 	}
 
 	if err := s.Commit(fmt.Sprintf("spec(%s/%s): claim %s", tree, spec, taskID)); err != nil {
