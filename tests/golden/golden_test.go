@@ -155,3 +155,78 @@ func TestGolden_SessionList(t *testing.T) {
 	out := runSynth(t, dir, "session", "list")
 	golden(t, "session_list", normalizeJSON(t, out))
 }
+
+// runSynthInSession executes synthesist with SYNTHESIST_SESSION set to the
+// given session ID. Use this for write operations that must target a specific
+// session branch.
+func runSynthInSession(t *testing.T, dir, session string, args ...string) string {
+	t.Helper()
+
+	binary, err := filepath.Abs(filepath.Join("..", "..", "synthesist"))
+	if err != nil {
+		t.Fatalf("resolving binary path: %v", err)
+	}
+	if _, err := os.Stat(binary); err != nil {
+		t.Fatalf("binary not found at %s — run 'make build' first", binary)
+	}
+
+	cmd := exec.Command(binary, args...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "NO_COLOR=1", "SYNTHESIST_SESSION="+session)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		if len(out) == 0 {
+			t.Fatalf("synthesist %s: %v", strings.Join(args, " "), err)
+		}
+	}
+	return string(out)
+}
+
+func TestIntegration_TwoSessionsMerge(t *testing.T) {
+	// 1. Init a fresh DB
+	dir := initTestDB(t)
+
+	// 2. Start session-a
+	runSynth(t, dir, "session", "start", "session-a")
+
+	// 3. Create tree on session-a
+	runSynthInSession(t, dir, "session-a", "tree", "create", "test", "--description", "Test")
+
+	// 4. Create task in test/spec-a on session-a
+	runSynthInSession(t, dir, "session-a", "task", "create", "test/spec-a", "Task A", "--id", "t1")
+
+	// 5. Start session-b
+	runSynth(t, dir, "session", "start", "session-b")
+
+	// 6. Create task in test/spec-b on session-b
+	runSynthInSession(t, dir, "session-b", "task", "create", "test/spec-b", "Task B", "--id", "t1")
+
+	// 7. Merge session-a into main
+	runSynth(t, dir, "session", "merge", "session-a")
+
+	// 8. Merge session-b into main
+	runSynth(t, dir, "session", "merge", "session-b")
+
+	// 9. Verify both tasks exist
+	outA := runSynth(t, dir, "task", "list", "test/spec-a")
+	outB := runSynth(t, dir, "task", "list", "test/spec-b")
+
+	// Parse JSON to verify task counts
+	var resultA map[string]any
+	if err := json.Unmarshal([]byte(outA), &resultA); err != nil {
+		t.Fatalf("parsing spec-a task list: %v\noutput: %s", err, outA)
+	}
+	tasksA, ok := resultA["tasks"].([]any)
+	if !ok || len(tasksA) != 1 {
+		t.Errorf("expected 1 task in test/spec-a, got %d\noutput: %s", len(tasksA), outA)
+	}
+
+	var resultB map[string]any
+	if err := json.Unmarshal([]byte(outB), &resultB); err != nil {
+		t.Fatalf("parsing spec-b task list: %v\noutput: %s", err, outB)
+	}
+	tasksB, ok := resultB["tasks"].([]any)
+	if !ok || len(tasksB) != 1 {
+		t.Errorf("expected 1 task in test/spec-b, got %d\noutput: %s", len(tasksB), outB)
+	}
+}

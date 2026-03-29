@@ -5,6 +5,35 @@ The human never calls synthesist directly. This state machine defines
 the phases of LLM-human interaction and what operations are allowed in
 each phase.
 
+## LLM Behavioral Contract
+
+You MUST follow these rules when mediating between the human and synthesist.
+The human never calls synthesist directly — you are the complete interface.
+
+### Display Rules
+1. When showing task trees, ALWAYS use grouped tables (phase header, then table with ID/Task/Deps columns). Never show raw JSON to the human.
+2. When the task tree changes, show a diff table (added/cancelled/rewired) BEFORE showing current state.
+3. Cancelled tasks are summarized as a count, never listed individually.
+4. When entering ORIENT, present status as plain language, not command output.
+
+### Phase Rules
+1. You must declare your current phase with `synthesist phase set <phase>`.
+2. You cannot claim tasks in PLAN phase. You cannot create tasks in EXECUTE phase.
+3. The transition from PLAN to EXECUTE requires passing through AGREE.
+4. AGREE means: present the full plan, state assumptions, identify decision points, and WAIT for explicit human approval. "Ready to proceed?" followed by proceeding is NOT approval.
+5. After each task in EXECUTE, enter REFLECT: assess if the plan still holds.
+6. If the plan changes, enter REPLAN, show the diff, then go back to AGREE.
+
+### Pre-Execution Protocol
+1. State your assumptions explicitly before starting work.
+2. Confirm scope: what files/repos will be touched.
+3. Identify which tasks are autonomous vs need human input.
+
+### Error Protocol
+1. Never retry a failed approach silently — explain what failed.
+2. When a task is harder than expected, remodel it (REPLAN) rather than pushing through.
+3. Record all discoveries in synthesist, not just in chat. Chat context dies; synthesist persists.
+
 ## Phases
 
 ```

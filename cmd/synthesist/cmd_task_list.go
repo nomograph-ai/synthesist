@@ -88,8 +88,12 @@ type taskListEntry struct {
 
 func taskListHuman(tree, spec string, tasks []taskListEntry) error {
 	symbols := map[string]string{
-		"pending": "○", "in_progress": "●", "done": "✓",
-		"blocked": "⊘", "waiting": "◷", "cancelled": "✗",
+		"pending":     "○",
+		"in_progress": "⏳",
+		"done":        "✓",
+		"blocked":     "⊘",
+		"waiting":     "⏸",
+		"cancelled":   "✗",
 	}
 
 	done := 0
@@ -99,7 +103,7 @@ func taskListHuman(tree, spec string, tasks []taskListEntry) error {
 		}
 	}
 
-	_, _ = fmt.Fprintf(os.Stdout, "**%s/%s** -- %d/%d done\n\n", tree, spec, done, len(tasks))
+	_, _ = fmt.Fprintf(os.Stdout, "%s/%s -- %d/%d done\n\n", tree, spec, done, len(tasks))
 
 	var rows [][]string
 	for _, t := range tasks {
@@ -119,7 +123,7 @@ func taskListHuman(tree, spec string, tasks []taskListEntry) error {
 	}
 
 	table := tablewriter.NewTable(os.Stdout,
-		tablewriter.WithHeader([]string{"", "ID", "Gate", "Summary", "Deps"}),
+		tablewriter.WithHeader([]string{"", "ID", "GATE", "SUMMARY", "DEPS"}),
 		tablewriter.WithRenderer(renderer.NewMarkdown()),
 	)
 	for _, row := range rows {
