@@ -6,7 +6,7 @@ import (
 	"os"
 )
 
-func cmdStatus(args []string) error {
+func cmdStatus() error {
 	s, err := discoverStore()
 	if err != nil {
 		return err
@@ -112,7 +112,7 @@ func cmdStatus(args []string) error {
 	return enc.Encode(result)
 }
 
-func cmdCheck(args []string) error {
+func cmdCheck() error {
 	s, err := discoverStore()
 	if err != nil {
 		return err

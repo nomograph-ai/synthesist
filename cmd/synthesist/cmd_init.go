@@ -8,7 +8,7 @@ import (
 	"gitlab.com/nomograph/synthesist/internal/store"
 )
 
-func cmdInit(args []string) error {
+func cmdInit() error {
 	dir, err := os.Getwd()
 	if err != nil {
 		return err

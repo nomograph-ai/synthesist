@@ -2,58 +2,29 @@ package main
 
 import (
 	"fmt"
-	"strconv"
 )
 
-func cmdPropagation(args []string) error {
-	if len(args) < 1 {
-		return fmt.Errorf("usage: synthesist propagation <add|list|check> ...") //nolint:staticcheck
-	}
-	switch args[0] {
-	case "add":
-		return cmdPropagationAdd(args[1:])
-	case "list":
-		return cmdPropagationList(args[1:])
-	case "check":
-		return cmdPropagationCheck(args[1:])
-	default:
-		return fmt.Errorf("unknown propagation subcommand: %s", args[0])
-	}
-}
-
-func cmdPropagationAdd(args []string) error {
-	if len(args) < 2 {
-		return fmt.Errorf("usage: synthesist propagation add <source-tree/spec> <target-tree/spec> --seq N [--description '...']")
-	}
+func cmdPropagationAdd(c *PropagationAddCmd) error {
 	s, err := discoverStore()
 	if err != nil {
 		return err
 	}
 	defer s.Close() //nolint:errcheck
 
-	sourceTree, sourceSpec, err := parseTreeSpec(args[0])
+	sourceTree, sourceSpec, err := parseTreeSpec(c.Source)
 	if err != nil {
 		return fmt.Errorf("source: %w", err)
 	}
-	targetTree, targetSpec, err := parseTreeSpec(args[1])
+	targetTree, targetSpec, err := parseTreeSpec(c.Target)
 	if err != nil {
 		return fmt.Errorf("target: %w", err)
 	}
 
-	seq := 0
-	var description string
-	for i := 2; i < len(args)-1; i += 2 {
-		switch args[i] {
-		case "--seq":
-			seq, _ = strconv.Atoi(args[i+1])
-		case "--description":
-			description = args[i+1]
-		}
-	}
+	seq := c.Seq
 
 	var descPtr *string
-	if description != "" {
-		descPtr = &description
+	if c.Description != "" {
+		descPtr = &c.Description
 	}
 
 	_, err = s.DB.Exec(
@@ -74,17 +45,14 @@ func cmdPropagationAdd(args []string) error {
 	})
 }
 
-func cmdPropagationList(args []string) error {
-	if len(args) < 1 {
-		return fmt.Errorf("usage: synthesist propagation list <tree/spec>")
-	}
+func cmdPropagationList(c *PropagationListCmd) error {
 	s, err := discoverStore()
 	if err != nil {
 		return err
 	}
 	defer s.Close() //nolint:errcheck
 
-	tree, spec, err := parseTreeSpec(args[0])
+	tree, spec, err := parseTreeSpec(c.TreeSpec)
 	if err != nil {
 		return err
 	}
@@ -141,17 +109,14 @@ func cmdPropagationList(args []string) error {
 // cmdPropagationCheck reports which downstream specs may need updates
 // based on whether the source spec has tasks completed more recently
 // than the target spec's last task completion.
-func cmdPropagationCheck(args []string) error {
-	if len(args) < 1 {
-		return fmt.Errorf("usage: synthesist propagation check <tree/spec>")
-	}
+func cmdPropagationCheck(c *PropagationCheckCmd) error {
 	s, err := discoverStore()
 	if err != nil {
 		return err
 	}
 	defer s.Close() //nolint:errcheck
 
-	tree, spec, err := parseTreeSpec(args[0])
+	tree, spec, err := parseTreeSpec(c.TreeSpec)
 	if err != nil {
 		return err
 	}

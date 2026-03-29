@@ -6,54 +6,21 @@ import (
 	"gitlab.com/nomograph/synthesist/internal/store"
 )
 
-func cmdDisposition(args []string) error {
-	if len(args) < 1 {
-		return fmt.Errorf("usage: synthesist disposition <add|list|supersede> ...") //nolint:staticcheck
-	}
-	switch args[0] {
-	case "add":
-		return cmdDispositionAdd(args[1:])
-	case "list":
-		return cmdDispositionList(args[1:])
-	case "supersede":
-		return cmdDispositionSupersede(args[1:])
-	default:
-		return fmt.Errorf("unknown disposition subcommand: %s", args[0])
-	}
-}
-
-func cmdDispositionAdd(args []string) error {
-	if len(args) < 2 {
-		return fmt.Errorf("usage: synthesist disposition add <tree/spec> <stakeholder> --topic '...' --stance cautious --confidence inferred [--preferred '...']")
-	}
+func cmdDispositionAdd(c *DispositionAddCmd) error {
 	s, err := discoverStore()
 	if err != nil {
 		return err
 	}
 	defer s.Close() //nolint:errcheck
 
-	tree, spec, err := parseTreeSpec(args[0])
+	tree, spec, err := parseTreeSpec(c.TreeSpec)
 	if err != nil {
 		return err
 	}
-	stakeholderID := args[1]
-
-	var topic, stance, confidence, preferred string
-	for i := 2; i < len(args)-1; i += 2 {
-		switch args[i] {
-		case "--topic":
-			topic = args[i+1]
-		case "--stance":
-			stance = args[i+1]
-		case "--confidence":
-			confidence = args[i+1]
-		case "--preferred":
-			preferred = args[i+1]
-		}
-	}
-	if topic == "" || stance == "" || confidence == "" {
-		return fmt.Errorf("--topic, --stance, and --confidence are required")
-	}
+	stakeholderID := c.StakeholderID
+	topic := c.Topic
+	stance := c.Stance
+	confidence := c.Confidence
 
 	// Get next ID
 	var ids []string
@@ -69,8 +36,8 @@ func cmdDispositionAdd(args []string) error {
 	newID := store.NextID("d", ids)
 
 	var preferredPtr *string
-	if preferred != "" {
-		preferredPtr = &preferred
+	if c.Preferred != "" {
+		preferredPtr = &c.Preferred
 	}
 
 	_, err = s.DB.Exec(
@@ -90,17 +57,14 @@ func cmdDispositionAdd(args []string) error {
 	})
 }
 
-func cmdDispositionList(args []string) error {
-	if len(args) < 1 {
-		return fmt.Errorf("usage: synthesist disposition list <tree/spec>")
-	}
+func cmdDispositionList(c *DispositionListCmd) error {
 	s, err := discoverStore()
 	if err != nil {
 		return err
 	}
 	defer s.Close() //nolint:errcheck
 
-	tree, spec, err := parseTreeSpec(args[0])
+	tree, spec, err := parseTreeSpec(c.TreeSpec)
 	if err != nil {
 		return err
 	}
@@ -137,36 +101,19 @@ func cmdDispositionList(args []string) error {
 	return jsonOut(map[string]any{"tree": tree, "spec": spec, "dispositions": dispositions})
 }
 
-func cmdDispositionSupersede(args []string) error {
-	if len(args) < 2 {
-		return fmt.Errorf("usage: synthesist disposition supersede <tree/spec> <disposition-id> --new-stance supportive [--evidence s1] [--preferred '...']")
-	}
+func cmdDispositionSupersede(c *DispositionSupersedeCmd) error {
 	s, err := discoverStore()
 	if err != nil {
 		return err
 	}
 	defer s.Close() //nolint:errcheck
 
-	tree, spec, err := parseTreeSpec(args[0])
+	tree, spec, err := parseTreeSpec(c.TreeSpec)
 	if err != nil {
 		return err
 	}
-	oldID := args[1]
-
-	var newStance, preferred, evidence string
-	for i := 2; i < len(args)-1; i += 2 {
-		switch args[i] {
-		case "--new-stance":
-			newStance = args[i+1]
-		case "--preferred":
-			preferred = args[i+1]
-		case "--evidence":
-			evidence = args[i+1]
-		}
-	}
-	if newStance == "" {
-		return fmt.Errorf("--new-stance is required")
-	}
+	oldID := c.OldID
+	newStance := c.NewStance
 
 	// Read old disposition
 	var stakeholder, topic, confidence string
@@ -202,15 +149,15 @@ func cmdDispositionSupersede(args []string) error {
 
 	// Insert new
 	var preferredPtr *string
-	if preferred != "" {
-		preferredPtr = &preferred
+	if c.Preferred != "" {
+		preferredPtr = &c.Preferred
 	} else {
 		preferredPtr = oldPreferred
 	}
 
 	var evidencePtr *string
-	if evidence != "" {
-		evidencePtr = &evidence
+	if c.Evidence != "" {
+		evidencePtr = &c.Evidence
 	}
 
 	if _, err := s.DB.Exec(
@@ -221,8 +168,8 @@ func cmdDispositionSupersede(args []string) error {
 	}
 
 	commitMsg := fmt.Sprintf("landscape(%s/%s): supersede %s -> %s (%s now %s on %s)", tree, spec, oldID, newID, stakeholder, newStance, topic)
-	if evidence != "" {
-		commitMsg += fmt.Sprintf(" [evidence: %s]", evidence)
+	if c.Evidence != "" {
+		commitMsg += fmt.Sprintf(" [evidence: %s]", c.Evidence)
 	}
 	if err := s.Commit(commitMsg); err != nil {
 		return err
@@ -232,8 +179,8 @@ func cmdDispositionSupersede(args []string) error {
 		"old_id": oldID, "new_id": newID, "stakeholder": stakeholder,
 		"topic": topic, "old_stance": "superseded", "new_stance": newStance,
 	}
-	if evidence != "" {
-		out["evidence_signal"] = evidence
+	if c.Evidence != "" {
+		out["evidence_signal"] = c.Evidence
 	}
 	return jsonOut(out)
 }

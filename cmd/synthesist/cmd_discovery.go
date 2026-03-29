@@ -6,53 +6,20 @@ import (
 	"gitlab.com/nomograph/synthesist/internal/store"
 )
 
-func cmdDiscovery(args []string) error {
-	if len(args) < 1 {
-		return fmt.Errorf("usage: synthesist discovery <add|list> ...") //nolint:staticcheck
-	}
-	switch args[0] {
-	case "add":
-		return cmdDiscoveryAdd(args[1:])
-	case "list":
-		return cmdDiscoveryList(args[1:])
-	default:
-		return fmt.Errorf("unknown discovery subcommand: %s", args[0])
-	}
-}
-
-func cmdDiscoveryAdd(args []string) error {
-	if len(args) < 1 {
-		return fmt.Errorf("usage: synthesist discovery add <tree/spec> --finding '...' [--impact '...'] [--action '...'] [--author agent] [--date YYYY-MM-DD]")
-	}
+func cmdDiscoveryAdd(c *DiscoveryAddCmd) error {
 	s, err := discoverStore()
 	if err != nil {
 		return err
 	}
 	defer s.Close() //nolint:errcheck
 
-	tree, spec, err := parseTreeSpec(args[0])
+	tree, spec, err := parseTreeSpec(c.TreeSpec)
 	if err != nil {
 		return err
 	}
 
-	var finding, impact, action, author, date string
-	for i := 1; i < len(args)-1; i += 2 {
-		switch args[i] {
-		case "--finding":
-			finding = args[i+1]
-		case "--impact":
-			impact = args[i+1]
-		case "--action":
-			action = args[i+1]
-		case "--author":
-			author = args[i+1]
-		case "--date":
-			date = args[i+1]
-		}
-	}
-	if finding == "" {
-		return fmt.Errorf("--finding is required")
-	}
+	finding := c.Finding
+	date := c.Date
 	if date == "" {
 		date = store.Today()
 	}
@@ -70,14 +37,14 @@ func cmdDiscoveryAdd(args []string) error {
 	newID := store.NextID("f", ids)
 
 	var impactPtr, actionPtr, authorPtr *string
-	if impact != "" {
-		impactPtr = &impact
+	if c.Impact != "" {
+		impactPtr = &c.Impact
 	}
-	if action != "" {
-		actionPtr = &action
+	if c.Action != "" {
+		actionPtr = &c.Action
 	}
-	if author != "" {
-		authorPtr = &author
+	if c.Author != "" {
+		authorPtr = &c.Author
 	}
 
 	_, err = s.DB.Exec(
@@ -93,17 +60,14 @@ func cmdDiscoveryAdd(args []string) error {
 	return jsonOut(map[string]any{"id": newID, "tree": tree, "spec": spec, "finding": finding, "date": date})
 }
 
-func cmdDiscoveryList(args []string) error {
-	if len(args) < 1 {
-		return fmt.Errorf("usage: synthesist discovery list <tree/spec>")
-	}
+func cmdDiscoveryList(c *DiscoveryListCmd) error {
 	s, err := discoverStore()
 	if err != nil {
 		return err
 	}
 	defer s.Close() //nolint:errcheck
 
-	tree, spec, err := parseTreeSpec(args[0])
+	tree, spec, err := parseTreeSpec(c.TreeSpec)
 	if err != nil {
 		return err
 	}

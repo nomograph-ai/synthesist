@@ -5,62 +5,33 @@ import (
 	"strings"
 )
 
-func cmdCampaign(args []string) error {
-	if len(args) < 1 {
-		return fmt.Errorf("usage: synthesist campaign <active|backlog|list> ...") //nolint:staticcheck
-	}
-	switch args[0] {
-	case "active":
-		return cmdCampaignActive(args[1:])
-	case "backlog":
-		return cmdCampaignBacklog(args[1:])
-	case "list":
-		return cmdCampaignList(args[1:])
-	default:
-		return fmt.Errorf("unknown campaign subcommand: %s", args[0])
-	}
-}
-
-func cmdCampaignActive(args []string) error {
-	if len(args) < 2 {
-		return fmt.Errorf("usage: synthesist campaign active <tree> <spec-id> [--summary '...'] [--phase '...'] [--blocked-by spec1,spec2]")
-	}
+func cmdCampaignActive(c *CampaignActiveCmd) error {
 	s, err := discoverStore()
 	if err != nil {
 		return err
 	}
 	defer s.Close() //nolint:errcheck
 
-	tree := args[0]
-	specID := args[1]
-	var summary, phase string
-	var blockedBy []string
-	for i := 2; i < len(args)-1; i += 2 {
-		switch args[i] {
-		case "--summary":
-			summary = args[i+1]
-		case "--phase":
-			phase = args[i+1]
-		case "--blocked-by":
-			blockedBy = strings.Split(args[i+1], ",")
-		}
-	}
+	tree := c.Tree
+	specID := c.SpecID
 
 	var phasePtr *string
-	if phase != "" {
-		phasePtr = &phase
+	if c.Phase != "" {
+		phasePtr = &c.Phase
 	}
 
 	_, err = s.DB.Exec("INSERT INTO campaign_active (tree, spec_id, summary, phase) VALUES (?, ?, ?, ?)",
-		tree, specID, summary, phasePtr)
+		tree, specID, c.Summary, phasePtr)
 	if err != nil {
 		return fmt.Errorf("adding to active campaign: %w", err)
 	}
 
-	for _, b := range blockedBy {
-		if _, err := s.DB.Exec("INSERT INTO campaign_blocked_by (tree, spec_id, blocked_by) VALUES (?, ?, ?)",
-			tree, specID, strings.TrimSpace(b)); err != nil {
-			return fmt.Errorf("inserting blocked_by: %w", err)
+	if c.BlockedBy != "" {
+		for _, b := range strings.Split(c.BlockedBy, ",") {
+			if _, err := s.DB.Exec("INSERT INTO campaign_blocked_by (tree, spec_id, blocked_by) VALUES (?, ?, ?)",
+				tree, specID, strings.TrimSpace(b)); err != nil {
+				return fmt.Errorf("inserting blocked_by: %w", err)
+			}
 		}
 	}
 
@@ -70,41 +41,28 @@ func cmdCampaignActive(args []string) error {
 	return jsonOut(map[string]any{"tree": tree, "spec_id": specID, "status": "active"})
 }
 
-func cmdCampaignBacklog(args []string) error {
-	if len(args) < 2 {
-		return fmt.Errorf("usage: synthesist campaign backlog <tree> <spec-id> [--title '...'] [--summary '...'] [--blocked-by spec1,spec2]")
-	}
+func cmdCampaignBacklog(c *CampaignBacklogCmd) error {
 	s, err := discoverStore()
 	if err != nil {
 		return err
 	}
 	defer s.Close() //nolint:errcheck
 
-	tree := args[0]
-	specID := args[1]
-	var title, summary string
-	var blockedBy []string
-	for i := 2; i < len(args)-1; i += 2 {
-		switch args[i] {
-		case "--title":
-			title = args[i+1]
-		case "--summary":
-			summary = args[i+1]
-		case "--blocked-by":
-			blockedBy = strings.Split(args[i+1], ",")
-		}
-	}
+	tree := c.Tree
+	specID := c.SpecID
 
 	_, err = s.DB.Exec("INSERT INTO campaign_backlog (tree, spec_id, title, summary) VALUES (?, ?, ?, ?)",
-		tree, specID, title, summary)
+		tree, specID, c.Title, c.Summary)
 	if err != nil {
 		return fmt.Errorf("adding to backlog: %w", err)
 	}
 
-	for _, b := range blockedBy {
-		if _, err := s.DB.Exec("INSERT INTO campaign_blocked_by (tree, spec_id, blocked_by) VALUES (?, ?, ?)",
-			tree, specID, strings.TrimSpace(b)); err != nil {
-			return fmt.Errorf("inserting blocked_by: %w", err)
+	if c.BlockedBy != "" {
+		for _, b := range strings.Split(c.BlockedBy, ",") {
+			if _, err := s.DB.Exec("INSERT INTO campaign_blocked_by (tree, spec_id, blocked_by) VALUES (?, ?, ?)",
+				tree, specID, strings.TrimSpace(b)); err != nil {
+				return fmt.Errorf("inserting blocked_by: %w", err)
+			}
 		}
 	}
 
@@ -114,17 +72,14 @@ func cmdCampaignBacklog(args []string) error {
 	return jsonOut(map[string]any{"tree": tree, "spec_id": specID, "status": "backlog"})
 }
 
-func cmdCampaignList(args []string) error {
-	if len(args) < 1 {
-		return fmt.Errorf("usage: synthesist campaign list <tree>")
-	}
+func cmdCampaignList(c *CampaignListCmd) error {
 	s, err := discoverStore()
 	if err != nil {
 		return err
 	}
 	defer s.Close() //nolint:errcheck
 
-	tree := args[0]
+	tree := c.Tree
 
 	// Active
 	rows, _ := s.DB.Query("SELECT spec_id, summary, phase FROM campaign_active WHERE tree = ? ORDER BY spec_id", tree)

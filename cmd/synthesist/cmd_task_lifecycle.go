@@ -8,21 +8,18 @@ import (
 	"gitlab.com/nomograph/synthesist/internal/store"
 )
 
-func cmdTaskClaim(args []string) error {
-	if len(args) < 2 {
-		return fmt.Errorf("usage: synthesist task claim <tree/spec> <task-id>")
-	}
+func cmdTaskClaim(c *TaskClaimCmd) error {
 	s, err := discoverStore()
 	if err != nil {
 		return err
 	}
 	defer s.Close() //nolint:errcheck
 
-	tree, spec, err := parseTreeSpec(args[0])
+	tree, spec, err := parseTreeSpec(c.TreeSpec)
 	if err != nil {
 		return err
 	}
-	taskID := args[1]
+	taskID := c.TaskID
 
 	// Check deps are done (before attempting claim)
 	depRows, err := s.DB.Query(
@@ -75,28 +72,19 @@ func cmdTaskClaim(args []string) error {
 	return jsonOut(map[string]any{"id": taskID, "status": "in_progress", "owner": ownerName})
 }
 
-func cmdTaskDone(args []string) error {
-	if len(args) < 2 {
-		return fmt.Errorf("usage: synthesist task done <tree/spec> <task-id>")
-	}
+func cmdTaskDone(c *TaskDoneCmd) error {
 	s, err := discoverStore()
 	if err != nil {
 		return err
 	}
 	defer s.Close() //nolint:errcheck
 
-	tree, spec, err := parseTreeSpec(args[0])
+	tree, spec, err := parseTreeSpec(c.TreeSpec)
 	if err != nil {
 		return err
 	}
-	taskID := args[1]
-
-	skipVerify := false
-	for _, arg := range args[2:] {
-		if arg == "--skip-verify" {
-			skipVerify = true
-		}
-	}
+	taskID := c.TaskID
+	skipVerify := c.SkipVerify
 
 	var results []map[string]any
 	allPass := true
@@ -166,21 +154,18 @@ func cmdTaskDone(args []string) error {
 	})
 }
 
-func cmdTaskBlock(args []string) error {
-	if len(args) < 2 {
-		return fmt.Errorf("usage: synthesist task block <tree/spec> <task-id>")
-	}
+func cmdTaskBlock(c *TaskBlockCmd) error {
 	s, err := discoverStore()
 	if err != nil {
 		return err
 	}
 	defer s.Close() //nolint:errcheck
 
-	tree, spec, err := parseTreeSpec(args[0])
+	tree, spec, err := parseTreeSpec(c.TreeSpec)
 	if err != nil {
 		return err
 	}
-	taskID := args[1]
+	taskID := c.TaskID
 
 	_, err = s.DB.Exec("UPDATE tasks SET status = 'blocked' WHERE tree = ? AND spec = ? AND id = ?",
 		tree, spec, taskID)
@@ -194,40 +179,26 @@ func cmdTaskBlock(args []string) error {
 	return jsonOut(map[string]any{"id": taskID, "status": "blocked"})
 }
 
-func cmdTaskWait(args []string) error {
-	if len(args) < 2 {
-		return fmt.Errorf("usage: synthesist task wait <tree/spec> <task-id> --reason '...' --external 'url' --check 'cmd' [--check-after YYYY-MM-DD]")
-	}
+func cmdTaskWait(c *TaskWaitCmd) error {
 	s, err := discoverStore()
 	if err != nil {
 		return err
 	}
 	defer s.Close() //nolint:errcheck
 
-	tree, spec, err := parseTreeSpec(args[0])
+	tree, spec, err := parseTreeSpec(c.TreeSpec)
 	if err != nil {
 		return err
 	}
-	taskID := args[1]
+	taskID := c.TaskID
 
-	var reason, external, check string
+	reason := c.Reason
+	external := c.External
+	check := c.Check
 	var checkAfter *string
-	for i := 2; i < len(args)-1; i += 2 {
-		switch args[i] {
-		case "--reason":
-			reason = args[i+1]
-		case "--external":
-			external = args[i+1]
-		case "--check":
-			check = args[i+1]
-		case "--check-after":
-			v := args[i+1]
-			checkAfter = &v
-		}
-	}
-
-	if reason == "" || external == "" || check == "" {
-		return fmt.Errorf("--reason, --external, and --check are required")
+	if c.CheckAfter != "" {
+		v := c.CheckAfter
+		checkAfter = &v
 	}
 
 	_, err = s.DB.Exec(
@@ -245,32 +216,22 @@ func cmdTaskWait(args []string) error {
 	return jsonOut(map[string]any{"id": taskID, "status": "waiting", "reason": reason, "external": external})
 }
 
-func cmdTaskCancel(args []string) error {
-	if len(args) < 2 {
-		return fmt.Errorf("usage: synthesist task cancel <tree/spec> <task-id> [--reason '...']")
-	}
+func cmdTaskCancel(c *TaskCancelCmd) error {
 	s, err := discoverStore()
 	if err != nil {
 		return err
 	}
 	defer s.Close() //nolint:errcheck
 
-	tree, spec, err := parseTreeSpec(args[0])
+	tree, spec, err := parseTreeSpec(c.TreeSpec)
 	if err != nil {
 		return err
 	}
-	taskID := args[1]
-
-	var reason string
-	for i := 2; i < len(args)-1; i += 2 {
-		if args[i] == "--reason" {
-			reason = args[i+1]
-		}
-	}
+	taskID := c.TaskID
 
 	var notePtr *string
-	if reason != "" {
-		notePtr = &reason
+	if c.Reason != "" {
+		notePtr = &c.Reason
 	}
 
 	_, err = s.DB.Exec("UPDATE tasks SET status = 'cancelled', failure_note = ? WHERE tree = ? AND spec = ? AND id = ?",

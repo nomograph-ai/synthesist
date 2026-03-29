@@ -6,58 +6,27 @@ import (
 	"gitlab.com/nomograph/synthesist/internal/store"
 )
 
-func cmdSpec(args []string) error {
-	if len(args) < 1 {
-		return fmt.Errorf("usage: synthesist spec <create|show|update> ...") //nolint:staticcheck
-	}
-	switch args[0] {
-	case "create":
-		return cmdSpecCreate(args[1:])
-	case "show":
-		return cmdSpecShow(args[1:])
-	case "update":
-		return cmdSpecUpdate(args[1:])
-	default:
-		return fmt.Errorf("unknown spec subcommand: %s", args[0])
-	}
-}
-
-func cmdSpecCreate(args []string) error {
-	if len(args) < 1 {
-		return fmt.Errorf("usage: synthesist spec create <tree/spec> --goal '...' [--constraints '...'] [--decisions '...']")
-	}
+func cmdSpecCreate(c *SpecCreateCmd) error {
 	s, err := discoverStore()
 	if err != nil {
 		return err
 	}
 	defer s.Close() //nolint:errcheck
 
-	tree, spec, err := parseTreeSpec(args[0])
+	tree, spec, err := parseTreeSpec(c.TreeSpec)
 	if err != nil {
 		return err
 	}
 
-	var goal, constraints, decisions string
-	for i := 1; i < len(args)-1; i += 2 {
-		switch args[i] {
-		case "--goal":
-			goal = args[i+1]
-		case "--constraints":
-			constraints = args[i+1]
-		case "--decisions":
-			decisions = args[i+1]
-		}
-	}
-
 	var goalPtr, constraintsPtr, decisionsPtr *string
-	if goal != "" {
-		goalPtr = &goal
+	if c.Goal != "" {
+		goalPtr = &c.Goal
 	}
-	if constraints != "" {
-		constraintsPtr = &constraints
+	if c.Constraints != "" {
+		constraintsPtr = &c.Constraints
 	}
-	if decisions != "" {
-		decisionsPtr = &decisions
+	if c.Decisions != "" {
+		decisionsPtr = &c.Decisions
 	}
 
 	_, err = s.DB.Exec(
@@ -71,20 +40,17 @@ func cmdSpecCreate(args []string) error {
 	if err := s.Commit(fmt.Sprintf("spec(%s/%s): create", tree, spec)); err != nil {
 		return err
 	}
-	return jsonOut(map[string]any{"tree": tree, "spec": spec, "goal": goal, "created": store.Today()})
+	return jsonOut(map[string]any{"tree": tree, "spec": spec, "goal": c.Goal, "created": store.Today()})
 }
 
-func cmdSpecShow(args []string) error {
-	if len(args) < 1 {
-		return fmt.Errorf("usage: synthesist spec show <tree/spec>")
-	}
+func cmdSpecShow(c *SpecShowCmd) error {
 	s, err := discoverStore()
 	if err != nil {
 		return err
 	}
 	defer s.Close() //nolint:errcheck
 
-	tree, spec, err := parseTreeSpec(args[0])
+	tree, spec, err := parseTreeSpec(c.TreeSpec)
 	if err != nil {
 		return err
 	}
@@ -183,17 +149,14 @@ func cmdSpecShow(args []string) error {
 	return jsonOut(result)
 }
 
-func cmdSpecUpdate(args []string) error {
-	if len(args) < 1 {
-		return fmt.Errorf("usage: synthesist spec update <tree/spec> [--goal '...'] [--constraints '...'] [--decisions '...']")
-	}
+func cmdSpecUpdate(c *SpecUpdateCmd) error {
 	s, err := discoverStore()
 	if err != nil {
 		return err
 	}
 	defer s.Close() //nolint:errcheck
 
-	tree, spec, err := parseTreeSpec(args[0])
+	tree, spec, err := parseTreeSpec(c.TreeSpec)
 	if err != nil {
 		return err
 	}
@@ -205,25 +168,24 @@ func cmdSpecUpdate(args []string) error {
 		return fmt.Errorf("spec not found: %s/%s", tree, spec)
 	}
 
-	for i := 1; i < len(args)-1; i += 2 {
-		switch args[i] {
-		case "--goal":
-			if _, err := s.DB.Exec("UPDATE specs SET goal = ? WHERE tree = ? AND id = ?", args[i+1], tree, spec); err != nil {
-				return fmt.Errorf("updating goal: %w", err)
-			}
-		case "--constraints":
-			if _, err := s.DB.Exec("UPDATE specs SET constraints = ? WHERE tree = ? AND id = ?", args[i+1], tree, spec); err != nil {
-				return fmt.Errorf("updating constraints: %w", err)
-			}
-		case "--decisions":
-			if _, err := s.DB.Exec("UPDATE specs SET decisions = ? WHERE tree = ? AND id = ?", args[i+1], tree, spec); err != nil {
-				return fmt.Errorf("updating decisions: %w", err)
-			}
+	if c.Goal != "" {
+		if _, err := s.DB.Exec("UPDATE specs SET goal = ? WHERE tree = ? AND id = ?", c.Goal, tree, spec); err != nil {
+			return fmt.Errorf("updating goal: %w", err)
+		}
+	}
+	if c.Constraints != "" {
+		if _, err := s.DB.Exec("UPDATE specs SET constraints = ? WHERE tree = ? AND id = ?", c.Constraints, tree, spec); err != nil {
+			return fmt.Errorf("updating constraints: %w", err)
+		}
+	}
+	if c.Decisions != "" {
+		if _, err := s.DB.Exec("UPDATE specs SET decisions = ? WHERE tree = ? AND id = ?", c.Decisions, tree, spec); err != nil {
+			return fmt.Errorf("updating decisions: %w", err)
 		}
 	}
 
 	if err := s.Commit(fmt.Sprintf("spec(%s/%s): update", tree, spec)); err != nil {
 		return err
 	}
-	return cmdSpecShow([]string{args[0]})
+	return cmdSpecShow(&SpecShowCmd{TreeSpec: c.TreeSpec})
 }

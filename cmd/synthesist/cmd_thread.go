@@ -6,51 +6,26 @@ import (
 	"gitlab.com/nomograph/synthesist/internal/store"
 )
 
-func cmdThread(args []string) error {
-	if len(args) < 1 {
-		return fmt.Errorf("usage: synthesist thread <create|list|update|prune> ...") //nolint:staticcheck
-	}
-	switch args[0] {
-	case "create":
-		return cmdThreadCreate(args[1:])
-	case "list":
-		return cmdThreadList(args[1:])
-	default:
-		return fmt.Errorf("unknown thread subcommand: %s", args[0])
-	}
-}
-
-func cmdThreadCreate(args []string) error {
-	if len(args) < 1 {
-		return fmt.Errorf("usage: synthesist thread create <id> --tree <tree> --summary '...' [--spec id] [--task id] [--date YYYY-MM-DD]")
-	}
+func cmdThreadCreate(c *ThreadCreateCmd) error {
 	s, err := discoverStore()
 	if err != nil {
 		return err
 	}
 	defer s.Close() //nolint:errcheck
 
-	threadID := args[0]
-	var tree, summary, date string
+	threadID := c.ID
+	tree := c.Tree
+	summary := c.Summary
+	date := c.Date
+
 	var spec, task *string
-	for i := 1; i < len(args)-1; i += 2 {
-		switch args[i] {
-		case "--tree":
-			tree = args[i+1]
-		case "--summary":
-			summary = args[i+1]
-		case "--spec":
-			v := args[i+1]
-			spec = &v
-		case "--task":
-			v := args[i+1]
-			task = &v
-		case "--date":
-			date = args[i+1]
-		}
+	if c.Spec != "" {
+		v := c.Spec
+		spec = &v
 	}
-	if tree == "" || summary == "" {
-		return fmt.Errorf("--tree and --summary are required")
+	if c.Task != "" {
+		v := c.Task
+		task = &v
 	}
 	if date == "" {
 		date = store.Today()
@@ -68,7 +43,7 @@ func cmdThreadCreate(args []string) error {
 	return jsonOut(map[string]any{"id": threadID, "tree": tree, "summary": summary, "date": date})
 }
 
-func cmdThreadList(args []string) error {
+func cmdThreadList() error {
 	s, err := discoverStore()
 	if err != nil {
 		return err

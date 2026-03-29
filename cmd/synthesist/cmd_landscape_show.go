@@ -2,27 +2,14 @@ package main
 
 import "fmt"
 
-func cmdLandscape(args []string) error {
-	if len(args) < 1 {
-		return fmt.Errorf("usage: synthesist landscape show <tree/spec>")
-	}
-	if args[0] != "show" {
-		return fmt.Errorf("unknown landscape subcommand: %s (did you mean 'show'?)", args[0])
-	}
-	return cmdLandscapeShow(args[1:])
-}
-
-func cmdLandscapeShow(args []string) error {
-	if len(args) < 1 {
-		return fmt.Errorf("usage: synthesist landscape show <tree/spec>")
-	}
+func cmdLandscapeShow(c *LandscapeShowCmd) error {
 	s, err := discoverStore()
 	if err != nil {
 		return err
 	}
 	defer s.Close() //nolint:errcheck
 
-	tree, spec, err := parseTreeSpec(args[0])
+	tree, spec, err := parseTreeSpec(c.TreeSpec)
 	if err != nil {
 		return err
 	}
