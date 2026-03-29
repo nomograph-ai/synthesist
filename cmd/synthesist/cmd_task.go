@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"strings"
 
+	"github.com/olekukonko/tablewriter"
+	"github.com/olekukonko/tablewriter/renderer"
 	"gitlab.com/nomograph/synthesist/internal/store"
 )
 
@@ -198,32 +200,40 @@ func taskListHuman(tree, spec string, tasks []taskListEntry) error {
 		"blocked": "⊘", "waiting": "◷", "cancelled": "✗",
 	}
 
-	// Count statuses
 	done := 0
-	total := len(tasks)
 	for _, t := range tasks {
 		if t.status == "done" {
 			done++
 		}
 	}
 
-	fmt.Fprintf(os.Stdout, "%s/%s%s%d/%d done\n\n", tree, spec, strings.Repeat(" ", 50-len(tree)-len(spec)-1), done, total)
+	fmt.Fprintf(os.Stdout, "**%s/%s** -- %d/%d done\n\n", tree, spec, done, len(tasks))
 
+	var rows [][]string
 	for _, t := range tasks {
 		sym := symbols[t.status]
 		if sym == "" {
 			sym = "?"
 		}
-		gate := "  "
+		gate := ""
 		if t.gate != nil && *t.gate != "" {
 			gate = "🔒"
 		}
 		depStr := ""
 		if len(t.deps) > 0 {
-			depStr = "← " + strings.Join(t.deps, ",")
+			depStr = strings.Join(t.deps, ", ")
 		}
-		fmt.Fprintf(os.Stdout, "  %s %-4s %s %-45s %s\n", sym, t.id, gate, t.summary, depStr)
+		rows = append(rows, []string{sym, t.id, gate, t.summary, depStr})
 	}
+
+	table := tablewriter.NewTable(os.Stdout,
+		tablewriter.WithHeader([]string{"", "ID", "Gate", "Summary", "Deps"}),
+		tablewriter.WithRenderer(renderer.NewMarkdown()),
+	)
+	for _, row := range rows {
+		table.Append(row)
+	}
+	table.Render()
 	return nil
 }
 
