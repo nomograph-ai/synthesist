@@ -68,6 +68,9 @@ type CLI struct {
 	Stance    StanceCmd    `cmd:"" help:"Stakeholder dispositions"`
 	Replay    ReplayCmd    `cmd:"" help:"Generate replay playbook"`
 
+	// Phase
+	Phase PhaseCmd `cmd:"" help:"Manage workflow phase"`
+
 	// Sessions
 	Session SessionCmd `cmd:"" help:"Manage concurrent sessions"`
 
@@ -257,6 +260,7 @@ func (c *TaskCreateCmd) Run() error { return cmdTaskCreate(c) }
 type TaskListCmd struct {
 	TreeSpec string `arg:"" help:"tree/spec format"`
 	Human    bool   `name:"human" help:"Human-readable output"`
+	Active   bool   `name:"active" help:"Hide cancelled tasks"`
 }
 
 func (c *TaskListCmd) Run() error { return cmdTaskList(c) }
@@ -584,6 +588,23 @@ type ReplayCmd struct {
 
 func (c *ReplayCmd) Run() error { return cmdReplay(c) }
 
+// --- Phase ---
+
+type PhaseCmd struct {
+	Set  PhaseSetCmd  `cmd:"" help:"Set the current phase"`
+	Show PhaseShowCmd `cmd:"" help:"Show the current phase"`
+}
+
+type PhaseSetCmd struct {
+	Name string `arg:"" help:"Phase name (orient, plan, agree, execute, reflect, replan, report)"`
+}
+
+func (c *PhaseSetCmd) Run() error { return cmdPhaseSet(c) }
+
+type PhaseShowCmd struct{}
+
+func (c *PhaseShowCmd) Run() error { return cmdPhaseShow() }
+
 // --- Session ---
 
 type SessionCmd struct {
@@ -652,6 +673,9 @@ func main() {
 		kong.Description("specification graph manager"),
 		kong.UsageOnError(),
 	)
+
+	// Generate skill content from the kong struct.
+	initSkillContent(cli)
 
 	// Enforce session for write operations.
 	// Read-only commands and read subcommands work without a session.

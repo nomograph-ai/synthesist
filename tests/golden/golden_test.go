@@ -149,3 +149,9 @@ func TestGolden_Check(t *testing.T) {
 	out := runSynthWrite(t, dir, "check")
 	golden(t, "check", normalizeJSON(t, out))
 }
+
+func TestGolden_SessionList(t *testing.T) {
+	dir := initTestDB(t)
+	out := runSynth(t, dir, "session", "list")
+	golden(t, "session_list", normalizeJSON(t, out))
+}
