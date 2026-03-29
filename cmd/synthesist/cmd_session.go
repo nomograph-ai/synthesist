@@ -238,8 +238,13 @@ func cmdSessionPrune(c *SessionPruneCmd) error {
 	}
 	defer rows.Close() //nolint:errcheck
 
-	var pruned []string
-	var kept []string
+	type branchResult struct {
+		Name   string `json:"name"`
+		Action string `json:"action"` // merged, kept, conflict
+		Reason string `json:"reason,omitempty"`
+	}
+
+	var results []branchResult
 	for rows.Next() {
 		var name, dateStr string
 		if err := rows.Scan(&name, &dateStr); err != nil {
@@ -248,29 +253,72 @@ func cmdSessionPrune(c *SessionPruneCmd) error {
 		if name == "main" {
 			continue
 		}
-		// Parse the date — Dolt returns ISO format
+
+		// Parse the date
 		lastActivity, err := time.Parse("2006-01-02 15:04:05", strings.TrimSuffix(dateStr, ".000000"))
 		if err != nil {
-			// Try alternate formats
 			lastActivity, err = time.Parse(time.RFC3339, dateStr)
 			if err != nil {
-				kept = append(kept, name)
+				results = append(results, branchResult{Name: name, Action: "kept", Reason: "unparseable date"})
 				continue
 			}
 		}
-		if lastActivity.Before(cutoff) {
-			if err := s.DeleteBranch(name); err != nil {
-				kept = append(kept, name) // couldn't delete, keep it
-				continue
-			}
-			pruned = append(pruned, name)
-		} else {
-			kept = append(kept, name)
+
+		if !lastActivity.Before(cutoff) {
+			results = append(results, branchResult{Name: name, Action: "kept", Reason: "still active"})
+			continue
+		}
+
+		// Stale branch — try to merge to preserve any work
+		conflicts, mergeErr := s.MergeBranch(name)
+		if mergeErr != nil {
+			results = append(results, branchResult{Name: name, Action: "kept", Reason: fmt.Sprintf("merge error: %v", mergeErr)})
+			continue
+		}
+		if conflicts > 0 {
+			// Can't auto-merge — flag for human review, don't delete
+			results = append(results, branchResult{
+				Name:   name,
+				Action: "conflict",
+				Reason: fmt.Sprintf("%d conflicts — needs manual resolution via 'session merge %s --ours' or '--theirs'", conflicts, name),
+			})
+			continue
+		}
+
+		// Merged cleanly — now safe to delete the branch pointer
+		// (all data is on main, Dolt history preserves every commit)
+		if err := s.DeleteBranch(name); err != nil {
+			results = append(results, branchResult{Name: name, Action: "kept", Reason: fmt.Sprintf("delete error: %v", err)})
+			continue
+		}
+
+		if err := s.GitCommit(fmt.Sprintf("session(%s): prune — merged and cleaned", name)); err != nil {
+			// Non-fatal — the merge succeeded, just the git commit failed
+			_ = err
+		}
+
+		results = append(results, branchResult{Name: name, Action: "merged", Reason: "stale — merged to main, branch pointer removed"})
+	}
+
+	// Summarize
+	merged := 0
+	kept := 0
+	conflicted := 0
+	for _, r := range results {
+		switch r.Action {
+		case "merged":
+			merged++
+		case "kept":
+			kept++
+		case "conflict":
+			conflicted++
 		}
 	}
 
 	return jsonOut(map[string]any{
-		"pruned": pruned,
-		"kept":   kept,
+		"branches":   results,
+		"merged":     merged,
+		"kept":       kept,
+		"conflicted": conflicted,
 	})
 }

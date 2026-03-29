@@ -275,3 +275,95 @@ func TestIntegration_SameSpecDifferentTasks(t *testing.T) {
 		t.Errorf("expected 2 tasks in test/shared-spec, got %d\noutput: %s", len(tasks), taskOut)
 	}
 }
+
+func TestGolden_Scaffold(t *testing.T) {
+	// Scaffold on a completely fresh directory (no init, no CLAUDE.md)
+	dir := t.TempDir()
+	out := runSynth(t, dir, "scaffold")
+	golden(t, "scaffold", normalizeJSON(t, out))
+
+	// Verify files were created
+	if _, err := os.Stat(filepath.Join(dir, "CLAUDE.md")); err != nil {
+		t.Errorf("CLAUDE.md not created")
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".mise.toml")); err != nil {
+		t.Errorf(".mise.toml not created")
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".synth", "synthesist", ".dolt")); err != nil {
+		t.Errorf(".synth not created")
+	}
+
+	// Scaffold again — should skip everything
+	out2 := runSynth(t, dir, "scaffold")
+	golden(t, "scaffold_skip", normalizeJSON(t, out2))
+}
+
+func TestGolden_ScaffoldAppend(t *testing.T) {
+	dir := t.TempDir()
+	// Create existing CLAUDE.md
+	if err := os.WriteFile(filepath.Join(dir, "CLAUDE.md"), []byte("# My Project\n\nExisting content.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out := runSynth(t, dir, "scaffold")
+	var result map[string]any
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		t.Fatalf("parsing scaffold output: %v", err)
+	}
+	if result["claude_md"] != "appended" {
+		t.Errorf("expected claude_md=appended, got %v", result["claude_md"])
+	}
+	// Verify original content preserved
+	content, _ := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
+	if !strings.Contains(string(content), "# My Project") {
+		t.Errorf("original CLAUDE.md content lost")
+	}
+	if !strings.Contains(string(content), "## Synthesist") {
+		t.Errorf("synthesist section not appended")
+	}
+}
+
+func TestGolden_Export(t *testing.T) {
+	dir := initTestDB(t)
+	runSynthWrite(t, dir, "tree", "create", "test", "--description", "Export test")
+	runSynthWrite(t, dir, "task", "create", "test/spec", "A task", "--id", "t1")
+	out := runSynth(t, dir, "export")
+	var result map[string]any
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		t.Fatalf("parsing export: %v\noutput: %s", err, out)
+	}
+	if result["version"] != "5" {
+		t.Errorf("expected version 5, got %v", result["version"])
+	}
+	trees, ok := result["trees"].([]any)
+	if !ok || len(trees) != 1 {
+		t.Errorf("expected 1 tree in export, got %v", result["trees"])
+	}
+	tasks, ok := result["tasks"].([]any)
+	if !ok || len(tasks) != 1 {
+		t.Errorf("expected 1 task in export, got %v", result["tasks"])
+	}
+}
+
+func TestGolden_Migrate(t *testing.T) {
+	dir := initTestDB(t)
+	out := runSynth(t, dir, "migrate")
+	golden(t, "migrate", normalizeJSON(t, out))
+}
+
+func TestGolden_PhaseSetShow(t *testing.T) {
+	dir := initTestDB(t)
+	// Default phase should be orient
+	out := runSynth(t, dir, "phase", "show")
+	golden(t, "phase_show", normalizeJSON(t, out))
+
+	// Set to plan
+	runSynthWrite(t, dir, "phase", "set", "plan")
+	out2 := runSynth(t, dir, "phase", "show")
+	var result map[string]any
+	if err := json.Unmarshal([]byte(out2), &result); err != nil {
+		t.Fatalf("parsing phase show: %v", err)
+	}
+	if result["phase"] != "plan" {
+		t.Errorf("expected phase=plan, got %v", result["phase"])
+	}
+}
