@@ -118,6 +118,9 @@ func cmdSpecShow(c *SpecShowCmd) error {
 		}
 		propagates = append(propagates, p)
 	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterating rows: %w", err)
+	}
 	_ = rows.Close()
 	if len(propagates) > 0 {
 		result["propagates_to"] = propagates
@@ -140,6 +143,9 @@ func cmdSpecShow(c *SpecShowCmd) error {
 			a["description"] = *desc
 		}
 		affectedBy = append(affectedBy, a)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterating rows: %w", err)
 	}
 	_ = rows.Close()
 	if len(affectedBy) > 0 {

@@ -26,6 +26,9 @@ func cmdStatus() error {
 			}
 			trees = append(trees, map[string]any{"name": name, "status": status, "description": desc})
 		}
+		if err := rows.Err(); err != nil {
+			return fmt.Errorf("iterating rows: %w", err)
+		}
 		_ = rows.Close()
 		result["trees"] = trees
 	}
@@ -48,6 +51,9 @@ func cmdStatus() error {
 				t["task"] = *task
 			}
 			threads = append(threads, t)
+		}
+		if err := rows.Err(); err != nil {
+			return fmt.Errorf("iterating rows: %w", err)
 		}
 		_ = rows.Close()
 		result["threads"] = threads
@@ -93,6 +99,9 @@ func cmdStatus() error {
 			}
 			ready = append(ready, r)
 		}
+		if err := rows.Err(); err != nil {
+			return fmt.Errorf("iterating rows: %w", err)
+		}
 		_ = rows.Close()
 		result["ready_tasks"] = ready
 	}
@@ -133,6 +142,9 @@ func cmdCheck() error {
 		}
 		addIssue("error", fmt.Sprintf("task %s/%s/%s has status=waiting but no waiter_reason", tree, spec, id))
 	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterating rows: %w", err)
+	}
 	_ = rows.Close()
 
 	// Check: retro tasks must have arc
@@ -144,6 +156,9 @@ func cmdCheck() error {
 		}
 		addIssue("error", fmt.Sprintf("retro task %s/%s/%s missing arc field", tree, spec, id))
 	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterating rows: %w", err)
+	}
 	_ = rows.Close()
 
 	// Check: dispositions with valid_until should have superseded_by
@@ -154,6 +169,9 @@ func cmdCheck() error {
 			return fmt.Errorf("scanning row: %w", err)
 		}
 		addIssue("warn", fmt.Sprintf("disposition %s/%s/%s has valid_until but no superseded_by", tree, spec, id))
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterating rows: %w", err)
 	}
 	_ = rows.Close()
 
@@ -170,6 +188,9 @@ func cmdCheck() error {
 			return fmt.Errorf("scanning row: %w", err)
 		}
 		addIssue("error", fmt.Sprintf("task %s/%s/%s depends on %s which does not exist", tree, spec, taskID, dep))
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterating rows: %w", err)
 	}
 	_ = rows.Close()
 
@@ -188,6 +209,9 @@ func cmdCheck() error {
 		}
 		addIssue("error", fmt.Sprintf("influence in %s/%s references unknown stakeholder %s", tree, spec, stakeholder))
 	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterating rows: %w", err)
+	}
 	_ = rows.Close()
 
 	// Check: disposition references existing stakeholders
@@ -203,6 +227,9 @@ func cmdCheck() error {
 			return fmt.Errorf("scanning row: %w", err)
 		}
 		addIssue("error", fmt.Sprintf("disposition %s/%s/%s references unknown stakeholder %s", tree, spec, id, stakeholder))
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterating rows: %w", err)
 	}
 	_ = rows.Close()
 

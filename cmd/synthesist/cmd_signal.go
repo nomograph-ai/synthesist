@@ -35,6 +35,9 @@ func cmdSignalRecord(c *SignalRecordCmd) error {
 		}
 		ids = append(ids, id)
 	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterating rows: %w", err)
+	}
 	_ = rows.Close()
 	newID := store.NextID("s", ids)
 
@@ -103,6 +106,9 @@ func cmdSignalList(c *SignalListCmd) error {
 			sig["interpretation"] = *interpretation
 		}
 		signals = append(signals, sig)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterating rows: %w", err)
 	}
 	return jsonOut(map[string]any{"tree": tree, "spec": spec, "signals": signals})
 }

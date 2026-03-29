@@ -180,6 +180,17 @@ func (s *Store) Commit(message string) error {
 // Session holds the active session ID. When set, all operations happen
 // on a Dolt branch named after the session. Set via --session flag or
 // SYNTHESIST_SESSION env var in main.go.
+//
+// NOTE: This is global mutable state. Some commands (session start, merge,
+// list, prune) temporarily save/restore Session to open the store on main:
+//
+//   origSession := store.Session
+//   store.Session = ""
+//   s, err := discoverStore()
+//   store.Session = origSession
+//
+// This pattern is fragile (not goroutine-safe, not panic-safe) but acceptable
+// for a single-threaded CLI. Not worth restructuring for v5.
 var Session string
 
 // CreateBranch creates a new Dolt branch from current HEAD.
@@ -238,6 +249,9 @@ func (s *Store) ListBranches() ([]string, error) {
 		}
 		branches = append(branches, name)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating rows: %w", err)
+	}
 	return branches, nil
 }
 
@@ -264,7 +278,11 @@ func (s *Store) EnsureSession() error {
 			return s.SwitchBranch(Session)
 		}
 	}
-	return fmt.Errorf("session %q not found — run 'synthesist session start %s' first", Session, Session)
+	// Session branch doesn't exist — warn and fall back to main so that
+	// read-only commands still work (e.g. status, list) even if the session
+	// was merged or pruned.
+	fmt.Fprintf(os.Stderr, "warning: session %q branch not found — falling back to main\n", Session)
+	return nil
 }
 
 // Today returns today's date as YYYY-MM-DD.

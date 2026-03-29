@@ -58,6 +58,9 @@ func cmdTaskCreate(c *TaskCreateCmd) error {
 			}
 			ids = append(ids, id)
 		}
+		if err := rows.Err(); err != nil {
+			return fmt.Errorf("iterating rows: %w", err)
+		}
 		newID = store.NextID("t", ids)
 	}
 

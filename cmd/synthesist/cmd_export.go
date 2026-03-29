@@ -18,11 +18,16 @@ func cmdExport() error {
 	}
 
 	tables := []string{
-		"trees", "specs", "tasks", "task_deps",
-		"stakeholders", "dispositions", "signals", "discoveries",
-		"campaigns_active", "campaigns_backlog",
-		"archives", "propagation_chain", "patterns", "transforms",
-		"threads",
+		"trees", "specs", "tasks", "task_deps", "task_files",
+		"acceptance", "task_patterns",
+		"stakeholders", "stakeholder_orgs",
+		"dispositions", "signals", "influences", "discoveries",
+		"campaigns_active", "campaigns_backlog", "campaign_blocked_by",
+		"archives", "archive_patterns", "archive_contributions",
+		"propagation_chain", "patterns", "pattern_observations",
+		"transforms", "threads",
+		"directions", "direction_refs", "direction_impacts",
+		"task_provenance", "config",
 	}
 
 	// Map table names to their actual SQL table names where they differ.
@@ -70,6 +75,10 @@ func cmdExport() error {
 				row[col] = v
 			}
 			records = append(records, row)
+		}
+		if err := rows.Err(); err != nil {
+			_ = rows.Close()
+			return fmt.Errorf("iterating %s rows: %w", sqlTable, err)
 		}
 		_ = rows.Close()
 		if records == nil {

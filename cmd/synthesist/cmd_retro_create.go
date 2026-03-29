@@ -143,6 +143,9 @@ func cmdRetroShow(c *RetroShowCmd) error {
 			"seq": seq, "label": label, "description": desc, "transferable": transferable,
 		})
 	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterating rows: %w", err)
+	}
 	_ = rows.Close()
 	result["transforms"] = transforms
 
@@ -158,6 +161,9 @@ func cmdRetroShow(c *RetroShowCmd) error {
 			return fmt.Errorf("scanning row: %w", err)
 		}
 		patterns = append(patterns, map[string]any{"id": id, "name": name, "description": desc})
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterating rows: %w", err)
 	}
 	_ = rows.Close()
 	result["patterns"] = patterns

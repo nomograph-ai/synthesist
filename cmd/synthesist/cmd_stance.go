@@ -16,6 +16,7 @@ func cmdStance(c *StanceCmd) error {
 		Next() bool
 		Scan(...any) error
 		Close() error
+		Err() error
 	}
 	if topic != "" {
 		// Full history for this person + topic
@@ -75,6 +76,9 @@ func cmdStance(c *StanceCmd) error {
 			}
 			dispositions = append(dispositions, d)
 		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterating rows: %w", err)
 	}
 
 	result := map[string]any{"stakeholder": stakeholderID, "dispositions": dispositions}

@@ -740,6 +740,10 @@ func main() {
 	// Phase enforcement: check if the operation is allowed in the current phase.
 	// Only enforced for write operations (reads always allowed).
 	// --force (stripped from os.Args above) bypasses enforcement.
+	// NOTE: This opens the database a second time (the command's Run() opens it
+	// again via discoverStore). This is acceptable for a CLI tool — the process
+	// exits immediately after the command completes, and restructuring to share
+	// the connection across kong's Run() boundary adds complexity without benefit.
 	if !readOnlyCommands[topCmd] && !readOnlySubcommands[subCmd] && !forcePhase && topCmd != "phase" {
 		if s, err := store.Discover(); err == nil {
 			var phase string
@@ -763,6 +767,14 @@ func main() {
 					}
 					if topCmd == "spec" && subCmd == "create" {
 						violation = "cannot create specs in EXECUTE phase — transition to REPLAN first"
+					}
+				case "reflect":
+					if topCmd == "task" && subCmd == "claim" {
+						violation = "cannot claim tasks in REFLECT phase — complete retrospective first"
+					}
+				case "replan":
+					if topCmd == "task" && subCmd == "claim" {
+						violation = "cannot claim tasks in REPLAN phase — finalize plan first"
 					}
 				case "report":
 					violation = "no writes allowed in REPORT phase"

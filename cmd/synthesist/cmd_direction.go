@@ -25,6 +25,9 @@ func cmdDirectionAdd(c *DirectionAddCmd) error {
 		}
 		ids = append(ids, id)
 	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterating rows: %w", err)
+	}
 	_ = rows.Close()
 	newID := store.NextID("dir", ids)
 
@@ -88,6 +91,9 @@ func cmdDirectionList(c *DirectionListCmd) error {
 			d["timeline"] = *timeline
 		}
 		directions = append(directions, d)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterating rows: %w", err)
 	}
 	return jsonOut(map[string]any{"tree": tree, "directions": directions})
 }

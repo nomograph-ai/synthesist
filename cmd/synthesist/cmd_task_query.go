@@ -45,6 +45,9 @@ func cmdTaskReady(c *TaskReadyCmd) error {
 		}
 		ready = append(ready, t)
 	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterating rows: %w", err)
+	}
 
 	return jsonOut(map[string]any{"tree": tree, "spec": spec, "ready": ready, "count": len(ready)})
 }

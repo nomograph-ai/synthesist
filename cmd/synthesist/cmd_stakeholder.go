@@ -77,11 +77,17 @@ func cmdStakeholderList(c *StakeholderListCmd) error {
 			}
 			orgs = append(orgs, org)
 		}
+		if err := orgRows.Err(); err != nil {
+			return fmt.Errorf("iterating rows: %w", err)
+		}
 		_ = orgRows.Close()
 		if len(orgs) > 0 {
 			sh["orgs"] = orgs
 		}
 		stakeholders = append(stakeholders, sh)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterating rows: %w", err)
 	}
 	return jsonOut(map[string]any{"tree": tree, "stakeholders": stakeholders})
 }

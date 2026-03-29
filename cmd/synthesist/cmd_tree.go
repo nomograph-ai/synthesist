@@ -48,5 +48,8 @@ func cmdTreeList() error {
 		}
 		trees = append(trees, map[string]any{"name": name, "status": status, "description": desc})
 	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterating rows: %w", err)
+	}
 	return jsonOut(map[string]any{"trees": trees})
 }

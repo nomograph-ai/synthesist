@@ -407,10 +407,10 @@ func TestEnsureSession(t *testing.T) {
 		t.Fatalf("EnsureSession with empty session: %v", err)
 	}
 
-	// EnsureSession with non-existent branch should error
+	// EnsureSession with non-existent branch should warn and fall back to main (no error)
 	Session = "nonexistent"
-	if err := s.EnsureSession(); err == nil {
-		t.Fatal("EnsureSession with nonexistent branch should error")
+	if err := s.EnsureSession(); err != nil {
+		t.Fatalf("EnsureSession with nonexistent branch should warn and fall back, got error: %v", err)
 	}
 
 	// Create branch, then EnsureSession should succeed

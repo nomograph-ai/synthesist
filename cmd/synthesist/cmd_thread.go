@@ -72,5 +72,8 @@ func cmdThreadList() error {
 		}
 		threads = append(threads, t)
 	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterating rows: %w", err)
+	}
 	return jsonOut(map[string]any{"threads": threads})
 }

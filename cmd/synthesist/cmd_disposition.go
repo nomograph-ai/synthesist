@@ -32,6 +32,9 @@ func cmdDispositionAdd(c *DispositionAddCmd) error {
 		}
 		ids = append(ids, id)
 	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterating rows: %w", err)
+	}
 	_ = rows.Close()
 	newID := store.NextID("d", ids)
 
@@ -98,6 +101,9 @@ func cmdDispositionList(c *DispositionListCmd) error {
 		}
 		dispositions = append(dispositions, d)
 	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterating rows: %w", err)
+	}
 	return jsonOut(map[string]any{"tree": tree, "spec": spec, "dispositions": dispositions})
 }
 
@@ -135,6 +141,9 @@ func cmdDispositionSupersede(c *DispositionSupersedeCmd) error {
 			return fmt.Errorf("scanning row: %w", err)
 		}
 		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterating rows: %w", err)
 	}
 	_ = rows.Close()
 	newID := store.NextID("d", ids)

@@ -163,6 +163,9 @@ func cmdSessionList() error {
 			"last_message":   message,
 		})
 	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterating rows: %w", err)
+	}
 
 	return jsonOut(map[string]any{
 		"sessions": sessions,
@@ -211,6 +214,9 @@ func cmdSessionStatus(c *SessionStatusCmd) error {
 			"schema_change": schemaChange,
 		})
 	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterating rows: %w", err)
+	}
 
 	return jsonOut(map[string]any{
 		"session": sessionID,
@@ -238,13 +244,19 @@ func cmdSessionPrune(c *SessionPruneCmd) error {
 	}
 	defer rows.Close() //nolint:errcheck
 
+	type branchInfo struct {
+		Name    string
+		DateStr string
+	}
 	type branchResult struct {
 		Name   string `json:"name"`
 		Action string `json:"action"` // merged, kept, conflict
 		Reason string `json:"reason,omitempty"`
 	}
 
-	var results []branchResult
+	// Collect all branch data first, then close rows before doing
+	// merge/delete operations that would corrupt the open result set.
+	var branches []branchInfo
 	for rows.Next() {
 		var name, dateStr string
 		if err := rows.Scan(&name, &dateStr); err != nil {
@@ -253,51 +265,59 @@ func cmdSessionPrune(c *SessionPruneCmd) error {
 		if name == "main" {
 			continue
 		}
+		branches = append(branches, branchInfo{Name: name, DateStr: dateStr})
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterating rows: %w", err)
+	}
+	rows.Close() //nolint:errcheck
 
+	var results []branchResult
+	for _, b := range branches {
 		// Parse the date
-		lastActivity, err := time.Parse("2006-01-02 15:04:05", strings.TrimSuffix(dateStr, ".000000"))
+		lastActivity, err := time.Parse("2006-01-02 15:04:05", strings.TrimSuffix(b.DateStr, ".000000"))
 		if err != nil {
-			lastActivity, err = time.Parse(time.RFC3339, dateStr)
+			lastActivity, err = time.Parse(time.RFC3339, b.DateStr)
 			if err != nil {
-				results = append(results, branchResult{Name: name, Action: "kept", Reason: "unparseable date"})
+				results = append(results, branchResult{Name: b.Name, Action: "kept", Reason: "unparseable date"})
 				continue
 			}
 		}
 
 		if !lastActivity.Before(cutoff) {
-			results = append(results, branchResult{Name: name, Action: "kept", Reason: "still active"})
+			results = append(results, branchResult{Name: b.Name, Action: "kept", Reason: "still active"})
 			continue
 		}
 
 		// Stale branch — try to merge to preserve any work
-		conflicts, mergeErr := s.MergeBranch(name)
+		conflicts, mergeErr := s.MergeBranch(b.Name)
 		if mergeErr != nil {
-			results = append(results, branchResult{Name: name, Action: "kept", Reason: fmt.Sprintf("merge error: %v", mergeErr)})
+			results = append(results, branchResult{Name: b.Name, Action: "kept", Reason: fmt.Sprintf("merge error: %v", mergeErr)})
 			continue
 		}
 		if conflicts > 0 {
 			// Can't auto-merge — flag for human review, don't delete
 			results = append(results, branchResult{
-				Name:   name,
+				Name:   b.Name,
 				Action: "conflict",
-				Reason: fmt.Sprintf("%d conflicts — needs manual resolution via 'session merge %s --ours' or '--theirs'", conflicts, name),
+				Reason: fmt.Sprintf("%d conflicts — needs manual resolution via 'session merge %s --ours' or '--theirs'", conflicts, b.Name),
 			})
 			continue
 		}
 
 		// Merged cleanly — now safe to delete the branch pointer
 		// (all data is on main, Dolt history preserves every commit)
-		if err := s.DeleteBranch(name); err != nil {
-			results = append(results, branchResult{Name: name, Action: "kept", Reason: fmt.Sprintf("delete error: %v", err)})
+		if err := s.DeleteBranch(b.Name); err != nil {
+			results = append(results, branchResult{Name: b.Name, Action: "kept", Reason: fmt.Sprintf("delete error: %v", err)})
 			continue
 		}
 
-		if err := s.GitCommit(fmt.Sprintf("session(%s): prune — merged and cleaned", name)); err != nil {
+		if err := s.GitCommit(fmt.Sprintf("session(%s): prune — merged and cleaned", b.Name)); err != nil {
 			// Non-fatal — the merge succeeded, just the git commit failed
 			_ = err
 		}
 
-		results = append(results, branchResult{Name: name, Action: "merged", Reason: "stale — merged to main, branch pointer removed"})
+		results = append(results, branchResult{Name: b.Name, Action: "merged", Reason: "stale — merged to main, branch pointer removed"})
 	}
 
 	// Summarize

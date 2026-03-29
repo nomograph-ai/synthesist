@@ -12,6 +12,9 @@ func parseTreeSpec(s string) (string, string, error) {
 	if len(parts) != 2 {
 		return "", "", fmt.Errorf("expected tree/spec format, got %q", s)
 	}
+	if parts[0] == "" || parts[1] == "" {
+		return "", "", fmt.Errorf("expected tree/spec format with non-empty components, got %q", s)
+	}
 	return parts[0], parts[1], nil
 }
 

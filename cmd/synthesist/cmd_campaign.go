@@ -104,11 +104,17 @@ func cmdCampaignList(c *CampaignListCmd) error {
 			}
 			blocked = append(blocked, b)
 		}
+		if err := bRows.Err(); err != nil {
+			return fmt.Errorf("iterating rows: %w", err)
+		}
 		_ = bRows.Close()
 		if len(blocked) > 0 {
 			a["blocked_by"] = blocked
 		}
 		active = append(active, a)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterating rows: %w", err)
 	}
 	_ = rows.Close()
 
@@ -130,11 +136,17 @@ func cmdCampaignList(c *CampaignListCmd) error {
 			}
 			blocked = append(blocked, bl)
 		}
+		if err := bRows.Err(); err != nil {
+			return fmt.Errorf("iterating rows: %w", err)
+		}
 		_ = bRows.Close()
 		if len(blocked) > 0 {
 			b["blocked_by"] = blocked
 		}
 		backlog = append(backlog, b)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterating rows: %w", err)
 	}
 	_ = rows.Close()
 
