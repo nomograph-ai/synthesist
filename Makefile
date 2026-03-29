@@ -30,7 +30,7 @@ test: build
 	go test ./...
 
 golden-update: build
-	go test ./cmd/synthesist -update
+	go test ./tests/golden -update
 
 lint:
 	golangci-lint run ./...
