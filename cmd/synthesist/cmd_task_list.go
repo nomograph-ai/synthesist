@@ -22,7 +22,7 @@ func cmdTaskList(c *TaskListCmd) error {
 	}
 
 	rows, err := s.DB.Query(
-		"SELECT id, type, summary, status, owner, created, completed, gate FROM tasks WHERE tree = ? AND spec = ? ORDER BY id",
+		"SELECT id, type, summary, status, owner, created, completed, gate, failure_note FROM tasks WHERE tree = ? AND spec = ? ORDER BY id",
 		tree, spec,
 	)
 	if err != nil {
@@ -33,7 +33,7 @@ func cmdTaskList(c *TaskListCmd) error {
 	var tasks []taskListEntry
 	for rows.Next() {
 		var t taskListEntry
-		if err := rows.Scan(&t.id, &t.typ, &t.summary, &t.status, &t.owner, &t.created, &t.completed, &t.gate); err != nil {
+		if err := rows.Scan(&t.id, &t.typ, &t.summary, &t.status, &t.owner, &t.created, &t.completed, &t.gate, &t.failureNote); err != nil {
 			return fmt.Errorf("scanning row: %w", err)
 		}
 		if c.Active && t.status == "cancelled" {
@@ -71,6 +71,9 @@ func cmdTaskList(c *TaskListCmd) error {
 		if t.gate != nil {
 			m["gate"] = *t.gate
 		}
+		if t.failureNote != nil {
+			m["failure_note"] = *t.failureNote
+		}
 		if len(t.deps) > 0 {
 			m["depends_on"] = t.deps
 		}
@@ -83,6 +86,7 @@ func cmdTaskList(c *TaskListCmd) error {
 type taskListEntry struct {
 	id, typ, summary, status, created string
 	owner, completed, gate            *string
+	failureNote                       *string
 	deps                              []string
 }
 
