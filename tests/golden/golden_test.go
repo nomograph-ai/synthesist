@@ -230,3 +230,48 @@ func TestIntegration_TwoSessionsMerge(t *testing.T) {
 		t.Errorf("expected 1 task in test/spec-b, got %d\noutput: %s", len(tasksB), outB)
 	}
 }
+
+func TestIntegration_SameSpecDifferentTasks(t *testing.T) {
+	// Two sessions create different tasks in the SAME spec,
+	// then merge. Dolt should merge at the row level.
+	dir := initTestDB(t)
+
+	// Both sessions need the tree to exist on main first
+	runSynthWrite(t, dir, "tree", "create", "test", "--description", "Test")
+
+	// Start two sessions
+	runSynth(t, dir, "session", "start", "writer-1")
+	runSynth(t, dir, "session", "start", "writer-2")
+
+	// Writer-1 creates task t1 in test/shared-spec
+	runSynthInSession(t, dir, "writer-1", "task", "create", "test/shared-spec", "Task from writer 1", "--id", "t1")
+
+	// Writer-2 creates task t2 in test/shared-spec
+	runSynthInSession(t, dir, "writer-2", "task", "create", "test/shared-spec", "Task from writer 2", "--id", "t2")
+
+	// Merge writer-1
+	runSynth(t, dir, "session", "merge", "writer-1")
+
+	// Merge writer-2 — this is the key test: row-level merge of different tasks
+	out := runSynth(t, dir, "session", "merge", "writer-2")
+	var mergeResult map[string]any
+	if err := json.Unmarshal([]byte(out), &mergeResult); err != nil {
+		t.Fatalf("parsing merge result: %v\noutput: %s", err, out)
+	}
+	// Should have 0 conflicts since different rows
+	conflicts, _ := mergeResult["conflicts"].(float64)
+	if conflicts != 0 {
+		t.Errorf("expected 0 conflicts, got %v\nmerge output: %s", conflicts, out)
+	}
+
+	// Verify both tasks exist on main
+	taskOut := runSynth(t, dir, "task", "list", "test/shared-spec")
+	var taskResult map[string]any
+	if err := json.Unmarshal([]byte(taskOut), &taskResult); err != nil {
+		t.Fatalf("parsing task list: %v\noutput: %s", err, taskOut)
+	}
+	tasks, ok := taskResult["tasks"].([]any)
+	if !ok || len(tasks) != 2 {
+		t.Errorf("expected 2 tasks in test/shared-spec, got %d\noutput: %s", len(tasks), taskOut)
+	}
+}
