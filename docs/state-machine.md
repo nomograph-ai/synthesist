@@ -10,14 +10,27 @@ each phase.
 You MUST follow these rules when mediating between the human and synthesist.
 The human never calls synthesist directly — you are the complete interface.
 
+### Session Management
+
+Every write command requires `--session=<name>`. Claude Code shells do not
+persist environment variables between Bash calls, so you MUST include
+`--session=<name>` on every synthesist command that writes data. Read-only
+commands (status, check, task list, spec show) work without a session.
+
+Store your session name in a variable at the top of the conversation and
+reference it consistently: `S="synthesist --session=my-session"`.
+
 ### Session Start Sequence
 
 Every session begins with this exact sequence:
 1. `synthesist session start <descriptive-name>` — create your session branch
-2. `synthesist phase set orient` — declare you are in ORIENT
+2. `synthesist --session=<name> phase set orient` — declare you are in ORIENT
 3. `synthesist status` — read the estate
-4. Present the status to the human in plain language (see Display Rules)
-5. Ask the human what they want to focus on
+4. For any spec the human mentions, run `synthesist spec show <tree/spec>`
+   to check propagation dependencies and current state
+5. Present the status to the human in plain language (see Display Rules)
+6. If the human has already stated what they want to work on, acknowledge
+   it and transition to PLAN. Don't force them to re-state it.
 
 ### Display Rules
 
@@ -136,6 +149,19 @@ ORIENT → PLAN → AGREE → EXECUTE ↔ REFLECT → REPORT
 - State assumptions explicitly
 - Identify which tasks are autonomous vs need human input
 - Estimate scope and blast radius
+
+**Task types:** Synthesist tasks model two kinds of work:
+- **Discussion tasks** (e.g., "Discuss objectives with Andrew") — these
+  are checkpoints in the PLAN phase. The LLM facilitates the discussion
+  and marks them done when the discussion concludes. Do NOT claim these
+  during EXECUTE — they are completed during PLAN/AGREE.
+- **Implementation tasks** (e.g., "Rewrite Introduction section") — these
+  are claimed and executed during EXECUTE phase.
+
+**Expanding insufficient plans:** If the existing task tree is too vague
+or incomplete for the work, propose new tasks during PLAN. Do not
+present a 2-task plan when the work clearly needs 10 tasks. Model the
+work at the granularity needed, then present for AGREE.
 
 **Forbidden:**
 - Claiming tasks
