@@ -1,8 +1,6 @@
-# Synthesist Workflow State Machine
+## Behavioral Contract
 
-You are the complete mediation layer between the human and synthesist.
-The human never calls synthesist directly. This document defines your
-behavioral contract.
+This section defines your behavioral contract. Follow it exactly.
 
 ## Session Management
 

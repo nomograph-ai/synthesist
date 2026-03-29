@@ -344,6 +344,88 @@ func TestGolden_Export(t *testing.T) {
 	}
 }
 
+func TestGolden_ImportExportRoundTrip(t *testing.T) {
+	// 1. Populate a DB with data across multiple tables.
+	srcDir := initTestDB(t)
+	runSynthWrite(t, srcDir, "tree", "create", "alpha", "--description", "First tree")
+	runSynthWrite(t, srcDir, "tree", "create", "beta", "--description", "Second tree")
+	runSynthWrite(t, srcDir, "spec", "create", "alpha/s1", "--goal", "Build widgets")
+	runSynthWrite(t, srcDir, "task", "create", "alpha/s1", "Design widget", "--id", "t1")
+	runSynthWrite(t, srcDir, "task", "create", "alpha/s1", "Build widget", "--id", "t2", "--depends-on", "t1")
+	runSynthWrite(t, srcDir, "discovery", "add", "alpha/s1", "--finding", "Widgets are hard", "--impact", "high")
+	runSynthWrite(t, srcDir, "stakeholder", "add", "alpha", "user1", "--context", "maintainer")
+
+	// 2. Export from populated DB.
+	exportJSON := runSynth(t, srcDir, "export")
+
+	// Parse and verify export has data.
+	var exported map[string]any
+	if err := json.Unmarshal([]byte(exportJSON), &exported); err != nil {
+		t.Fatalf("parsing export: %v\noutput: %s", err, exportJSON)
+	}
+
+	// 3. Write export to a temp file.
+	tmpFile := filepath.Join(t.TempDir(), "export.json")
+	if err := os.WriteFile(tmpFile, []byte(exportJSON), 0o644); err != nil {
+		t.Fatalf("writing export file: %v", err)
+	}
+
+	// 4. Init a fresh DB and import.
+	dstDir := initTestDB(t)
+	importOut := runSynthWrite(t, dstDir, "import", tmpFile)
+	var importResult map[string]any
+	if err := json.Unmarshal([]byte(importOut), &importResult); err != nil {
+		t.Fatalf("parsing import result: %v\noutput: %s", err, importOut)
+	}
+	if importResult["status"] != "complete" {
+		t.Errorf("expected status=complete, got %v", importResult["status"])
+	}
+	importedCounts, ok := importResult["imported"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected imported map, got %T", importResult["imported"])
+	}
+	// Verify some key counts.
+	if v, _ := importedCounts["trees"].(float64); v != 2 {
+		t.Errorf("expected 2 trees imported, got %v", importedCounts["trees"])
+	}
+	if v, _ := importedCounts["tasks"].(float64); v != 2 {
+		t.Errorf("expected 2 tasks imported, got %v", importedCounts["tasks"])
+	}
+
+	// 5. Export from the destination DB and compare with source export.
+	reExportJSON := runSynth(t, dstDir, "export")
+	var reExported map[string]any
+	if err := json.Unmarshal([]byte(reExportJSON), &reExported); err != nil {
+		t.Fatalf("parsing re-export: %v\noutput: %s", err, reExportJSON)
+	}
+
+	// Compare table data (skip version/exported timestamp).
+	tables := []string{
+		"trees", "specs", "tasks", "task_deps",
+		"stakeholders", "dispositions", "signals", "discoveries",
+		"campaigns_active", "campaigns_backlog",
+		"archives", "propagation_chain", "patterns", "transforms",
+		"threads",
+	}
+	for _, tbl := range tables {
+		srcArr, _ := json.Marshal(exported[tbl])
+		dstArr, _ := json.Marshal(reExported[tbl])
+		if string(srcArr) != string(dstArr) {
+			t.Errorf("table %s mismatch after import:\n  src: %s\n  dst: %s", tbl, srcArr, dstArr)
+		}
+	}
+
+	// 6. Run import again (idempotency) — should succeed with same counts.
+	importOut2 := runSynthWrite(t, dstDir, "import", tmpFile)
+	var importResult2 map[string]any
+	if err := json.Unmarshal([]byte(importOut2), &importResult2); err != nil {
+		t.Fatalf("parsing second import result: %v\noutput: %s", err, importOut2)
+	}
+	if importResult2["status"] != "complete" {
+		t.Errorf("expected status=complete on second import, got %v", importResult2["status"])
+	}
+}
+
 func TestGolden_Migrate(t *testing.T) {
 	dir := initTestDB(t)
 	out := runSynth(t, dir, "migrate")
