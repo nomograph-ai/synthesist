@@ -219,7 +219,7 @@ func cmdSessionStatus(c *SessionStatusCmd) error {
 	})
 }
 
-func cmdSessionPrune() error {
+func cmdSessionPrune(c *SessionPruneCmd) error {
 	// Open store on main
 	origSession := store.Session
 	store.Session = ""
@@ -230,7 +230,7 @@ func cmdSessionPrune() error {
 	}
 	defer s.Close() //nolint:errcheck
 
-	cutoff := time.Now().Add(-24 * time.Hour)
+	cutoff := time.Now().Add(-time.Duration(c.Hours) * time.Hour)
 
 	rows, err := s.DB.Query("SELECT name, latest_commit_date FROM dolt_branches ORDER BY name")
 	if err != nil {

@@ -34,9 +34,10 @@ func discoverStore() (*store.Store, error) {
 
 type CLI struct {
 	// Estate
-	Init   InitCmd   `cmd:"" help:"Scaffold estate structure in current directory"`
-	Status StatusCmd `cmd:"" help:"Show estate overview"`
-	Check  CheckCmd  `cmd:"" help:"Validate referential integrity"`
+	Init     InitCmd     `cmd:"" help:"Scaffold estate structure in current directory"`
+	Scaffold ScaffoldCmd `cmd:"" help:"Bootstrap synthesist in a project (CLAUDE.md, .mise.toml, init)"`
+	Status   StatusCmd   `cmd:"" help:"Show estate overview"`
+	Check    CheckCmd    `cmd:"" help:"Validate referential integrity"`
 
 	// Estate management
 	Tree      TreeCmd      `cmd:"" help:"Manage trees"`
@@ -76,6 +77,7 @@ type CLI struct {
 
 	// Database
 	Migrate MigrateCmd `cmd:"" help:"Check or run database migrations"`
+	Export  ExportCmd  `cmd:"" help:"Export all tables as JSON"`
 
 	// Meta
 	Skill   SkillCmd   `cmd:"" help:"Output synthesist skill file"`
@@ -102,6 +104,14 @@ func (c *SkillCmd) Run() error {
 	fmt.Print(skillContent)
 	return nil
 }
+
+type ScaffoldCmd struct{}
+
+func (c *ScaffoldCmd) Run() error { return cmdScaffold() }
+
+type ExportCmd struct{}
+
+func (c *ExportCmd) Run() error { return cmdExport() }
 
 type MigrateCmd struct{}
 
@@ -647,9 +657,11 @@ type SessionStatusCmd struct {
 
 func (c *SessionStatusCmd) Run() error { return cmdSessionStatus(c) }
 
-type SessionPruneCmd struct{}
+type SessionPruneCmd struct {
+	Hours int `name:"hours" default:"168" help:"Prune sessions inactive for more than N hours"`
+}
 
-func (c *SessionPruneCmd) Run() error { return cmdSessionPrune() }
+func (c *SessionPruneCmd) Run() error { return cmdSessionPrune(c) }
 
 // --- Main ---
 
@@ -689,10 +701,10 @@ func main() {
 	// This mirrors the original enforcement: top-level read-only commands
 	// and read-only subcommands (list, show) bypass the session requirement.
 	readOnlyCommands := map[string]bool{
-		"init": true, "status": true, "check": true,
+		"init": true, "scaffold": true, "status": true, "check": true,
 		"ready": true, "landscape": true, "stance": true, "replay": true,
 		"session": true, "skill": true, "version": true, "help": true,
-		"migrate": true,
+		"migrate": true, "export": true,
 	}
 	readOnlySubcommands := map[string]bool{
 		"list": true, "show": true,
