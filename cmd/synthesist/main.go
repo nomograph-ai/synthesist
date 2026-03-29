@@ -74,6 +74,9 @@ type CLI struct {
 	// Sessions
 	Session SessionCmd `cmd:"" help:"Manage concurrent sessions"`
 
+	// Database
+	Migrate MigrateCmd `cmd:"" help:"Check or run database migrations"`
+
 	// Meta
 	Skill   SkillCmd   `cmd:"" help:"Output synthesist skill file"`
 	Version VersionCmd `cmd:"" help:"Print version"`
@@ -99,6 +102,10 @@ func (c *SkillCmd) Run() error {
 	fmt.Print(skillContent)
 	return nil
 }
+
+type MigrateCmd struct{}
+
+func (c *MigrateCmd) Run() error { return cmdMigrate() }
 
 type VersionCmd struct{}
 
@@ -685,6 +692,7 @@ func main() {
 		"init": true, "status": true, "check": true,
 		"ready": true, "landscape": true, "stance": true, "replay": true,
 		"session": true, "skill": true, "version": true, "help": true,
+		"migrate": true,
 	}
 	readOnlySubcommands := map[string]bool{
 		"list": true, "show": true,

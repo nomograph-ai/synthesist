@@ -190,6 +190,7 @@ signals are per-spec (` + "`tree/spec`" + ` format).
 - Completing a spec: ` + "`synthesist retro create`" + ` with arc and transforms
 - Checking health: ` + "`synthesist check`" + ` validates everything
 - Replaying work: ` + "`synthesist replay <spec>`" + ` to get a playbook for adaptation
+- Checking schema: ` + "`synthesist migrate`" + ` to check database version and pending migrations
 
 ## Output
 
