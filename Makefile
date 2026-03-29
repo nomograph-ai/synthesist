@@ -57,6 +57,19 @@ release:
 		GOOS=$${os} GOARCH=$${arch} go build $(LDFLAGS) -o $${output} $(CMD); \
 	done
 
+.PHONY: loc-check
+loc-check: ## Fail if any non-generated Go file exceeds 400 LOC
+	@FAIL=0; \
+	for f in $$(find . -name '*.go' -not -path './vendor/*' -not -name '*_generated.go'); do \
+		lines=$$(wc -l < "$$f"); \
+		if [ "$$lines" -gt 400 ]; then \
+			echo "FAIL: $$f ($$lines lines, max 400)"; \
+			FAIL=1; \
+		fi; \
+	done; \
+	if [ "$$FAIL" -eq 1 ]; then exit 1; fi; \
+	echo "All files under 400 LOC"
+
 .PHONY: skill
 skill: build
 	./$(BINARY) skill
