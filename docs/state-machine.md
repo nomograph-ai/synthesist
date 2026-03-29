@@ -17,9 +17,14 @@ Pattern: `S="synthesist --session=my-session"` then `$S task create ...`
 
 1. `synthesist session start <descriptive-name>`
 2. `synthesist --session=<name> phase set orient`
-3. `synthesist status` + `synthesist spec show` for mentioned specs
-4. Present status in plain language (see Display Rules)
-5. If human stated intent, acknowledge and transition to PLAN
+3. `synthesist session list` — check for abandoned sessions from previous runs
+4. `synthesist status` — estate overview and ready tasks
+5. For the spec you'll work on:
+   - `synthesist spec show <tree/spec>` — goal, decisions, propagation deps
+   - `synthesist discovery list <tree/spec>` — findings from previous sessions
+   - `synthesist retro show <tree/spec>` — if completed, read the arc and transforms
+6. Present to the human in plain language (see Display Rules)
+7. If human stated intent, acknowledge and transition to PLAN
 
 ## State Machine
 
