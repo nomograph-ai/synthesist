@@ -41,12 +41,21 @@ func runSynth(t *testing.T, dir string, args ...string) string {
 	return string(out)
 }
 
-// initTestDB creates a temp directory with an initialized synthesist database.
+// initTestDB creates a temp directory with an initialized synthesist database
+// and a test session for write operations.
 func initTestDB(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	runSynth(t, dir, "init")
+	runSynth(t, dir, "session", "start", "test-session")
 	return dir
+}
+
+// runSynthSession runs synthesist with the test session active.
+func runSynthSession(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	fullArgs := append([]string{"--session=test-session"}, args...)
+	return runSynth(t, dir, fullArgs...)
 }
 
 // normalizeJSON re-marshals JSON to ensure consistent formatting.
@@ -88,54 +97,54 @@ func golden(t *testing.T, name string, got string) {
 
 func TestGolden_TreeCreate(t *testing.T) {
 	dir := initTestDB(t)
-	out := runSynth(t, dir, "tree", "create", "test-tree", "--description", "A test tree")
+	out := runSynthSession(t, dir, "tree", "create", "test-tree", "--description", "A test tree")
 	golden(t, "tree_create", normalizeJSON(t, out))
 }
 
 func TestGolden_TreeList(t *testing.T) {
 	dir := initTestDB(t)
-	runSynth(t, dir, "tree", "create", "alpha", "--description", "First tree")
-	runSynth(t, dir, "tree", "create", "beta", "--description", "Second tree")
-	out := runSynth(t, dir, "tree", "list")
+	runSynthSession(t, dir, "tree", "create", "alpha", "--description", "First tree")
+	runSynthSession(t, dir, "tree", "create", "beta", "--description", "Second tree")
+	out := runSynthSession(t, dir, "tree", "list")
 	golden(t, "tree_list", normalizeJSON(t, out))
 }
 
 func TestGolden_TaskCreate(t *testing.T) {
 	dir := initTestDB(t)
-	runSynth(t, dir, "tree", "create", "test", "--description", "Test tree", "--no-commit")
-	runSynth(t, dir, "task", "create", "test/myspec", "Build the widget", "--id", "t1", "--no-commit")
-	out := runSynth(t, dir, "task", "create", "test/myspec", "Test the widget", "--id", "t2", "--depends-on", "t1", "--gate", "human", "--no-commit")
+	runSynthSession(t, dir, "tree", "create", "test", "--description", "Test tree", "--no-commit")
+	runSynthSession(t, dir, "task", "create", "test/myspec", "Build the widget", "--id", "t1", "--no-commit")
+	out := runSynthSession(t, dir, "task", "create", "test/myspec", "Test the widget", "--id", "t2", "--depends-on", "t1", "--gate", "human", "--no-commit")
 	golden(t, "task_create", normalizeJSON(t, out))
 }
 
 func TestGolden_TaskList(t *testing.T) {
 	dir := initTestDB(t)
-	runSynth(t, dir, "tree", "create", "test", "--description", "Test", "--no-commit")
-	runSynth(t, dir, "task", "create", "test/spec", "First task", "--id", "t1", "--no-commit")
-	runSynth(t, dir, "task", "create", "test/spec", "Second task", "--id", "t2", "--depends-on", "t1", "--no-commit")
-	out := runSynth(t, dir, "task", "list", "test/spec")
+	runSynthSession(t, dir, "tree", "create", "test", "--description", "Test", "--no-commit")
+	runSynthSession(t, dir, "task", "create", "test/spec", "First task", "--id", "t1", "--no-commit")
+	runSynthSession(t, dir, "task", "create", "test/spec", "Second task", "--id", "t2", "--depends-on", "t1", "--no-commit")
+	out := runSynthSession(t, dir, "task", "list", "test/spec")
 	golden(t, "task_list", normalizeJSON(t, out))
 }
 
 func TestGolden_Status(t *testing.T) {
 	dir := initTestDB(t)
-	runSynth(t, dir, "tree", "create", "test", "--description", "Test tree", "--no-commit")
-	runSynth(t, dir, "task", "create", "test/spec", "A task", "--id", "t1", "--no-commit")
-	out := runSynth(t, dir, "status")
+	runSynthSession(t, dir, "tree", "create", "test", "--description", "Test tree", "--no-commit")
+	runSynthSession(t, dir, "task", "create", "test/spec", "A task", "--id", "t1", "--no-commit")
+	out := runSynthSession(t, dir, "status")
 	golden(t, "status", normalizeJSON(t, out))
 }
 
 func TestGolden_SpecCreate(t *testing.T) {
 	dir := initTestDB(t)
-	runSynth(t, dir, "tree", "create", "test", "--description", "Test", "--no-commit")
-	out := runSynth(t, dir, "spec", "create", "test/myspec", "--goal", "Build something great", "--decisions", "Use Go", "--no-commit")
+	runSynthSession(t, dir, "tree", "create", "test", "--description", "Test", "--no-commit")
+	out := runSynthSession(t, dir, "spec", "create", "test/myspec", "--goal", "Build something great", "--decisions", "Use Go", "--no-commit")
 	golden(t, "spec_create", normalizeJSON(t, out))
 }
 
 func TestGolden_Check(t *testing.T) {
 	dir := initTestDB(t)
-	runSynth(t, dir, "tree", "create", "test", "--description", "Test", "--no-commit")
-	runSynth(t, dir, "task", "create", "test/spec", "A task", "--id", "t1", "--no-commit")
-	out := runSynth(t, dir, "check")
+	runSynthSession(t, dir, "tree", "create", "test", "--description", "Test", "--no-commit")
+	runSynthSession(t, dir, "task", "create", "test/spec", "A task", "--id", "t1", "--no-commit")
+	out := runSynthSession(t, dir, "check")
 	golden(t, "check", normalizeJSON(t, out))
 }

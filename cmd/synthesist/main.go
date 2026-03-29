@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"gitlab.com/nomograph/synthesist/internal/store"
 )
@@ -54,6 +55,27 @@ func main() {
 
 	cmd := os.Args[1]
 	args := os.Args[2:]
+
+	// Enforce session for write operations.
+	// Read-only commands and read subcommands (list, show) work without a session.
+	readOnlyCommands := map[string]bool{
+		"init": true, "status": true, "check": true,
+		"ready": true, "landscape": true, "stance": true, "replay": true,
+		"session": true, "skill": true, "version": true, "help": true,
+	}
+	readOnlySubcommands := map[string]bool{
+		"list": true, "show": true,
+	}
+	subcommand := ""
+	if len(args) > 0 {
+		subcommand = args[0]
+	}
+	if !readOnlyCommands[cmd] && !readOnlySubcommands[subcommand] && store.Session == "" {
+		_, _ = fmt.Fprintf(os.Stderr, "error: --session or SYNTHESIST_SESSION required for write operations\n")
+		_, _ = fmt.Fprintf(os.Stderr, "  start a session:  synthesist session start <session-id>\n")
+		_, _ = fmt.Fprintf(os.Stderr, "  then:             synthesist --session=<id> %s %s\n", cmd, strings.Join(args, " "))
+		os.Exit(1)
+	}
 
 	var err error
 	switch cmd {
