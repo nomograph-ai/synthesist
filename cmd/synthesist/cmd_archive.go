@@ -78,5 +78,8 @@ func cmdArchiveList(c *ArchiveListCmd) error {
 		}
 		archives = append(archives, a)
 	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterating rows: %w", err)
+	}
 	return jsonOut(map[string]any{"tree": tree, "archives": archives})
 }

@@ -39,10 +39,16 @@ func cmdTaskClaim(c *TaskClaimCmd) error {
 			return ErrWrongState("dependency", depID, depStatus, "done")
 		}
 	}
+	if err := depRows.Err(); err != nil {
+		return fmt.Errorf("iterating rows: %w", err)
+	}
 
 	// Atomic claim: UPDATE only if status=pending and no owner.
 	// Rows affected = 0 means either not found, wrong state, or already owned.
-	ownerName := "synthesist"
+	ownerName := store.Session
+	if ownerName == "" {
+		ownerName = "synthesist"
+	}
 	res, err := s.DB.Exec(
 		"UPDATE tasks SET status = 'in_progress', owner = ? WHERE tree = ? AND spec = ? AND id = ? AND status = 'pending' AND (owner IS NULL OR owner = '')",
 		ownerName, tree, spec, taskID)
@@ -123,16 +129,30 @@ func cmdTaskDone(c *TaskDoneCmd) error {
 			}
 			results = append(results, result)
 		}
+		if err := acRows.Err(); err != nil {
+			return fmt.Errorf("iterating rows: %w", err)
+		}
 	}
 
 	today := store.Today()
 	if allPass {
-		_, err = s.DB.Exec(
-			"UPDATE tasks SET status = 'done', completed = ?, owner = NULL, failure_note = NULL WHERE tree = ? AND spec = ? AND id = ?",
+		// Atomic update: only mark done if currently in_progress.
+		res, err := s.DB.Exec(
+			"UPDATE tasks SET status = 'done', completed = ?, owner = NULL, failure_note = NULL WHERE tree = ? AND spec = ? AND id = ? AND status = 'in_progress'",
 			today, tree, spec, taskID,
 		)
 		if err != nil {
 			return err
+		}
+		affected, _ := res.RowsAffected()
+		if affected == 0 {
+			var status string
+			qErr := s.DB.QueryRow("SELECT status FROM tasks WHERE tree = ? AND spec = ? AND id = ?",
+				tree, spec, taskID).Scan(&status)
+			if qErr != nil {
+				return ErrNotFound("task", fmt.Sprintf("%s/%s/%s", tree, spec, taskID))
+			}
+			return ErrWrongState("task", taskID, status, "in_progress")
 		}
 		if err := s.Commit(fmt.Sprintf("spec(%s/%s): %s done", tree, spec, taskID)); err != nil {
 			return err
@@ -140,9 +160,13 @@ func cmdTaskDone(c *TaskDoneCmd) error {
 	} else {
 		note := "acceptance criteria failed"
 		if _, err = s.DB.Exec(
-			"UPDATE tasks SET status = 'pending', owner = NULL, failure_note = ? WHERE tree = ? AND spec = ? AND id = ?",
+			"UPDATE tasks SET status = 'pending', owner = NULL, failure_note = ? WHERE tree = ? AND spec = ? AND id = ? AND status = 'in_progress'",
 			note, tree, spec, taskID,
 		); err != nil {
+			return err
+		}
+		// Commit the reset so the failure state is persisted.
+		if err := s.Commit(fmt.Sprintf("spec(%s/%s): %s acceptance failed — reset to pending", tree, spec, taskID)); err != nil {
 			return err
 		}
 	}
@@ -167,10 +191,21 @@ func cmdTaskBlock(c *TaskBlockCmd) error {
 	}
 	taskID := c.TaskID
 
-	_, err = s.DB.Exec("UPDATE tasks SET status = 'blocked' WHERE tree = ? AND spec = ? AND id = ?",
+	// Only pending or in_progress tasks can be blocked.
+	res, err := s.DB.Exec("UPDATE tasks SET status = 'blocked' WHERE tree = ? AND spec = ? AND id = ? AND status IN ('pending', 'in_progress')",
 		tree, spec, taskID)
 	if err != nil {
 		return err
+	}
+	affected, _ := res.RowsAffected()
+	if affected == 0 {
+		var status string
+		qErr := s.DB.QueryRow("SELECT status FROM tasks WHERE tree = ? AND spec = ? AND id = ?",
+			tree, spec, taskID).Scan(&status)
+		if qErr != nil {
+			return ErrNotFound("task", fmt.Sprintf("%s/%s/%s", tree, spec, taskID))
+		}
+		return ErrWrongState("task", taskID, status, "pending or in_progress")
 	}
 
 	if err := s.Commit(fmt.Sprintf("spec(%s/%s): %s blocked", tree, spec, taskID)); err != nil {
@@ -201,12 +236,23 @@ func cmdTaskWait(c *TaskWaitCmd) error {
 		checkAfter = &v
 	}
 
-	_, err = s.DB.Exec(
-		"UPDATE tasks SET status = 'waiting', waiter_reason = ?, waiter_external = ?, waiter_check = ?, waiter_check_after = ? WHERE tree = ? AND spec = ? AND id = ?",
+	// Only pending or in_progress tasks can be set to waiting.
+	res, err := s.DB.Exec(
+		"UPDATE tasks SET status = 'waiting', waiter_reason = ?, waiter_external = ?, waiter_check = ?, waiter_check_after = ? WHERE tree = ? AND spec = ? AND id = ? AND status IN ('pending', 'in_progress')",
 		reason, external, check, checkAfter, tree, spec, taskID,
 	)
 	if err != nil {
 		return err
+	}
+	affected, _ := res.RowsAffected()
+	if affected == 0 {
+		var status string
+		qErr := s.DB.QueryRow("SELECT status FROM tasks WHERE tree = ? AND spec = ? AND id = ?",
+			tree, spec, taskID).Scan(&status)
+		if qErr != nil {
+			return ErrNotFound("task", fmt.Sprintf("%s/%s/%s", tree, spec, taskID))
+		}
+		return ErrWrongState("task", taskID, status, "pending or in_progress")
 	}
 
 	if err := s.Commit(fmt.Sprintf("spec(%s/%s): %s waiting -- %s", tree, spec, taskID, reason)); err != nil {

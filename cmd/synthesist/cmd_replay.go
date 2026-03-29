@@ -40,11 +40,17 @@ func cmdReplay(c *ReplayCmd) error {
 			}
 			deps = append(deps, d)
 		}
+		if err := depRows.Err(); err != nil {
+			return fmt.Errorf("iterating rows: %w", err)
+		}
 		_ = depRows.Close()
 		if len(deps) > 0 {
 			t["depends_on"] = deps
 		}
 		tasks = append(tasks, t)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterating rows: %w", err)
 	}
 	_ = rows.Close()
 	result["task_dag"] = tasks
@@ -65,6 +71,9 @@ func cmdReplay(c *ReplayCmd) error {
 			"label": label, "description": desc, "transferable": transferable,
 		})
 	}
+	if err := tRows.Err(); err != nil {
+		return fmt.Errorf("iterating rows: %w", err)
+	}
 	_ = tRows.Close()
 	result["transforms"] = transforms
 
@@ -80,6 +89,9 @@ func cmdReplay(c *ReplayCmd) error {
 			return fmt.Errorf("scanning row: %w", err)
 		}
 		patterns = append(patterns, map[string]any{"id": id, "name": name, "description": desc})
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterating rows: %w", err)
 	}
 	_ = rows.Close()
 	result["patterns"] = patterns
@@ -101,6 +113,9 @@ func cmdReplay(c *ReplayCmd) error {
 			l["preferred_approach"] = *preferred
 		}
 		landscape = append(landscape, l)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterating rows: %w", err)
 	}
 	_ = rows.Close()
 	result["landscape"] = landscape

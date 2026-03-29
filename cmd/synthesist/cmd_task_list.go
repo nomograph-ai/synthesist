@@ -47,8 +47,14 @@ func cmdTaskList(c *TaskListCmd) error {
 			}
 			t.deps = append(t.deps, d)
 		}
+		if err := depRows.Err(); err != nil {
+			return fmt.Errorf("iterating rows: %w", err)
+		}
 		_ = depRows.Close()
 		tasks = append(tasks, t)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterating rows: %w", err)
 	}
 
 	if c.Human {

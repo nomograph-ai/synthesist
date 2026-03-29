@@ -37,6 +37,9 @@ func cmdLandscapeShow(c *LandscapeShowCmd) error {
 		}
 		dispositions = append(dispositions, d)
 	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterating rows: %w", err)
+	}
 	_ = rows.Close()
 	result["dispositions"] = dispositions
 
@@ -56,6 +59,9 @@ func cmdLandscapeShow(c *LandscapeShowCmd) error {
 			"date": date, "source": source, "source_type": sourceType, "content": content,
 		})
 	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterating rows: %w", err)
+	}
 	_ = rows.Close()
 	result["signals"] = signals
 
@@ -73,6 +79,9 @@ func cmdLandscapeShow(c *LandscapeShowCmd) error {
 		influences = append(influences, map[string]any{
 			"stakeholder": stakeholder, "context": context, "task": taskID, "role": role,
 		})
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterating rows: %w", err)
 	}
 	_ = rows.Close()
 	result["influences"] = influences
@@ -94,6 +103,9 @@ func cmdLandscapeShow(c *LandscapeShowCmd) error {
 			"id": id, "project": project, "topic": topic,
 			"status": status, "impact": impact, "impact_on_spec": desc,
 		})
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterating rows: %w", err)
 	}
 	_ = rows.Close()
 	result["directions"] = directions

@@ -33,6 +33,9 @@ func cmdDiscoveryAdd(c *DiscoveryAddCmd) error {
 		}
 		ids = append(ids, id)
 	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterating rows: %w", err)
+	}
 	_ = rows.Close()
 	newID := store.NextID("f", ids)
 
@@ -98,6 +101,9 @@ func cmdDiscoveryList(c *DiscoveryListCmd) error {
 			d["action"] = *action
 		}
 		discoveries = append(discoveries, d)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterating rows: %w", err)
 	}
 	return jsonOut(map[string]any{"tree": tree, "spec": spec, "discoveries": discoveries})
 }

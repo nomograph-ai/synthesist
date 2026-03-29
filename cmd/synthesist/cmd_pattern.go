@@ -80,11 +80,17 @@ func cmdPatternList(c *PatternListCmd) error {
 			}
 			obs = append(obs, o)
 		}
+		if err := obsRows.Err(); err != nil {
+			return fmt.Errorf("iterating rows: %w", err)
+		}
 		_ = obsRows.Close()
 		if len(obs) > 0 {
 			p["observed_in"] = obs
 		}
 		patterns = append(patterns, p)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterating rows: %w", err)
 	}
 	return jsonOut(map[string]any{"tree": tree, "patterns": patterns})
 }

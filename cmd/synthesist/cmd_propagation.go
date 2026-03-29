@@ -76,6 +76,9 @@ func cmdPropagationList(c *PropagationListCmd) error {
 		}
 		downstream = append(downstream, d)
 	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterating rows: %w", err)
+	}
 	_ = rows.Close()
 
 	// Upstream: what specs' changes affect this one
@@ -96,6 +99,9 @@ func cmdPropagationList(c *PropagationListCmd) error {
 			u["description"] = *desc
 		}
 		upstream = append(upstream, u)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterating rows: %w", err)
 	}
 	_ = rows.Close()
 
@@ -167,6 +173,9 @@ func cmdPropagationCheck(c *PropagationCheckCmd) error {
 			entry["source_last_completed"] = *sourceLastCompleted
 			stale = append(stale, entry)
 		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterating rows: %w", err)
 	}
 	_ = rows.Close()
 
