@@ -302,6 +302,61 @@ to both the Dolt internal history and the outer git repository. Other contributo
 pull the database as part of normal `git pull`. The tradeoff: `git diff` on `.synth/`
 is binary, but `synthesist diff` provides richer table-level diffs.
 
+### Kong CLI framework
+
+The command tree is defined as Go structs with Kong struct tags. Kong
+parses flags and arguments from the struct definitions, giving typed flag
+parsing without a separate flag-registration layer. The `synthesist skill`
+command generates the LLM skill file from struct reflection -- the skill
+file is always in sync with the actual command tree because it reads the
+same structs that Kong uses for parsing.
+
+### Session infrastructure
+
+Concurrent sessions are built on Dolt branching. Each session gets its own
+Dolt branch; merges reconcile data when sessions complete.
+
+```bash
+synthesist session start <name>    # create a session branch
+synthesist session merge <name>    # merge session back to main
+synthesist session list            # show active sessions
+synthesist session status          # current session info
+synthesist session prune           # clean up stale sessions
+```
+
+The `--session` flag or `SYNTHESIST_SESSION` environment variable selects
+the active session for any command. Task claims are atomic within a session
+to prevent TOCTOU races when multiple agents work concurrently.
+
+### LLM workflow state machine
+
+The LLM agent follows a 7-phase state machine when mediating between the
+human and synthesist:
+
+```
+ORIENT → PLAN → AGREE → EXECUTE ↔ REFLECT → REPORT
+                  ↑                    |
+                  └──── REPLAN ←───────┘
+```
+
+- **ORIENT** -- build a shared mental model (reads only)
+- **PLAN** -- model the work before doing it (create specs/tasks)
+- **AGREE** -- explicit human checkpoint before execution
+- **EXECUTE** -- claim and complete tasks in dependency order
+- **REFLECT** -- assess whether the plan still holds after each task
+- **REPLAN** -- modify the plan, then return to AGREE
+- **REPORT** -- summarize what was accomplished
+
+The `synthesist phase` command lets the agent declare its current phase.
+Synthesist validates that attempted operations are allowed in that phase
+(e.g., task claims are forbidden in PLAN, task creation is forbidden in
+EXECUTE). The phase is advisory and can be overridden with `--force`.
+
+The skill file (output of `synthesist skill`) embeds the full behavioral
+contract including display rules, phase rules, pre-execution protocol,
+and error protocol. See [docs/state-machine.md](docs/state-machine.md)
+for the complete specification.
+
 ### Binary owns all writes
 
 The `synthesist` binary is the single write path to the database. This enforces:
@@ -339,6 +394,21 @@ were made and why), checks the landscape (what stakeholder constraints shaped
 choices), and generates a new spec adapted for the target context. This is the
 Synthesist's core competency -- making work transferable.
 
+**LLM-maintainability conventions.** The codebase enforces conventions that make
+it tractable for LLM agents to navigate and modify: centralized error
+constructors in `errors.go` (never inline `fmt.Errorf`), package-level
+README files explaining each package's purpose, golden tests in
+`tests/golden/` for regression detection, a strict 400 LOC limit per file
+enforced by `make loc-check`, and zero-warning linting via golangci-lint
+(errcheck, staticcheck, bodyclose). These constraints mean an LLM can
+understand any single file in isolation and verify its changes cheaply.
+Files that were too large have been split: `cmd_landscape.go` became
+`cmd_landscape_show.go`, `cmd_disposition.go`, `cmd_signal.go`,
+`cmd_stakeholder.go`, and `cmd_stance.go`; `cmd_task.go` became
+`cmd_task_create.go`, `cmd_task_lifecycle.go`, `cmd_task_list.go`,
+`cmd_task_query.go`, and `cmd_task_helpers.go`; `cmd_retro.go` became
+`cmd_retro_create.go`, `cmd_replay.go`, and `cmd_pattern.go`.
+
 **LLM simulation methodology.** Synthesist embodies a simulation approach to LLM
 tool design: constrain the agent to well-formed operations, handle computation
 externally, and let the agent focus on reasoning. This aligns with the Beads
@@ -358,14 +428,16 @@ decision analysis as structured information flow.
 ### Build commands
 
 ```bash
-make build      # Build the binary (./synthesist)
-make test       # Run all tests
-make install    # Install to $GOPATH/bin
-make lint       # Run go vet
-make check      # Build + run synthesist check against local specs
-make dev        # Build + show help
-make skill      # Build + output the LLM skill file
-make release    # Cross-compile for darwin/arm64, darwin/amd64, linux/amd64, linux/arm64
+make build          # Build the binary (./synthesist)
+make test           # Run all tests
+make install        # Install to $GOPATH/bin
+make lint           # golangci-lint (errcheck, staticcheck, bodyclose)
+make check          # Build + run synthesist check against local specs
+make dev            # Build + show help
+make skill          # Build + output the LLM skill file
+make golden-update  # Regenerate golden test files (tests/golden/)
+make loc-check      # Fail if any non-generated Go file exceeds 400 LOC
+make release        # Cross-compile for darwin/arm64, darwin/amd64, linux/amd64, linux/arm64
 ```
 
 The Makefile auto-detects ICU on macOS via Homebrew and sets the correct
@@ -375,7 +447,8 @@ The Makefile auto-detects ICU on macOS via Homebrew and sets the correct
 
 See [CHANGELOG.md](CHANGELOG.md) for the full history. Brief summary:
 
-- **v5** (2026-03-28) -- Dolt embedded storage, Go CLI binary, temporal specification graphs
+- **v5.1** (2026-03-29) -- LLM-maintainability refactor, Kong migration, session infrastructure, workflow state machine
+- **v5.0** (2026-03-28) -- Dolt embedded storage, Go CLI binary, temporal specification graphs
 - **v4** (2026-03-27) -- Concurrent session support with active threads
 - **v3** (2026-03-21) -- Context trees, estate switchboard, campaign coordination
 - **v2** (2026-03-18) -- Single primary agent, campaigns, concurrent sessions
