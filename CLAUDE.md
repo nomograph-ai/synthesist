@@ -65,3 +65,26 @@ Key rules:
 - `--session <name>` — select session (or use `SYNTHESIST_SESSION` env var)
 - `--force` — override phase validation (use sparingly)
 - `--no-commit` — skip automatic git commit on state changes
+
+## Sync Rule
+
+When making changes, keep these in sync before committing:
+
+1. **README.md** — if build commands, architecture, or features changed
+2. **CHANGELOG.md** — entry for any user-visible change
+3. **Skill file** (generated from kong struct + docs/state-machine.md) — rebuild if commands changed
+4. **Golden files** — `make golden-update` if command output shape changed
+5. **Package READMEs** — if package purpose or dependencies changed
+
+## Release Checklist
+
+Before tagging a release:
+
+1. `make build && make test && make lint` — all pass locally
+2. `make loc-check` — all files under 400 LOC (or justified exceptions documented)
+3. Push to main — CI pipeline must pass (check GitLab)
+4. README.md, CHANGELOG.md, CLAUDE.md all reflect the release content
+5. `make golden-update && make test` — golden files are current
+6. `git tag vX.Y.Z && git push --tags`
+
+Never tag before CI passes. Never tag with stale documentation.
