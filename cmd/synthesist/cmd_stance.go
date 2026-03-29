@@ -2,21 +2,15 @@ package main
 
 import "fmt"
 
-func cmdStance(args []string) error {
-	if len(args) < 1 {
-		return fmt.Errorf("usage: synthesist stance <stakeholder> [topic]")
-	}
+func cmdStance(c *StanceCmd) error {
 	s, err := discoverStore()
 	if err != nil {
 		return err
 	}
 	defer s.Close() //nolint:errcheck
 
-	stakeholderID := args[0]
-	var topic string
-	if len(args) > 1 {
-		topic = args[1]
-	}
+	stakeholderID := c.StakeholderID
+	topic := c.Topic
 
 	var rows interface {
 		Next() bool

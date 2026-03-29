@@ -7,59 +7,27 @@ import (
 	"gitlab.com/nomograph/synthesist/internal/store"
 )
 
-func cmdArchive(args []string) error {
-	if len(args) < 1 {
-		return fmt.Errorf("usage: synthesist archive <add|list> ...") //nolint:staticcheck
-	}
-	switch args[0] {
-	case "add":
-		return cmdArchiveAdd(args[1:])
-	case "list":
-		return cmdArchiveList(args[1:])
-	default:
-		return fmt.Errorf("unknown archive subcommand: %s", args[0])
-	}
-}
-
-func cmdArchiveAdd(args []string) error {
-	if len(args) < 1 {
-		return fmt.Errorf("usage: synthesist archive add <tree/spec> --reason completed [--outcome '...'] [--archived YYYY-MM-DD]")
-	}
+func cmdArchiveAdd(c *ArchiveAddCmd) error {
 	s, err := discoverStore()
 	if err != nil {
 		return err
 	}
 	defer s.Close() //nolint:errcheck
 
-	tree, spec, err := parseTreeSpec(args[0])
+	tree, spec, err := parseTreeSpec(c.TreeSpec)
 	if err != nil {
 		return err
 	}
 
-	var reason, outcome, archived string
-	var patterns []string
-	for i := 1; i < len(args)-1; i += 2 {
-		switch args[i] {
-		case "--reason":
-			reason = args[i+1]
-		case "--outcome":
-			outcome = args[i+1]
-		case "--archived":
-			archived = args[i+1]
-		case "--patterns":
-			patterns = strings.Split(args[i+1], ",")
-		}
-	}
-	if reason == "" {
-		return fmt.Errorf("--reason is required (completed, abandoned, superseded, deferred)")
-	}
+	reason := c.Reason
+	archived := c.Archived
 	if archived == "" {
 		archived = store.Today()
 	}
 
 	var outcomePtr *string
-	if outcome != "" {
-		outcomePtr = &outcome
+	if c.Outcome != "" {
+		outcomePtr = &c.Outcome
 	}
 
 	_, err = s.DB.Exec("INSERT INTO archives (tree, spec_id, archived, reason, outcome) VALUES (?, ?, ?, ?, ?)",
@@ -68,10 +36,12 @@ func cmdArchiveAdd(args []string) error {
 		return fmt.Errorf("archiving: %w", err)
 	}
 
-	for _, p := range patterns {
-		if _, err := s.DB.Exec("INSERT INTO archive_patterns (tree, spec_id, pattern_id) VALUES (?, ?, ?)",
-			tree, spec, strings.TrimSpace(p)); err != nil {
-			return fmt.Errorf("inserting archive pattern: %w", err)
+	if c.Patterns != "" {
+		for _, p := range strings.Split(c.Patterns, ",") {
+			if _, err := s.DB.Exec("INSERT INTO archive_patterns (tree, spec_id, pattern_id) VALUES (?, ?, ?)",
+				tree, spec, strings.TrimSpace(p)); err != nil {
+				return fmt.Errorf("inserting archive pattern: %w", err)
+			}
 		}
 	}
 
@@ -81,17 +51,14 @@ func cmdArchiveAdd(args []string) error {
 	return jsonOut(map[string]any{"tree": tree, "spec": spec, "reason": reason, "archived": archived})
 }
 
-func cmdArchiveList(args []string) error {
-	if len(args) < 1 {
-		return fmt.Errorf("usage: synthesist archive list <tree>")
-	}
+func cmdArchiveList(c *ArchiveListCmd) error {
 	s, err := discoverStore()
 	if err != nil {
 		return err
 	}
 	defer s.Close() //nolint:errcheck
 
-	tree := args[0]
+	tree := c.Tree
 	rows, err := s.DB.Query("SELECT spec_id, archived, reason, outcome FROM archives WHERE tree = ? ORDER BY archived DESC", tree)
 	if err != nil {
 		return err

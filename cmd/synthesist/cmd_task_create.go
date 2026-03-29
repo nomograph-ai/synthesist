@@ -7,53 +7,43 @@ import (
 	"gitlab.com/nomograph/synthesist/internal/store"
 )
 
-func cmdTaskCreate(args []string) error {
-	if len(args) < 2 {
-		return fmt.Errorf("usage: synthesist task create <tree/spec> <summary> [--depends-on t1,t2] [--gate human] [--files f1,f2]")
-	}
+func cmdTaskCreate(c *TaskCreateCmd) error {
 	s, err := discoverStore()
 	if err != nil {
 		return err
 	}
 	defer s.Close() //nolint:errcheck
 
-	tree, spec, err := parseTreeSpec(args[0])
+	tree, spec, err := parseTreeSpec(c.TreeSpec)
 	if err != nil {
 		return err
 	}
-	summary := args[1]
+	summary := c.Summary
 
 	// Parse optional flags
 	var dependsOn []string
+	if c.DependsOn != "" {
+		dependsOn = strings.Split(c.DependsOn, ",")
+	}
 	var gate *string
+	if c.Gate != "" {
+		v := c.Gate
+		gate = &v
+	}
 	var files []string
-	var statusFlag, idFlag, createdFlag string
+	if c.Files != "" {
+		files = strings.Split(c.Files, ",")
+	}
 	var completedFlag *string
-	for i := 2; i < len(args)-1; i += 2 {
-		switch args[i] {
-		case "--depends-on":
-			dependsOn = strings.Split(args[i+1], ",")
-		case "--gate":
-			v := args[i+1]
-			gate = &v
-		case "--files":
-			files = strings.Split(args[i+1], ",")
-		case "--status":
-			statusFlag = args[i+1]
-		case "--id":
-			idFlag = args[i+1]
-		case "--created":
-			createdFlag = args[i+1]
-		case "--completed":
-			v := args[i+1]
-			completedFlag = &v
-		}
+	if c.Completed != "" {
+		v := c.Completed
+		completedFlag = &v
 	}
 
 	// Get next ID (or use provided)
 	var newID string
-	if idFlag != "" {
-		newID = idFlag
+	if c.ID != "" {
+		newID = c.ID
 	} else {
 		var ids []string
 		rows, err := s.DB.Query("SELECT id FROM tasks WHERE tree = ? AND spec = ?", tree, spec)
@@ -71,12 +61,12 @@ func cmdTaskCreate(args []string) error {
 		newID = store.NextID("t", ids)
 	}
 
-	today := createdFlag
+	today := c.Created
 	if today == "" {
 		today = store.Today()
 	}
 
-	status := statusFlag
+	status := c.Status
 	if status == "" {
 		status = "pending"
 	}

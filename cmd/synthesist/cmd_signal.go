@@ -6,56 +6,22 @@ import (
 	"gitlab.com/nomograph/synthesist/internal/store"
 )
 
-func cmdSignal(args []string) error {
-	if len(args) < 1 {
-		return fmt.Errorf("usage: synthesist signal <record|list> ...") //nolint:staticcheck
-	}
-	switch args[0] {
-	case "record":
-		return cmdSignalRecord(args[1:])
-	case "list":
-		return cmdSignalList(args[1:])
-	default:
-		return fmt.Errorf("unknown signal subcommand: %s", args[0])
-	}
-}
-
-func cmdSignalRecord(args []string) error {
-	if len(args) < 2 {
-		return fmt.Errorf("usage: synthesist signal record <tree/spec> <stakeholder> --source 'url' --type pr_comment --content '...' [--date YYYY-MM-DD] [--our-action '...'] [--interpretation '...']")
-	}
+func cmdSignalRecord(c *SignalRecordCmd) error {
 	s, err := discoverStore()
 	if err != nil {
 		return err
 	}
 	defer s.Close() //nolint:errcheck
 
-	tree, spec, err := parseTreeSpec(args[0])
+	tree, spec, err := parseTreeSpec(c.TreeSpec)
 	if err != nil {
 		return err
 	}
-	stakeholderID := args[1]
-
-	var source, sourceType, content, date, ourAction, interpretation string
-	for i := 2; i < len(args)-1; i += 2 {
-		switch args[i] {
-		case "--source":
-			source = args[i+1]
-		case "--type":
-			sourceType = args[i+1]
-		case "--content":
-			content = args[i+1]
-		case "--date":
-			date = args[i+1]
-		case "--our-action":
-			ourAction = args[i+1]
-		case "--interpretation":
-			interpretation = args[i+1]
-		}
-	}
-	if source == "" || sourceType == "" || content == "" {
-		return fmt.Errorf("--source, --type, and --content are required")
-	}
+	stakeholderID := c.StakeholderID
+	source := c.Source
+	sourceType := c.Type
+	content := c.Content
+	date := c.Date
 	if date == "" {
 		date = store.Today()
 	}
@@ -73,11 +39,11 @@ func cmdSignalRecord(args []string) error {
 	newID := store.NextID("s", ids)
 
 	var ourActionPtr, interpPtr *string
-	if ourAction != "" {
-		ourActionPtr = &ourAction
+	if c.OurAction != "" {
+		ourActionPtr = &c.OurAction
 	}
-	if interpretation != "" {
-		interpPtr = &interpretation
+	if c.Interpretation != "" {
+		interpPtr = &c.Interpretation
 	}
 
 	_, err = s.DB.Exec(
@@ -97,17 +63,14 @@ func cmdSignalRecord(args []string) error {
 	})
 }
 
-func cmdSignalList(args []string) error {
-	if len(args) < 1 {
-		return fmt.Errorf("usage: synthesist signal list <tree/spec>")
-	}
+func cmdSignalList(c *SignalListCmd) error {
 	s, err := discoverStore()
 	if err != nil {
 		return err
 	}
 	defer s.Close() //nolint:errcheck
 
-	tree, spec, err := parseTreeSpec(args[0])
+	tree, spec, err := parseTreeSpec(c.TreeSpec)
 	if err != nil {
 		return err
 	}

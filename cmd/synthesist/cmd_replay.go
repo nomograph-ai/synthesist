@@ -2,17 +2,14 @@ package main
 
 import "fmt"
 
-func cmdReplay(args []string) error {
-	if len(args) < 1 {
-		return fmt.Errorf("usage: synthesist replay <tree/spec>")
-	}
+func cmdReplay(c *ReplayCmd) error {
 	s, err := discoverStore()
 	if err != nil {
 		return err
 	}
 	defer s.Close() //nolint:errcheck
 
-	tree, spec, err := parseTreeSpec(args[0])
+	tree, spec, err := parseTreeSpec(c.TreeSpec)
 	if err != nil {
 		return err
 	}

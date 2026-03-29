@@ -7,49 +7,22 @@ import (
 	"gitlab.com/nomograph/synthesist/internal/store"
 )
 
-func cmdRetro(args []string) error {
-	if len(args) < 1 {
-		return fmt.Errorf("usage: synthesist retro <create|show|transform> ...") //nolint:staticcheck
-	}
-	switch args[0] {
-	case "create":
-		return cmdRetroCreate(args[1:])
-	case "show":
-		return cmdRetroShow(args[1:])
-	case "transform":
-		return cmdRetroTransform(args[1:])
-	default:
-		return fmt.Errorf("unknown retro subcommand: %s", args[0])
-	}
-}
-
-func cmdRetroCreate(args []string) error {
-	if len(args) < 1 {
-		return fmt.Errorf("usage: synthesist retro create <tree/spec> --arc '...' --depends-on t8[,t9]")
-	}
+func cmdRetroCreate(c *RetroCreateCmd) error {
 	s, err := discoverStore()
 	if err != nil {
 		return err
 	}
 	defer s.Close() //nolint:errcheck
 
-	tree, spec, err := parseTreeSpec(args[0])
+	tree, spec, err := parseTreeSpec(c.TreeSpec)
 	if err != nil {
 		return err
 	}
 
-	var arc string
+	arc := c.Arc
 	var dependsOn []string
-	for i := 1; i < len(args)-1; i += 2 {
-		switch args[i] {
-		case "--arc":
-			arc = args[i+1]
-		case "--depends-on":
-			dependsOn = strings.Split(args[i+1], ",")
-		}
-	}
-	if arc == "" {
-		return fmt.Errorf("--arc is required")
+	if c.DependsOn != "" {
+		dependsOn = strings.Split(c.DependsOn, ",")
 	}
 
 	today := store.Today()
@@ -86,42 +59,21 @@ func cmdRetroCreate(args []string) error {
 	})
 }
 
-func cmdRetroTransform(args []string) error {
-	if len(args) < 1 {
-		return fmt.Errorf("usage: synthesist retro transform <tree/spec> --label '...' --description '...' [--transferable]")
-	}
+func cmdRetroTransform(c *RetroTransformCmd) error {
 	s, err := discoverStore()
 	if err != nil {
 		return err
 	}
 	defer s.Close() //nolint:errcheck
 
-	tree, spec, err := parseTreeSpec(args[0])
+	tree, spec, err := parseTreeSpec(c.TreeSpec)
 	if err != nil {
 		return err
 	}
 
-	var label, description string
-	transferable := false
-	for i := 1; i < len(args); i++ {
-		switch args[i] {
-		case "--label":
-			if i+1 < len(args) {
-				label = args[i+1]
-				i++
-			}
-		case "--description":
-			if i+1 < len(args) {
-				description = args[i+1]
-				i++
-			}
-		case "--transferable":
-			transferable = true
-		}
-	}
-	if label == "" || description == "" {
-		return fmt.Errorf("--label and --description are required")
-	}
+	label := c.Label
+	description := c.Description
+	transferable := c.Transferable
 
 	// Get next seq
 	var maxSeq int
@@ -146,17 +98,14 @@ func cmdRetroTransform(args []string) error {
 	})
 }
 
-func cmdRetroShow(args []string) error {
-	if len(args) < 1 {
-		return fmt.Errorf("usage: synthesist retro show <tree/spec>")
-	}
+func cmdRetroShow(c *RetroShowCmd) error {
 	s, err := discoverStore()
 	if err != nil {
 		return err
 	}
 	defer s.Close() //nolint:errcheck
 
-	tree, spec, err := parseTreeSpec(args[0])
+	tree, spec, err := parseTreeSpec(c.TreeSpec)
 	if err != nil {
 		return err
 	}

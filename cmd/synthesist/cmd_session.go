@@ -8,31 +8,8 @@ import (
 	"gitlab.com/nomograph/synthesist/internal/store"
 )
 
-func cmdSession(args []string) error {
-	if len(args) == 0 {
-		return fmt.Errorf("usage: synthesist session <start|merge|list|status|prune>") //nolint:staticcheck
-	}
-	switch args[0] {
-	case "start":
-		return cmdSessionStart(args[1:])
-	case "merge":
-		return cmdSessionMerge(args[1:])
-	case "list":
-		return cmdSessionList(args[1:])
-	case "status":
-		return cmdSessionStatus(args[1:])
-	case "prune":
-		return cmdSessionPrune(args[1:])
-	default:
-		return ErrUnknownSubcommand("session", args[0])
-	}
-}
-
-func cmdSessionStart(args []string) error {
-	if len(args) < 1 {
-		return fmt.Errorf("usage: synthesist session start <session-id>")
-	}
-	sessionID := args[0]
+func cmdSessionStart(c *SessionStartCmd) error {
+	sessionID := c.SessionID
 
 	// Open store WITHOUT session (we're creating the branch on main)
 	origSession := store.Session
@@ -44,14 +21,8 @@ func cmdSessionStart(args []string) error {
 	}
 	defer s.Close() //nolint:errcheck
 
-	// Check for spec lock — warn if another session has claimed tasks in the same spec
-	// Parse optional --spec flag for advisory lock
-	var specHint string
-	for i, arg := range args[1:] {
-		if arg == "--spec" && i+1 < len(args[1:]) {
-			specHint = args[i+2]
-		}
-	}
+	// Advisory spec lock hint
+	specHint := c.Spec
 
 	// Check if branch already exists
 	branches, err := s.ListBranches()
@@ -73,6 +44,7 @@ func cmdSessionStart(args []string) error {
 			// Check if the other session has claimed tasks in the same spec
 			// by looking at task ownership on that branch
 			// (best-effort — just warn, don't block)
+			_ = b
 		}
 	}
 
@@ -88,21 +60,15 @@ func cmdSessionStart(args []string) error {
 	return jsonOut(result)
 }
 
-func cmdSessionMerge(args []string) error {
-	if len(args) < 1 {
-		return fmt.Errorf("usage: synthesist session merge <session-id> [--ours|--theirs]")
-	}
-	sessionID := args[0]
+func cmdSessionMerge(c *SessionMergeCmd) error {
+	sessionID := c.SessionID
 
 	// Parse conflict resolution strategy
 	var strategy string
-	for _, arg := range args[1:] {
-		switch arg {
-		case "--ours":
-			strategy = "ours"
-		case "--theirs":
-			strategy = "theirs"
-		}
+	if c.Ours {
+		strategy = "ours"
+	} else if c.Theirs {
+		strategy = "theirs"
 	}
 
 	// Open store on main (not on the session branch)
@@ -164,7 +130,7 @@ func cmdSessionMerge(args []string) error {
 	})
 }
 
-func cmdSessionList(args []string) error {
+func cmdSessionList() error {
 	// Open store on main
 	origSession := store.Session
 	store.Session = ""
@@ -204,11 +170,8 @@ func cmdSessionList(args []string) error {
 	})
 }
 
-func cmdSessionStatus(args []string) error {
-	if len(args) < 1 {
-		return fmt.Errorf("usage: synthesist session status <session-id>")
-	}
-	sessionID := args[0]
+func cmdSessionStatus(c *SessionStatusCmd) error {
+	sessionID := c.SessionID
 
 	// Open store on main
 	origSession := store.Session
@@ -256,7 +219,7 @@ func cmdSessionStatus(args []string) error {
 	})
 }
 
-func cmdSessionPrune(args []string) error {
+func cmdSessionPrune() error {
 	// Open store on main
 	origSession := store.Session
 	store.Session = ""

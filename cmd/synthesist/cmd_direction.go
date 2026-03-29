@@ -6,54 +6,14 @@ import (
 	"gitlab.com/nomograph/synthesist/internal/store"
 )
 
-func cmdDirection(args []string) error {
-	if len(args) < 1 {
-		return fmt.Errorf("usage: synthesist direction <add|list|impact> ...") //nolint:staticcheck
-	}
-	switch args[0] {
-	case "add":
-		return cmdDirectionAdd(args[1:])
-	case "list":
-		return cmdDirectionList(args[1:])
-	case "impact":
-		return cmdDirectionImpact(args[1:])
-	default:
-		return fmt.Errorf("unknown direction subcommand: %s", args[0])
-	}
-}
-
-func cmdDirectionAdd(args []string) error {
-	if len(args) < 1 {
-		return fmt.Errorf("usage: synthesist direction add <tree> --project \"org/repo\" --topic \"...\" --status proposed --impact \"...\" [--owner stakeholder-id] [--timeline \"...\"]")
-	}
+func cmdDirectionAdd(c *DirectionAddCmd) error {
 	s, err := discoverStore()
 	if err != nil {
 		return err
 	}
-	defer s.Close() //nolint:errcheck //nolint:errcheck
+	defer s.Close() //nolint:errcheck
 
-	tree := args[0]
-
-	var project, topic, status, impact, owner, timeline string
-	for i := 1; i < len(args)-1; i += 2 {
-		switch args[i] {
-		case "--project":
-			project = args[i+1]
-		case "--topic":
-			topic = args[i+1]
-		case "--status":
-			status = args[i+1]
-		case "--impact":
-			impact = args[i+1]
-		case "--owner":
-			owner = args[i+1]
-		case "--timeline":
-			timeline = args[i+1]
-		}
-	}
-	if project == "" || topic == "" || status == "" || impact == "" {
-		return fmt.Errorf("--project, --topic, --status, and --impact are required")
-	}
+	tree := c.Tree
 
 	// Get next ID
 	var ids []string
@@ -69,41 +29,38 @@ func cmdDirectionAdd(args []string) error {
 	newID := store.NextID("dir", ids)
 
 	var ownerPtr, timelinePtr *string
-	if owner != "" {
-		ownerPtr = &owner
+	if c.Owner != "" {
+		ownerPtr = &c.Owner
 	}
-	if timeline != "" {
-		timelinePtr = &timeline
+	if c.Timeline != "" {
+		timelinePtr = &c.Timeline
 	}
 
 	_, err = s.DB.Exec(
 		"INSERT INTO directions (tree, id, project, topic, status, owner, timeline, impact, valid_from) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		tree, newID, project, topic, status, ownerPtr, timelinePtr, impact, store.Today(),
+		tree, newID, c.Project, c.Topic, c.Status, ownerPtr, timelinePtr, c.Impact, store.Today(),
 	)
 	if err != nil {
 		return fmt.Errorf("inserting direction: %w", err)
 	}
 
-	if err := s.Commit(fmt.Sprintf("landscape(%s): direction %s -- %s in %s (%s)", tree, newID, topic, project, status)); err != nil {
+	if err := s.Commit(fmt.Sprintf("landscape(%s): direction %s -- %s in %s (%s)", tree, newID, c.Topic, c.Project, c.Status)); err != nil {
 		return err
 	}
 	return jsonOut(map[string]any{
-		"id": newID, "tree": tree, "project": project,
-		"topic": topic, "status": status, "impact": impact,
+		"id": newID, "tree": tree, "project": c.Project,
+		"topic": c.Topic, "status": c.Status, "impact": c.Impact,
 	})
 }
 
-func cmdDirectionList(args []string) error {
-	if len(args) < 1 {
-		return fmt.Errorf("usage: synthesist direction list <tree>")
-	}
+func cmdDirectionList(c *DirectionListCmd) error {
 	s, err := discoverStore()
 	if err != nil {
 		return err
 	}
 	defer s.Close() //nolint:errcheck
 
-	tree := args[0]
+	tree := c.Tree
 	rows, err := s.DB.Query(
 		"SELECT id, project, topic, status, owner, timeline, impact, valid_from FROM directions WHERE tree = ? AND valid_until IS NULL ORDER BY valid_from DESC",
 		tree,
@@ -135,33 +92,15 @@ func cmdDirectionList(args []string) error {
 	return jsonOut(map[string]any{"tree": tree, "directions": directions})
 }
 
-func cmdDirectionImpact(args []string) error {
-	if len(args) < 2 {
-		return fmt.Errorf("usage: synthesist direction impact <tree> <direction-id> --affected-tree \"...\" --affected-spec \"...\" --description \"...\"")
-	}
+func cmdDirectionImpact(c *DirectionImpactCmd) error {
 	s, err := discoverStore()
 	if err != nil {
 		return err
 	}
 	defer s.Close() //nolint:errcheck
 
-	tree := args[0]
-	directionID := args[1]
-
-	var affectedTree, affectedSpec, description string
-	for i := 2; i < len(args)-1; i += 2 {
-		switch args[i] {
-		case "--affected-tree":
-			affectedTree = args[i+1]
-		case "--affected-spec":
-			affectedSpec = args[i+1]
-		case "--description":
-			description = args[i+1]
-		}
-	}
-	if affectedTree == "" || affectedSpec == "" || description == "" {
-		return fmt.Errorf("--affected-tree, --affected-spec, and --description are required")
-	}
+	tree := c.Tree
+	directionID := c.DirectionID
 
 	// Verify direction exists
 	var topic string
@@ -172,17 +111,17 @@ func cmdDirectionImpact(args []string) error {
 
 	_, err = s.DB.Exec(
 		"INSERT INTO direction_impacts (tree, direction_id, affected_tree, affected_spec, description) VALUES (?, ?, ?, ?, ?)",
-		tree, directionID, affectedTree, affectedSpec, description,
+		tree, directionID, c.AffectedTree, c.AffectedSpec, c.Description,
 	)
 	if err != nil {
 		return fmt.Errorf("inserting direction impact: %w", err)
 	}
 
-	if err := s.Commit(fmt.Sprintf("landscape(%s): direction %s impacts %s/%s", tree, directionID, affectedTree, affectedSpec)); err != nil {
+	if err := s.Commit(fmt.Sprintf("landscape(%s): direction %s impacts %s/%s", tree, directionID, c.AffectedTree, c.AffectedSpec)); err != nil {
 		return err
 	}
 	return jsonOut(map[string]any{
-		"direction_id": directionID, "affected_tree": affectedTree,
-		"affected_spec": affectedSpec, "description": description,
+		"direction_id": directionID, "affected_tree": c.AffectedTree,
+		"affected_spec": c.AffectedSpec, "description": c.Description,
 	})
 }

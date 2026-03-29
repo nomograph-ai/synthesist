@@ -9,29 +9,14 @@ import (
 	"github.com/olekukonko/tablewriter/renderer"
 )
 
-func cmdTaskList(args []string) error {
-	if len(args) < 1 {
-		return fmt.Errorf("usage: synthesist task list <tree/spec> [--human]")
-	}
-
-	// Check for --human flag
-	human := false
-	var filteredArgs []string
-	for _, a := range args {
-		if a == "--human" {
-			human = true
-		} else {
-			filteredArgs = append(filteredArgs, a)
-		}
-	}
-
+func cmdTaskList(c *TaskListCmd) error {
 	s, err := discoverStore()
 	if err != nil {
 		return err
 	}
 	defer s.Close() //nolint:errcheck
 
-	tree, spec, err := parseTreeSpec(filteredArgs[0])
+	tree, spec, err := parseTreeSpec(c.TreeSpec)
 	if err != nil {
 		return err
 	}
@@ -63,7 +48,7 @@ func cmdTaskList(args []string) error {
 		tasks = append(tasks, t)
 	}
 
-	if human {
+	if c.Human {
 		return taskListHuman(tree, spec, tasks)
 	}
 

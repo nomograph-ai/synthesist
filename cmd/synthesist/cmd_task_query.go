@@ -2,17 +2,14 @@ package main
 
 import "fmt"
 
-func cmdTaskReady(args []string) error {
-	if len(args) < 1 {
-		return fmt.Errorf("usage: synthesist task ready <tree/spec>")
-	}
+func cmdTaskReady(c *TaskReadyCmd) error {
 	s, err := discoverStore()
 	if err != nil {
 		return err
 	}
 	defer s.Close() //nolint:errcheck
 
-	tree, spec, err := parseTreeSpec(args[0])
+	tree, spec, err := parseTreeSpec(c.TreeSpec)
 	if err != nil {
 		return err
 	}
@@ -52,34 +49,20 @@ func cmdTaskReady(args []string) error {
 	return jsonOut(map[string]any{"tree": tree, "spec": spec, "ready": ready, "count": len(ready)})
 }
 
-func cmdTaskAcceptance(args []string) error {
-	if len(args) < 2 {
-		return fmt.Errorf("usage: synthesist task acceptance <tree/spec> <task-id> --criterion '...' --verify 'cmd'")
-	}
+func cmdTaskAcceptance(c *TaskAcceptanceCmd) error {
 	s, err := discoverStore()
 	if err != nil {
 		return err
 	}
 	defer s.Close() //nolint:errcheck
 
-	tree, spec, err := parseTreeSpec(args[0])
+	tree, spec, err := parseTreeSpec(c.TreeSpec)
 	if err != nil {
 		return err
 	}
-	taskID := args[1]
-
-	var criterion, verify string
-	for i := 2; i < len(args)-1; i += 2 {
-		switch args[i] {
-		case "--criterion":
-			criterion = args[i+1]
-		case "--verify":
-			verify = args[i+1]
-		}
-	}
-	if criterion == "" || verify == "" {
-		return fmt.Errorf("--criterion and --verify are required")
-	}
+	taskID := c.TaskID
+	criterion := c.Criterion
+	verify := c.Verify
 
 	var maxSeq int
 	if err := s.DB.QueryRow("SELECT COALESCE(MAX(seq), 0) FROM acceptance WHERE tree = ? AND spec = ? AND task_id = ?",
