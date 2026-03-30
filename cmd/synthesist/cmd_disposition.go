@@ -38,14 +38,20 @@ func cmdDispositionAdd(c *DispositionAddCmd) error {
 	_ = rows.Close()
 	newID := store.NextID("d", ids)
 
-	var preferredPtr *string
+	var preferredPtr, detailPtr, evidencePtr *string
 	if c.Preferred != "" {
 		preferredPtr = &c.Preferred
 	}
+	if c.Detail != "" {
+		detailPtr = &c.Detail
+	}
+	if c.Evidence != "" {
+		evidencePtr = &c.Evidence
+	}
 
 	_, err = s.DB.Exec(
-		"INSERT INTO dispositions (tree, spec, id, stakeholder_id, topic, stance, preferred_approach, confidence, valid_from) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		tree, spec, newID, stakeholderID, topic, stance, preferredPtr, confidence, store.Today(),
+		"INSERT INTO dispositions (tree, spec, id, stakeholder_id, topic, stance, preferred_approach, detail, confidence, evidence, valid_from) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		tree, spec, newID, stakeholderID, topic, stance, preferredPtr, detailPtr, confidence, evidencePtr, store.Today(),
 	)
 	if err != nil {
 		return fmt.Errorf("inserting disposition: %w", err)
@@ -73,7 +79,7 @@ func cmdDispositionList(c *DispositionListCmd) error {
 	}
 
 	rows, err := s.DB.Query(
-		"SELECT id, stakeholder_id, topic, stance, preferred_approach, confidence, valid_from, valid_until FROM dispositions WHERE tree = ? AND spec = ? ORDER BY valid_from DESC",
+		"SELECT id, stakeholder_id, topic, stance, preferred_approach, detail, confidence, evidence, valid_from, valid_until FROM dispositions WHERE tree = ? AND spec = ? ORDER BY valid_from DESC",
 		tree, spec,
 	)
 	if err != nil {
@@ -84,14 +90,20 @@ func cmdDispositionList(c *DispositionListCmd) error {
 	var dispositions []map[string]any
 	for rows.Next() {
 		var id, stakeholder, topic, stance, confidence, validFrom string
-		var preferred, validUntil *string
-		if err := rows.Scan(&id, &stakeholder, &topic, &stance, &preferred, &confidence, &validFrom, &validUntil); err != nil {
+		var preferred, detail, evidence, validUntil *string
+		if err := rows.Scan(&id, &stakeholder, &topic, &stance, &preferred, &detail, &confidence, &evidence, &validFrom, &validUntil); err != nil {
 			return fmt.Errorf("scanning row: %w", err)
 		}
 		d := map[string]any{
 			"id": id, "stakeholder": stakeholder, "topic": topic,
 			"stance": stance, "confidence": confidence, "valid_from": validFrom,
 			"current": validUntil == nil,
+		}
+		if detail != nil {
+			d["detail"] = *detail
+		}
+		if evidence != nil {
+			d["evidence"] = *evidence
 		}
 		if preferred != nil {
 			d["preferred_approach"] = *preferred
