@@ -483,6 +483,9 @@ synthesist skill >> your-agent-config
 The tool is agent-agnostic. It works with Claude Code, Cursor, or any
 framework that gives an LLM access to shell commands.
 
+**Cursor:** see [docs/cursor.md](docs/cursor.md) for how to wire `synthesist skill`,
+sessions, and the phase state machine into Cursor rules / project instructions.
+
 ## Key Design Decisions
 
 **Why Dolt over TerminusDB?** TerminusDB is graph-native with better traversal,
@@ -667,6 +670,7 @@ The Makefile auto-detects ICU on macOS via Homebrew and sets the correct
 
 See [CHANGELOG.md](CHANGELOG.md) for the full history.
 
+- **v5.1.2** (2026-03-30) -- Cursor harness guide (`docs/cursor.md`), contributed by @jmeekhof
 - **v5.1.1** (2026-03-29) -- File splitting refactor (main.go → main.go + cli_types*.go, store.go → store.go + store_session.go), fix 35 unchecked DB query errors, fix readOnlySubcommands for `task ready` and `propagation check`, LOC limit 850 → 650
 - **v5.1.0** (2026-03-29) -- Disposition `--detail` and `--evidence` flags, `landscape show` includes tree-wide dispositions from stakeholder-preferences pseudo-spec
 - **v5.0.1** (2026-03-29) -- Stale Dolt LOCK file detection (auto-clear on Open if >60s old), date-independent golden tests
