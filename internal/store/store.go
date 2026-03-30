@@ -23,6 +23,21 @@ type Store struct {
 	AutoCommit bool
 }
 
+// clearStaleLock removes a Dolt LOCK file if the owning process is dead.
+// A stale LOCK from a crashed synthesist process blocks all subsequent invocations.
+func clearStaleLock(dbPath string) {
+	lockPath := filepath.Join(dbPath, "synthesist", ".dolt", "noms", "LOCK")
+	info, err := os.Stat(lockPath)
+	if err != nil {
+		return // no LOCK file, nothing to do
+	}
+	// If LOCK is older than 60 seconds, it's likely stale (normal operations take <5s)
+	if time.Since(info.ModTime()) > 60*time.Second {
+		_ = os.Remove(lockPath)
+		fmt.Fprintf(os.Stderr, "warning: cleared stale LOCK file (age: %s)\n", time.Since(info.ModTime()).Round(time.Second))
+	}
+}
+
 // Open opens an existing synthesist database, or returns an error if not initialized.
 func Open(root string) (*Store, error) {
 	abs, err := filepath.Abs(root)
@@ -34,6 +49,7 @@ func Open(root string) (*Store, error) {
 	if _, err := os.Stat(filepath.Join(dbPath, "synthesist", ".dolt")); os.IsNotExist(err) {
 		return nil, fmt.Errorf("no synthesist database at %s -- run 'synthesist init'", dbPath)
 	}
+	clearStaleLock(dbPath)
 	dsn := "file://" + dbPath + "?commitname=synthesist&commitemail=synthesist@synthesist&database=synthesist"
 	db, err := sql.Open("dolt", dsn)
 	if err != nil {
