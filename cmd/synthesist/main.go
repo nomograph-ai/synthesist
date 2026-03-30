@@ -74,7 +74,7 @@ func main() {
 		"migrate": true, "export": true,
 	}
 	readOnlySubcommands := map[string]bool{
-		"list": true, "show": true,
+		"list": true, "show": true, "ready": true, "check": true,
 	}
 
 	cmdPath := ctx.Command()
