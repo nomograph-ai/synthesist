@@ -16,16 +16,17 @@ func cmdLandscapeShow(c *LandscapeShowCmd) error {
 
 	result := map[string]any{"tree": tree, "spec": spec}
 
-	// Current dispositions
+	// Current dispositions — includes both spec-specific AND tree-wide
+	// architectural dispositions from the 'stakeholder-preferences' pseudo-spec.
 	rows, _ := s.DB.Query(
-		"SELECT d.id, d.stakeholder_id, s.context, d.topic, d.stance, d.preferred_approach, d.confidence, d.valid_from FROM dispositions d JOIN stakeholders s ON d.tree = s.tree AND d.stakeholder_id = s.id WHERE d.tree = ? AND d.spec = ? AND d.valid_until IS NULL ORDER BY d.stakeholder_id",
+		"SELECT d.id, d.stakeholder_id, s.context, d.topic, d.stance, d.preferred_approach, d.detail, d.confidence, d.valid_from, d.spec FROM dispositions d JOIN stakeholders s ON d.tree = s.tree AND d.stakeholder_id = s.id WHERE d.tree = ? AND (d.spec = ? OR d.spec = 'stakeholder-preferences') AND d.valid_until IS NULL ORDER BY d.stakeholder_id",
 		tree, spec,
 	)
 	dispositions := make([]map[string]any, 0)
 	for rows.Next() {
-		var id, stakeholder, context, topic, stance, confidence, validFrom string
-		var preferred *string
-		if err := rows.Scan(&id, &stakeholder, &context, &topic, &stance, &preferred, &confidence, &validFrom); err != nil {
+		var id, stakeholder, context, topic, stance, confidence, validFrom, fromSpec string
+		var preferred, detail *string
+		if err := rows.Scan(&id, &stakeholder, &context, &topic, &stance, &preferred, &detail, &confidence, &validFrom, &fromSpec); err != nil {
 			return fmt.Errorf("scanning row: %w", err)
 		}
 		d := map[string]any{
@@ -34,6 +35,12 @@ func cmdLandscapeShow(c *LandscapeShowCmd) error {
 		}
 		if preferred != nil {
 			d["preferred_approach"] = *preferred
+		}
+		if detail != nil {
+			d["detail"] = *detail
+		}
+		if fromSpec != spec {
+			d["scope"] = "tree-wide"
 		}
 		dispositions = append(dispositions, d)
 	}

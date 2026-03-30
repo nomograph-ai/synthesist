@@ -383,6 +383,8 @@ type DispositionAddCmd struct {
 	Stance        string `name:"stance" required:"" help:"Stance (supportive, cautious, opposed, neutral, unknown)"`
 	Confidence    string `name:"confidence" required:"" help:"Confidence (documented, verified, inferred, speculative)"`
 	Preferred     string `name:"preferred" default:"" help:"Preferred approach"`
+	Detail        string `name:"detail" default:"" help:"Reasoning or context for this assessment"`
+	Evidence      string `name:"evidence" default:"" help:"Signal ID as evidence"`
 }
 
 func (c *DispositionAddCmd) Run() error { return cmdDispositionAdd(c) }
