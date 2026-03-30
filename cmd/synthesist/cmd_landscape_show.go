@@ -18,10 +18,13 @@ func cmdLandscapeShow(c *LandscapeShowCmd) error {
 
 	// Current dispositions — includes both spec-specific AND tree-wide
 	// architectural dispositions from the 'stakeholder-preferences' pseudo-spec.
-	rows, _ := s.DB.Query(
+	rows, err := s.DB.Query(
 		"SELECT d.id, d.stakeholder_id, s.context, d.topic, d.stance, d.preferred_approach, d.detail, d.confidence, d.valid_from, d.spec FROM dispositions d JOIN stakeholders s ON d.tree = s.tree AND d.stakeholder_id = s.id WHERE d.tree = ? AND (d.spec = ? OR d.spec = 'stakeholder-preferences') AND d.valid_until IS NULL ORDER BY d.stakeholder_id",
 		tree, spec,
 	)
+	if err != nil {
+		return fmt.Errorf("querying dispositions: %w", err)
+	}
 	dispositions := make([]map[string]any, 0)
 	for rows.Next() {
 		var id, stakeholder, context, topic, stance, confidence, validFrom, fromSpec string
@@ -51,10 +54,13 @@ func cmdLandscapeShow(c *LandscapeShowCmd) error {
 	result["dispositions"] = dispositions
 
 	// Signals
-	rows, _ = s.DB.Query(
+	rows, err = s.DB.Query(
 		"SELECT sig.id, sig.stakeholder_id, sh.context, sig.date, sig.source, sig.source_type, sig.content FROM signals sig JOIN stakeholders sh ON sig.tree = sh.tree AND sig.stakeholder_id = sh.id WHERE sig.tree = ? AND sig.spec = ? ORDER BY sig.date DESC LIMIT 20",
 		tree, spec,
 	)
+	if err != nil {
+		return fmt.Errorf("querying signals: %w", err)
+	}
 	signals := make([]map[string]any, 0)
 	for rows.Next() {
 		var id, stakeholder, context, date, source, sourceType, content string
@@ -73,10 +79,13 @@ func cmdLandscapeShow(c *LandscapeShowCmd) error {
 	result["signals"] = signals
 
 	// Influences
-	rows, _ = s.DB.Query(
+	rows, err = s.DB.Query(
 		"SELECT i.stakeholder_id, s.context, i.task_id, i.role FROM influences i JOIN stakeholders s ON i.tree = s.tree AND i.stakeholder_id = s.id WHERE i.tree = ? AND i.spec = ?",
 		tree, spec,
 	)
+	if err != nil {
+		return fmt.Errorf("querying influences: %w", err)
+	}
 	influences := make([]map[string]any, 0)
 	for rows.Next() {
 		var stakeholder, context, taskID, role string
@@ -94,12 +103,15 @@ func cmdLandscapeShow(c *LandscapeShowCmd) error {
 	result["influences"] = influences
 
 	// Directions affecting this spec
-	rows, _ = s.DB.Query(`
+	rows, err = s.DB.Query(`
 		SELECT d.id, d.project, d.topic, d.status, d.impact, di.description
 		FROM directions d
 		JOIN direction_impacts di ON d.tree = di.tree AND d.id = di.direction_id
 		WHERE di.affected_tree = ? AND di.affected_spec = ? AND d.valid_until IS NULL
 	`, tree, spec)
+	if err != nil {
+		return fmt.Errorf("querying directions: %w", err)
+	}
 	directions := make([]map[string]any, 0)
 	for rows.Next() {
 		var id, project, topic, status, impact, desc string

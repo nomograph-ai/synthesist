@@ -17,7 +17,10 @@ func cmdDirectionAdd(c *DirectionAddCmd) error {
 
 	// Get next ID
 	var ids []string
-	rows, _ := s.DB.Query("SELECT id FROM directions WHERE tree = ?", tree)
+	rows, err := s.DB.Query("SELECT id FROM directions WHERE tree = ?", tree)
+	if err != nil {
+		return fmt.Errorf("querying direction IDs: %w", err)
+	}
 	for rows.Next() {
 		var id string
 		if err := rows.Scan(&id); err != nil {

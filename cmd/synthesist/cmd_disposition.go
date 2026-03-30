@@ -24,7 +24,10 @@ func cmdDispositionAdd(c *DispositionAddCmd) error {
 
 	// Get next ID
 	var ids []string
-	rows, _ := s.DB.Query("SELECT id FROM dispositions WHERE tree = ? AND spec = ?", tree, spec)
+	rows, err := s.DB.Query("SELECT id FROM dispositions WHERE tree = ? AND spec = ?", tree, spec)
+	if err != nil {
+		return fmt.Errorf("querying disposition IDs: %w", err)
+	}
 	for rows.Next() {
 		var id string
 		if err := rows.Scan(&id); err != nil {
@@ -146,7 +149,10 @@ func cmdDispositionSupersede(c *DispositionSupersedeCmd) error {
 
 	// Generate new ID
 	var ids []string
-	rows, _ := s.DB.Query("SELECT id FROM dispositions WHERE tree = ? AND spec = ?", tree, spec)
+	rows, err := s.DB.Query("SELECT id FROM dispositions WHERE tree = ? AND spec = ?", tree, spec)
+	if err != nil {
+		return fmt.Errorf("querying disposition IDs: %w", err)
+	}
 	for rows.Next() {
 		var id string
 		if err := rows.Scan(&id); err != nil {

@@ -27,7 +27,10 @@ func cmdSignalRecord(c *SignalRecordCmd) error {
 	}
 
 	var ids []string
-	rows, _ := s.DB.Query("SELECT id FROM signals WHERE tree = ? AND spec = ?", tree, spec)
+	rows, err := s.DB.Query("SELECT id FROM signals WHERE tree = ? AND spec = ?", tree, spec)
+	if err != nil {
+		return fmt.Errorf("querying signal IDs: %w", err)
+	}
 	for rows.Next() {
 		var id string
 		if err := rows.Scan(&id); err != nil {

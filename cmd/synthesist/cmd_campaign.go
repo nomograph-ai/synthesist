@@ -82,7 +82,10 @@ func cmdCampaignList(c *CampaignListCmd) error {
 	tree := c.Tree
 
 	// Active
-	rows, _ := s.DB.Query("SELECT spec_id, summary, phase FROM campaign_active WHERE tree = ? ORDER BY spec_id", tree)
+	rows, err := s.DB.Query("SELECT spec_id, summary, phase FROM campaign_active WHERE tree = ? ORDER BY spec_id", tree)
+	if err != nil {
+		return fmt.Errorf("querying active campaigns: %w", err)
+	}
 	active := make([]map[string]any, 0)
 	for rows.Next() {
 		var specID, summary string
@@ -95,7 +98,10 @@ func cmdCampaignList(c *CampaignListCmd) error {
 			a["phase"] = *phase
 		}
 		// blocked_by
-		bRows, _ := s.DB.Query("SELECT blocked_by FROM campaign_blocked_by WHERE tree = ? AND spec_id = ?", tree, specID)
+		bRows, bErr := s.DB.Query("SELECT blocked_by FROM campaign_blocked_by WHERE tree = ? AND spec_id = ?", tree, specID)
+		if bErr != nil {
+			return fmt.Errorf("querying blocked_by: %w", bErr)
+		}
 		var blocked []string
 		for bRows.Next() {
 			var b string
@@ -119,7 +125,10 @@ func cmdCampaignList(c *CampaignListCmd) error {
 	_ = rows.Close()
 
 	// Backlog
-	rows, _ = s.DB.Query("SELECT spec_id, title, summary FROM campaign_backlog WHERE tree = ? ORDER BY spec_id", tree)
+	rows, err = s.DB.Query("SELECT spec_id, title, summary FROM campaign_backlog WHERE tree = ? ORDER BY spec_id", tree)
+	if err != nil {
+		return fmt.Errorf("querying backlog campaigns: %w", err)
+	}
 	backlog := make([]map[string]any, 0)
 	for rows.Next() {
 		var specID, title, summary string
@@ -127,7 +136,10 @@ func cmdCampaignList(c *CampaignListCmd) error {
 			return fmt.Errorf("scanning row: %w", err)
 		}
 		b := map[string]any{"spec_id": specID, "title": title, "summary": summary}
-		bRows, _ := s.DB.Query("SELECT blocked_by FROM campaign_blocked_by WHERE tree = ? AND spec_id = ?", tree, specID)
+		bRows, bErr := s.DB.Query("SELECT blocked_by FROM campaign_blocked_by WHERE tree = ? AND spec_id = ?", tree, specID)
+		if bErr != nil {
+			return fmt.Errorf("querying blocked_by: %w", bErr)
+		}
 		var blocked []string
 		for bRows.Next() {
 			var bl string

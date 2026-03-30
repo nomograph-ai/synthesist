@@ -58,10 +58,13 @@ func cmdPropagationList(c *PropagationListCmd) error {
 	}
 
 	// Downstream: what needs updates when this spec changes
-	rows, _ := s.DB.Query(
+	rows, err := s.DB.Query(
 		"SELECT target_tree, target_spec, seq, description FROM propagation_chain WHERE source_tree = ? AND source_spec = ? ORDER BY seq",
 		tree, spec,
 	)
+	if err != nil {
+		return fmt.Errorf("querying downstream: %w", err)
+	}
 	downstream := make([]map[string]any, 0)
 	for rows.Next() {
 		var targetTree, targetSpec string
@@ -82,10 +85,13 @@ func cmdPropagationList(c *PropagationListCmd) error {
 	_ = rows.Close()
 
 	// Upstream: what specs' changes affect this one
-	rows, _ = s.DB.Query(
+	rows, err = s.DB.Query(
 		"SELECT source_tree, source_spec, seq, description FROM propagation_chain WHERE target_tree = ? AND target_spec = ? ORDER BY seq",
 		tree, spec,
 	)
+	if err != nil {
+		return fmt.Errorf("querying upstream: %w", err)
+	}
 	upstream := make([]map[string]any, 0)
 	for rows.Next() {
 		var sourceTree, sourceSpec string
@@ -139,10 +145,13 @@ func cmdPropagationCheck(c *PropagationCheckCmd) error {
 	}
 
 	// Check each downstream target
-	rows, _ := s.DB.Query(
+	rows, err := s.DB.Query(
 		"SELECT target_tree, target_spec, seq, description FROM propagation_chain WHERE source_tree = ? AND source_spec = ? ORDER BY seq",
 		tree, spec,
 	)
+	if err != nil {
+		return fmt.Errorf("querying propagation chain: %w", err)
+	}
 	var stale []map[string]any
 	for rows.Next() {
 		var targetTree, targetSpec string

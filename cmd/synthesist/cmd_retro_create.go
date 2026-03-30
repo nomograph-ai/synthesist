@@ -127,10 +127,13 @@ func cmdRetroShow(c *RetroShowCmd) error {
 	}
 
 	// Transforms
-	rows, _ := s.DB.Query(
+	rows, err := s.DB.Query(
 		"SELECT seq, label, description, transferable FROM transforms WHERE tree = ? AND spec = ? AND task_id = 'retro' ORDER BY seq",
 		tree, spec,
 	)
+	if err != nil {
+		return fmt.Errorf("querying transforms: %w", err)
+	}
 	var transforms []map[string]any
 	for rows.Next() {
 		var seq int
@@ -150,10 +153,13 @@ func cmdRetroShow(c *RetroShowCmd) error {
 	result["transforms"] = transforms
 
 	// Linked patterns
-	rows, _ = s.DB.Query(
+	rows, err = s.DB.Query(
 		"SELECT tp.pattern_id, p.name, p.description FROM task_patterns tp JOIN patterns p ON tp.pattern_id = p.id AND tp.tree = p.tree WHERE tp.tree = ? AND tp.spec = ? AND tp.task_id = 'retro'",
 		tree, spec,
 	)
+	if err != nil {
+		return fmt.Errorf("querying patterns: %w", err)
+	}
 	var patterns []map[string]any
 	for rows.Next() {
 		var id, name, desc string

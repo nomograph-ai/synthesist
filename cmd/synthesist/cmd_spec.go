@@ -100,10 +100,13 @@ func cmdSpecShow(c *SpecShowCmd) error {
 	}
 
 	// Propagation: what needs updates when this spec changes?
-	rows, _ := s.DB.Query(
+	rows, err := s.DB.Query(
 		"SELECT target_tree, target_spec, seq, description FROM propagation_chain WHERE source_tree = ? AND source_spec = ? ORDER BY seq",
 		tree, spec,
 	)
+	if err != nil {
+		return fmt.Errorf("querying propagation downstream: %w", err)
+	}
 	var propagates []map[string]any
 	for rows.Next() {
 		var targetTree, targetSpec string
@@ -127,10 +130,13 @@ func cmdSpecShow(c *SpecShowCmd) error {
 	}
 
 	// Propagation: what specs' changes affect this spec?
-	rows, _ = s.DB.Query(
+	rows, err = s.DB.Query(
 		"SELECT source_tree, source_spec, description FROM propagation_chain WHERE target_tree = ? AND target_spec = ? ORDER BY seq",
 		tree, spec,
 	)
+	if err != nil {
+		return fmt.Errorf("querying propagation upstream: %w", err)
+	}
 	var affectedBy []map[string]any
 	for rows.Next() {
 		var sourceTree, sourceSpec string

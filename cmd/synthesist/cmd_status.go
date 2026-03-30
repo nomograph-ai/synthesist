@@ -61,12 +61,24 @@ func cmdStatus() error {
 
 	// Task summary across all specs
 	var pending, inProgress, done, waiting, blocked, cancelled int
-	_ = s.DB.QueryRow("SELECT COUNT(*) FROM tasks WHERE status = 'pending'").Scan(&pending)
-	_ = s.DB.QueryRow("SELECT COUNT(*) FROM tasks WHERE status = 'in_progress'").Scan(&inProgress)
-	_ = s.DB.QueryRow("SELECT COUNT(*) FROM tasks WHERE status = 'done'").Scan(&done)
-	_ = s.DB.QueryRow("SELECT COUNT(*) FROM tasks WHERE status = 'waiting'").Scan(&waiting)
-	_ = s.DB.QueryRow("SELECT COUNT(*) FROM tasks WHERE status = 'blocked'").Scan(&blocked)
-	_ = s.DB.QueryRow("SELECT COUNT(*) FROM tasks WHERE status = 'cancelled'").Scan(&cancelled)
+	if err := s.DB.QueryRow("SELECT COUNT(*) FROM tasks WHERE status = 'pending'").Scan(&pending); err != nil {
+		return fmt.Errorf("counting pending tasks: %w", err)
+	}
+	if err := s.DB.QueryRow("SELECT COUNT(*) FROM tasks WHERE status = 'in_progress'").Scan(&inProgress); err != nil {
+		return fmt.Errorf("counting in_progress tasks: %w", err)
+	}
+	if err := s.DB.QueryRow("SELECT COUNT(*) FROM tasks WHERE status = 'done'").Scan(&done); err != nil {
+		return fmt.Errorf("counting done tasks: %w", err)
+	}
+	if err := s.DB.QueryRow("SELECT COUNT(*) FROM tasks WHERE status = 'waiting'").Scan(&waiting); err != nil {
+		return fmt.Errorf("counting waiting tasks: %w", err)
+	}
+	if err := s.DB.QueryRow("SELECT COUNT(*) FROM tasks WHERE status = 'blocked'").Scan(&blocked); err != nil {
+		return fmt.Errorf("counting blocked tasks: %w", err)
+	}
+	if err := s.DB.QueryRow("SELECT COUNT(*) FROM tasks WHERE status = 'cancelled'").Scan(&cancelled); err != nil {
+		return fmt.Errorf("counting cancelled tasks: %w", err)
+	}
 	result["task_counts"] = map[string]int{
 		"pending": pending, "in_progress": inProgress, "done": done,
 		"waiting": waiting, "blocked": blocked, "cancelled": cancelled,
@@ -108,12 +120,16 @@ func cmdStatus() error {
 
 	// Stakeholder count
 	var stakeholderCount int
-	_ = s.DB.QueryRow("SELECT COUNT(*) FROM stakeholders").Scan(&stakeholderCount)
+	if err := s.DB.QueryRow("SELECT COUNT(*) FROM stakeholders").Scan(&stakeholderCount); err != nil {
+		return fmt.Errorf("counting stakeholders: %w", err)
+	}
 	result["stakeholder_count"] = stakeholderCount
 
 	// Pattern count
 	var patternCount int
-	_ = s.DB.QueryRow("SELECT COUNT(*) FROM patterns").Scan(&patternCount)
+	if err := s.DB.QueryRow("SELECT COUNT(*) FROM patterns").Scan(&patternCount); err != nil {
+		return fmt.Errorf("counting patterns: %w", err)
+	}
 	result["pattern_count"] = patternCount
 
 	enc := json.NewEncoder(os.Stdout)
@@ -134,7 +150,10 @@ func cmdCheck() error {
 	}
 
 	// Check: tasks with waiting status must have waiter fields
-	rows, _ := s.DB.Query("SELECT tree, spec, id FROM tasks WHERE status = 'waiting' AND waiter_reason IS NULL")
+	rows, err := s.DB.Query("SELECT tree, spec, id FROM tasks WHERE status = 'waiting' AND waiter_reason IS NULL")
+	if err != nil {
+		return fmt.Errorf("checking waiting tasks: %w", err)
+	}
 	for rows.Next() {
 		var tree, spec, id string
 		if err := rows.Scan(&tree, &spec, &id); err != nil {
@@ -148,7 +167,10 @@ func cmdCheck() error {
 	_ = rows.Close()
 
 	// Check: retro tasks must have arc
-	rows, _ = s.DB.Query("SELECT tree, spec, id FROM tasks WHERE type = 'retro' AND (arc IS NULL OR arc = '')")
+	rows, err = s.DB.Query("SELECT tree, spec, id FROM tasks WHERE type = 'retro' AND (arc IS NULL OR arc = '')")
+	if err != nil {
+		return fmt.Errorf("checking retro tasks: %w", err)
+	}
 	for rows.Next() {
 		var tree, spec, id string
 		if err := rows.Scan(&tree, &spec, &id); err != nil {
@@ -162,7 +184,10 @@ func cmdCheck() error {
 	_ = rows.Close()
 
 	// Check: dispositions with valid_until should have superseded_by
-	rows, _ = s.DB.Query("SELECT tree, spec, id FROM dispositions WHERE valid_until IS NOT NULL AND superseded_by IS NULL")
+	rows, err = s.DB.Query("SELECT tree, spec, id FROM dispositions WHERE valid_until IS NOT NULL AND superseded_by IS NULL")
+	if err != nil {
+		return fmt.Errorf("checking dispositions: %w", err)
+	}
 	for rows.Next() {
 		var tree, spec, id string
 		if err := rows.Scan(&tree, &spec, &id); err != nil {
@@ -177,11 +202,14 @@ func cmdCheck() error {
 
 	// Check: task dependencies reference existing tasks
 	// NOTE: NOT IN tuple used as workaround for Dolt LEFT JOIN bug
-	rows, _ = s.DB.Query(`
+	rows, err = s.DB.Query(`
 		SELECT d.tree, d.spec, d.task_id, d.depends_on
 		FROM task_deps d
 		WHERE (d.tree, d.spec, d.depends_on) NOT IN (SELECT tree, spec, id FROM tasks)
 	`)
+	if err != nil {
+		return fmt.Errorf("checking task deps: %w", err)
+	}
 	for rows.Next() {
 		var tree, spec, taskID, dep string
 		if err := rows.Scan(&tree, &spec, &taskID, &dep); err != nil {
@@ -197,11 +225,14 @@ func cmdCheck() error {
 	// Check: influence references existing stakeholders
 	// NOTE: NOT IN tuple used as workaround for Dolt LEFT JOIN / NOT EXISTS bug
 	// where correlated subqueries return false positives on full table scans.
-	rows, _ = s.DB.Query(`
+	rows, err = s.DB.Query(`
 		SELECT i.tree, i.spec, i.stakeholder_id
 		FROM influences i
 		WHERE (i.tree, i.stakeholder_id) NOT IN (SELECT tree, id FROM stakeholders)
 	`)
+	if err != nil {
+		return fmt.Errorf("checking influence stakeholders: %w", err)
+	}
 	for rows.Next() {
 		var tree, spec, stakeholder string
 		if err := rows.Scan(&tree, &spec, &stakeholder); err != nil {
@@ -216,11 +247,14 @@ func cmdCheck() error {
 
 	// Check: disposition references existing stakeholders
 	// NOTE: NOT IN tuple used as workaround for Dolt LEFT JOIN / NOT EXISTS bug
-	rows, _ = s.DB.Query(`
+	rows, err = s.DB.Query(`
 		SELECT d.tree, d.spec, d.id, d.stakeholder_id
 		FROM dispositions d
 		WHERE (d.tree, d.stakeholder_id) NOT IN (SELECT tree, id FROM stakeholders)
 	`)
+	if err != nil {
+		return fmt.Errorf("checking disposition stakeholders: %w", err)
+	}
 	for rows.Next() {
 		var tree, spec, id, stakeholder string
 		if err := rows.Scan(&tree, &spec, &id, &stakeholder); err != nil {
