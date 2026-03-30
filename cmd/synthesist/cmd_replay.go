@@ -17,8 +17,11 @@ func cmdReplay(c *ReplayCmd) error {
 	result := map[string]any{"tree": tree, "spec": spec}
 
 	// Task DAG shape
-	rows, _ := s.DB.Query(
+	rows, err := s.DB.Query(
 		"SELECT id, type, summary, status, arc FROM tasks WHERE tree = ? AND spec = ? ORDER BY id", tree, spec)
+	if err != nil {
+		return fmt.Errorf("querying tasks: %w", err)
+	}
 	var tasks []map[string]any
 	for rows.Next() {
 		var id, typ, summary, status string
@@ -31,7 +34,10 @@ func cmdReplay(c *ReplayCmd) error {
 			t["arc"] = *arc
 		}
 		// Deps
-		depRows, _ := s.DB.Query("SELECT depends_on FROM task_deps WHERE tree = ? AND spec = ? AND task_id = ?", tree, spec, id)
+		depRows, dErr := s.DB.Query("SELECT depends_on FROM task_deps WHERE tree = ? AND spec = ? AND task_id = ?", tree, spec, id)
+		if dErr != nil {
+			return fmt.Errorf("querying task deps: %w", dErr)
+		}
 		var deps []string
 		for depRows.Next() {
 			var d string
@@ -56,10 +62,13 @@ func cmdReplay(c *ReplayCmd) error {
 	result["task_dag"] = tasks
 
 	// Retro transforms
-	tRows, _ := s.DB.Query(
+	tRows, err := s.DB.Query(
 		"SELECT label, description, transferable FROM transforms WHERE tree = ? AND spec = ? AND task_id = 'retro' ORDER BY seq",
 		tree, spec,
 	)
+	if err != nil {
+		return fmt.Errorf("querying transforms: %w", err)
+	}
 	var transforms []map[string]any
 	for tRows.Next() {
 		var label, desc string
@@ -78,10 +87,13 @@ func cmdReplay(c *ReplayCmd) error {
 	result["transforms"] = transforms
 
 	// Patterns
-	rows, _ = s.DB.Query(
+	rows, err = s.DB.Query(
 		"SELECT tp.pattern_id, p.name, p.description FROM task_patterns tp JOIN patterns p ON tp.tree = p.tree AND tp.pattern_id = p.id WHERE tp.tree = ? AND tp.spec = ? AND tp.task_id = 'retro'",
 		tree, spec,
 	)
+	if err != nil {
+		return fmt.Errorf("querying patterns: %w", err)
+	}
 	var patterns []map[string]any
 	for rows.Next() {
 		var id, name, desc string
@@ -97,10 +109,13 @@ func cmdReplay(c *ReplayCmd) error {
 	result["patterns"] = patterns
 
 	// Landscape summary
-	rows, _ = s.DB.Query(
+	rows, err = s.DB.Query(
 		"SELECT d.stakeholder_id, d.topic, d.stance, d.confidence, d.preferred_approach FROM dispositions d WHERE d.tree = ? AND d.spec = ? AND d.valid_until IS NULL",
 		tree, spec,
 	)
+	if err != nil {
+		return fmt.Errorf("querying landscape: %w", err)
+	}
 	var landscape []map[string]any
 	for rows.Next() {
 		var stakeholder, topic, stance, confidence string
