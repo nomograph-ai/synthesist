@@ -85,6 +85,9 @@ Before tagging a release:
 3. Push to main — CI pipeline must pass (check GitLab)
 4. README.md, CHANGELOG.md, CLAUDE.md all reflect the release content
 5. `make golden-update && make test` — golden files are current
-6. `git tag vX.Y.Z && git push --tags`
+6. `git tag -a vX.Y.Z -m "release notes here"` — annotated tag with release notes
+7. `git push --tags` — wait for tag CI pipeline to pass
+8. `glab release create vX.Y.Z --notes "release notes"` — create GitLab release with full notes from CHANGELOG
 
 Never tag before CI passes. Never tag with stale documentation.
+Never skip release notes — both the annotated tag and the GitLab release must have them.
