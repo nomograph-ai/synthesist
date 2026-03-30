@@ -429,13 +429,16 @@ navigate and modify:
   `make golden-update` for regeneration.
 - **golangci-lint:** errcheck, staticcheck, bodyclose enabled. Zero-warning
   policy enforced by `make lint`.
-- **400 LOC limit:** Enforced by `make loc-check`. No non-generated Go
-  file exceeds 400 lines. Files that were too large have been split:
-  `cmd_landscape.go` became `cmd_landscape_show.go`, `cmd_disposition.go`,
+- **650 LOC limit:** Enforced by `make loc-check`. No non-generated Go
+  file exceeds 650 lines. Large files have been split by domain:
+  `main.go` into `main.go` (infrastructure) + `cli_types.go` (estate,
+  spec, retro, query) + `cli_types_task.go` + `cli_types_landscape.go`;
+  `store.go` into `store.go` (core DB) + `store_session.go` (branch ops);
+  `cmd_landscape.go` into `cmd_landscape_show.go`, `cmd_disposition.go`,
   `cmd_signal.go`, `cmd_stakeholder.go`, and `cmd_stance.go`;
-  `cmd_task.go` became `cmd_task_create.go`, `cmd_task_lifecycle.go`,
+  `cmd_task.go` into `cmd_task_create.go`, `cmd_task_lifecycle.go`,
   `cmd_task_list.go`, `cmd_task_query.go`, and `cmd_task_helpers.go`;
-  `cmd_retro.go` became `cmd_retro_create.go`, `cmd_replay.go`, and
+  `cmd_retro.go` into `cmd_retro_create.go`, `cmd_replay.go`, and
   `cmd_pattern.go`.
 - **Zero-warning policy:** The CI pipeline runs `golangci-lint run ./...`
   and `make loc-check`. Any warning or oversized file fails the build.
@@ -652,7 +655,7 @@ make check          # Build + run synthesist check against local specs
 make dev            # Build + show help
 make skill          # Build + output the LLM skill file
 make golden-update  # Regenerate golden test files (tests/golden/)
-make loc-check      # Fail if any non-generated Go file exceeds 400 LOC
+make loc-check      # Fail if any non-generated Go file exceeds 650 LOC
 make release        # Cross-compile for darwin/arm64, darwin/amd64, linux/amd64, linux/arm64
 make clean          # Remove binary and build cache
 ```
@@ -664,7 +667,10 @@ The Makefile auto-detects ICU on macOS via Homebrew and sets the correct
 
 See [CHANGELOG.md](CHANGELOG.md) for the full history.
 
-- **v5.0.0** (2026-03-29) -- Dolt embedded storage, Go CLI binary, temporal specification graphs, Kong CLI framework, concurrent sessions on Dolt branches, workflow state machine, LLM-maintainability refactor (errors.go catalog, package READMEs, golden tests, golangci-lint, 400 LOC limit, file splitting)
+- **v5.1.1** (2026-03-29) -- File splitting refactor (main.go → main.go + cli_types*.go, store.go → store.go + store_session.go), fix 35 unchecked DB query errors, fix readOnlySubcommands for `task ready` and `propagation check`, LOC limit 850 → 650
+- **v5.1.0** (2026-03-29) -- Disposition `--detail` and `--evidence` flags, `landscape show` includes tree-wide dispositions from stakeholder-preferences pseudo-spec
+- **v5.0.1** (2026-03-29) -- Stale Dolt LOCK file detection (auto-clear on Open if >60s old), date-independent golden tests
+- **v5.0.0** (2026-03-29) -- Dolt embedded storage, Go CLI binary, temporal specification graphs, Kong CLI framework, concurrent sessions on Dolt branches, workflow state machine, LLM-maintainability refactor (errors.go catalog, package READMEs, golden tests, golangci-lint, LOC limit, file splitting)
 - **v4** (2026-03-27) -- Concurrent session support with active threads
 - **v3** (2026-03-21) -- Context trees, estate switchboard, campaign coordination
 - **v2** (2026-03-18) -- Single primary agent, campaigns, concurrent sessions

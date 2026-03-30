@@ -14,7 +14,7 @@ make test           # build + run all tests
 make lint           # golangci-lint (errcheck, staticcheck, bodyclose)
 make check          # build + run synthesist check
 make golden-update  # regenerate golden test files (tests/golden/)
-make loc-check      # fail if any non-generated Go file exceeds 400 LOC
+make loc-check      # fail if any non-generated Go file exceeds 650 LOC
 make skill          # build + output skill definition
 ```
 
@@ -23,7 +23,7 @@ make skill          # build + output skill definition
 - **Errors**: use constructors from `cmd/synthesist/errors.go`, never inline `fmt.Errorf`
 - **Output**: all commands emit JSON via `jsonOut()`; use `--human` for human-readable output
 - **SQL**: raw SQL in store methods, no ORM. SQL is the source of truth.
-- **File size**: 400 LOC max per file, one concern per file
+- **File size**: 650 LOC max per file, one concern per file
 - **Tests**: golden file tests in `tests/golden/testdata/*.golden`
 - **Linting**: zero warnings from `make lint`. Fix warnings before committing.
 - **Single verification**: `make build && make test && make lint`
@@ -81,7 +81,7 @@ When making changes, keep these in sync before committing:
 Before tagging a release:
 
 1. `make build && make test && make lint` — all pass locally
-2. `make loc-check` — all files under 400 LOC (or justified exceptions documented)
+2. `make loc-check` — all files under 650 LOC (or justified exceptions documented)
 3. Push to main — CI pipeline must pass (check GitLab)
 4. README.md, CHANGELOG.md, CLAUDE.md all reflect the release content
 5. `make golden-update && make test` — golden files are current
