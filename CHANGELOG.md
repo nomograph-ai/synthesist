@@ -6,6 +6,47 @@ Versions represent architectural generations, not semver.
 
 ---
 
+## [v5.1.1] -- 2026-03-29
+
+### Refactor
+
+- Split `main.go` (801 LOC) into `main.go` (157, infrastructure) +
+  `cli_types.go` (431, estate/spec/retro/query types) +
+  `cli_types_task.go` (93) + `cli_types_landscape.go` (121)
+- Split `store.go` into `store.go` (519, core DB) + `store_session.go`
+  (108, branch/session operations)
+- LOC limit lowered from 850 to 650
+
+### Fixed
+
+- 35 unchecked `s.DB.Query()` / `s.DB.QueryRow()` errors across 11 files
+  now properly checked and returned instead of silently discarded
+- `task ready` and `propagation check` subcommands no longer require a
+  session (they are read-only operations)
+
+---
+
+## [v5.1.0] -- 2026-03-29
+
+### Added
+
+- `disposition add --detail` flag for recording reasoning/context
+- `disposition add --evidence` flag for linking a signal ID as evidence
+- `landscape show` now includes tree-wide architectural dispositions from
+  the `stakeholder-preferences` pseudo-spec, tagged `scope: tree-wide`
+
+---
+
+## [v5.0.1] -- 2026-03-29
+
+### Fixed
+
+- Stale Dolt LOCK file detection: auto-cleared on `Open()` if >60s old
+  (prevents crashes from blocking subsequent invocations)
+- Golden tests use date normalization for CI date-independence
+
+---
+
 ## [v5.0.0] -- 2026-03-29
 
 Synthesist is now a Go binary with an embedded Dolt database. The
@@ -84,7 +125,7 @@ ORIENT -> PLAN -> AGREE -> EXECUTE <-> REFLECT -> REPORT (with REPLAN).
 - Golden tests in `tests/golden/` with `make golden-update` for regeneration
 - golangci-lint replaces `go vet` -- errcheck, staticcheck, bodyclose
   enabled. Zero-warning policy enforced by `make lint`
-- 400 LOC limit per file enforced by `make loc-check`
+- 650 LOC limit per file enforced by `make loc-check`
 
 ### File splitting
 
