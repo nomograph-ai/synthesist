@@ -58,17 +58,17 @@ release:
 	done
 
 .PHONY: loc-check
-loc-check: ## Fail if any non-generated Go file exceeds 400 LOC
+loc-check: ## Fail if any non-generated Go file exceeds 650 LOC
 	@FAIL=0; \
 	for f in $$(find . -name '*.go' -not -path './vendor/*' -not -name '*_generated.go'); do \
 		lines=$$(wc -l < "$$f"); \
-		if [ "$$lines" -gt 850 ]; then \
-			echo "FAIL: $$f ($$lines lines, max 800)"; \
+		if [ "$$lines" -gt 650 ]; then \
+			echo "FAIL: $$f ($$lines lines, max 650)"; \
 			FAIL=1; \
 		fi; \
 	done; \
 	if [ "$$FAIL" -eq 1 ]; then exit 1; fi; \
-	echo "All files under 400 LOC"
+	echo "All files under 650 LOC"
 
 .PHONY: skill
 skill: build
