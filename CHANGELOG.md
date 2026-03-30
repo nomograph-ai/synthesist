@@ -6,12 +6,13 @@ Versions represent architectural generations, not semver.
 
 ---
 
-## Unreleased
+## [v5.1.2] -- 2026-03-30
 
 ### Added
 
 - `docs/cursor.md` -- guide for using Synthesist with Cursor (shell access,
   skill output, sessions, phase state machine, v5 vs legacy OpenCode bundle)
+  (contributed by @jmeekhof)
 
 ---
 
