@@ -483,6 +483,9 @@ synthesist skill >> your-agent-config
 The tool is agent-agnostic. It works with Claude Code, Cursor, or any
 framework that gives an LLM access to shell commands.
 
+**Cursor:** see [docs/cursor.md](docs/cursor.md) for how to wire `synthesist skill`,
+sessions, and the phase state machine into Cursor rules / project instructions.
+
 ## Key Design Decisions
 
 **Why Dolt over TerminusDB?** TerminusDB is graph-native with better traversal,
