@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -59,17 +60,28 @@ func runSynthWrite(t *testing.T, dir string, args ...string) string {
 	return runSynth(t, dir, args...)
 }
 
-// normalizeJSON re-marshals JSON to ensure consistent formatting.
+// normalizeJSON re-marshals JSON to ensure consistent formatting
+// and replaces dates with a stable placeholder for golden comparison.
 func normalizeJSON(t *testing.T, raw string) string {
 	t.Helper()
 	var v any
 	if err := json.Unmarshal([]byte(raw), &v); err != nil {
-		// Not JSON — return as-is (e.g., error messages)
 		return raw
 	}
 	b, _ := json.MarshalIndent(v, "", "  ")
-	return string(b) + "\n"
+	// Replace YYYY-MM-DD dates and ISO timestamps with stable placeholder
+	result := string(b)
+	for _, old := range datePattern.FindAllString(result, -1) {
+		result = strings.Replace(result, old, "YYYY-MM-DD", 1)
+	}
+	for _, old := range isoPattern.FindAllString(result, -1) {
+		result = strings.Replace(result, old, "YYYY-MM-DDT00:00:00Z", 1)
+	}
+	return result + "\n"
 }
+
+var datePattern = regexp.MustCompile(`\d{4}-\d{2}-\d{2}`)
+var isoPattern = regexp.MustCompile(`\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z`)
 
 // golden compares output against a .golden file. If -update is passed,
 // overwrites the golden file with the current output.
