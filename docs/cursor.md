@@ -60,6 +60,17 @@ If you still have **legacy prompts** that mention `@explore`, `@edit`, `@review`
 separate chats—for example read-only search vs edit vs running acceptance checks—
 without expecting Cursor to dispatch OpenCode-style subagents by name.
 
+## Concurrent agents
+
+Synthesist supports multiple agents working in the same project simultaneously.
+Each agent starts its own session (Dolt branch), writes are isolated, and merges
+are row-level. See [Concurrent Sessions](../README.md#concurrent-sessions) for
+the full architecture and examples.
+
+**In Cursor:** each tab or sub-agent that does Synthesist work should start its
+own session. Assign different specs to different agents for zero-contention
+parallel execution.
+
 ## Minimal agent checklist
 
 1. **`synthesist session start <name>`** before mutating estate (when using sessions).

@@ -11,6 +11,12 @@ work without a session.
 
 Pattern: `S="synthesist --session=my-session"` then `$S task create ...`
 
+**Concurrent agents:** Multiple agents can work in the same project
+simultaneously. Each agent must start its own session. Sessions are
+isolated Dolt branches — writes are invisible to other sessions until
+merge. Assign each agent a different spec for zero-contention parallel
+execution. Task claim is atomic; two agents cannot claim the same task.
+
 ## Session Start Sequence
 
 1. `synthesist session start <descriptive-name>`
