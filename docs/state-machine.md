@@ -21,8 +21,13 @@ Pattern: `S="synthesist --session=my-session"` then `$S task create ...`
    - `synthesist spec show <tree/spec>` — goal, decisions, propagation deps
    - `synthesist discovery list <tree/spec>` — findings from previous sessions
    - `synthesist retro show <tree/spec>` — if completed, read the arc and transforms
-6. Present to the human in plain language (see Display Rules)
-7. If human stated intent, acknowledge and transition to PLAN
+   - `synthesist landscape show <tree/spec>` — stakeholder dispositions and signals
+   - `synthesist stance <stakeholder>` — for each stakeholder in the tree
+6. If stakeholders have recorded dispositions, present a **landscape summary**
+   to the human: who are the stakeholders, what are their known positions,
+   what ecosystem constraints apply. Do not skip this.
+7. Present to the human in plain language (see Display Rules)
+8. If human stated intent, acknowledge and transition to PLAN
 
 ## State Machine
 

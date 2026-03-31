@@ -6,6 +6,19 @@ Versions represent architectural generations, not semver.
 
 ---
 
+## [v5.2.0] -- 2026-03-30
+
+### Added
+
+- `spec create` auto-generates a human-gated ecosystem audit task (t0) when
+  the tree has stakeholders with recorded context. Blocks implementation
+  until stakeholder dispositions and ecosystem conventions are reviewed.
+- Session start sequence now requires `landscape show` and `stance` queries
+  during ORIENT when stakeholders exist. Landscape summary must be presented
+  to the human before transitioning to PLAN.
+
+---
+
 ## [v5.1.2] -- 2026-03-30
 
 ### Added
