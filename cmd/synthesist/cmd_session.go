@@ -81,6 +81,33 @@ func cmdSessionMerge(c *SessionMergeCmd) error {
 	}
 	defer s.Close() //nolint:errcheck
 
+	// Dry run: show what would change without merging
+	if c.DryRun {
+		// Count changes on the session branch vs main
+		rows, err := s.DB.Query("SELECT table_name, diff_type, COUNT(*) FROM dolt_diff(?, ?) GROUP BY table_name, diff_type ORDER BY table_name", "main", sessionID)
+		if err != nil {
+			return fmt.Errorf("checking diff: %w", err)
+		}
+		var changes []map[string]any
+		for rows.Next() {
+			var table, diffType string
+			var count int
+			if err := rows.Scan(&table, &diffType, &count); err != nil {
+				return fmt.Errorf("scanning diff: %w", err)
+			}
+			changes = append(changes, map[string]any{"table": table, "type": diffType, "count": count})
+		}
+		if err := rows.Err(); err != nil {
+			return fmt.Errorf("iterating diff rows: %w", err)
+		}
+		_ = rows.Close()
+		return jsonOut(map[string]any{
+			"session": sessionID,
+			"status":  "dry-run",
+			"changes": changes,
+		})
+	}
+
 	conflicts, err := s.MergeBranch(sessionID)
 	if err != nil {
 		return err

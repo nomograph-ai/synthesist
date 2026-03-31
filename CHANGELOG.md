@@ -6,6 +6,27 @@ Versions represent architectural generations, not semver.
 
 ---
 
+## [v5.3.0] -- 2026-03-31
+
+### Added
+
+- **Lock retry with backoff.** When the Dolt LOCK file is held by another
+  concurrent process, retries automatically (200ms, 500ms, 1s) before
+  failing. Makes N concurrent agent sessions safe without user intervention.
+- **Scaffold generates agent configs.** `synthesist scaffold` now creates
+  `.claude/commands/synthesist-orient.md` (Claude Code) and
+  `.cursor/rules/synthesist.mdc` (Cursor) that inject the behavioral
+  contract at session start.
+- **Session-aware onboarding.** Write commands without a session now show
+  active sessions and how to join or start one, instead of a generic error.
+- **Merge dry-run.** `session merge --dry-run` shows what would change
+  without actually merging.
+- **Concurrent session protocol.** State machine docs now include a
+  dedicated section on multi-session operation: naming, claim atomicity,
+  merge protocol, conflict resolution, lock retry behavior.
+
+---
+
 ## [v5.2.0] -- 2026-03-30
 
 ### Added

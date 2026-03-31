@@ -410,6 +410,7 @@ type SessionMergeCmd struct {
 	SessionID string `arg:"" help:"Session ID"`
 	Ours      bool   `name:"ours" help:"Resolve conflicts with ours"`
 	Theirs    bool   `name:"theirs" help:"Resolve conflicts with theirs"`
+	DryRun    bool   `name:"dry-run" help:"Check for conflicts without merging"`
 }
 
 func (c *SessionMergeCmd) Run() error { return cmdSessionMerge(c) }

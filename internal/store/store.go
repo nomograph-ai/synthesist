@@ -38,7 +38,12 @@ func clearStaleLock(dbPath string) {
 	}
 }
 
+// lockRetryDelays defines backoff intervals when the Dolt LOCK file
+// is held by another concurrent synthesist process.
+var lockRetryDelays = []time.Duration{200 * time.Millisecond, 500 * time.Millisecond, 1 * time.Second}
+
 // Open opens an existing synthesist database, or returns an error if not initialized.
+// If the database is locked by another process, retries with backoff (200ms, 500ms, 1s).
 func Open(root string) (*Store, error) {
 	abs, err := filepath.Abs(root)
 	if err != nil {
@@ -51,16 +56,46 @@ func Open(root string) (*Store, error) {
 	}
 	clearStaleLock(dbPath)
 	dsn := "file://" + dbPath + "?commitname=synthesist&commitemail=synthesist@synthesist&database=synthesist"
-	db, err := sql.Open("dolt", dsn)
-	if err != nil {
+
+	var db *sql.DB
+	for attempt, delay := range lockRetryDelays {
+		db, err = sql.Open("dolt", dsn)
+		if err == nil {
+			// Verify the connection actually works (Open can succeed lazily)
+			if pingErr := db.Ping(); pingErr == nil {
+				break
+			} else {
+				_ = db.Close()
+				err = pingErr
+			}
+		}
+		if isLockError(err) {
+			fmt.Fprintf(os.Stderr, "info: database locked by another session, retrying (%d/%d)...\n", attempt+1, len(lockRetryDelays))
+			time.Sleep(delay)
+			clearStaleLock(dbPath)
+			continue
+		}
 		return nil, fmt.Errorf("opening dolt database: %w", err)
 	}
+	if err != nil {
+		return nil, fmt.Errorf("opening dolt database after %d retries: %w", len(lockRetryDelays), err)
+	}
+
 	return &Store{
 		Root:       abs,
 		DBPath:     dbPath,
 		DB:         db,
 		AutoCommit: true,
 	}, nil
+}
+
+// isLockError checks if an error is caused by the Dolt LOCK file.
+func isLockError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "LOCK") || strings.Contains(msg, "lock") || strings.Contains(msg, "locked")
 }
 
 // Init creates a new synthesist database with the schema.
