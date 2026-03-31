@@ -670,6 +670,7 @@ The Makefile auto-detects ICU on macOS via Homebrew and sets the correct
 
 See [CHANGELOG.md](CHANGELOG.md) for the full history.
 
+- **v5.2.0** (2026-03-30) -- Auto-generated ecosystem audit task on spec create (when tree has stakeholders), ORIENT phase now requires landscape summary before PLAN
 - **v5.1.2** (2026-03-30) -- Cursor harness guide (`docs/cursor.md`), contributed by @jmeekhof
 - **v5.1.1** (2026-03-29) -- File splitting refactor (main.go → main.go + cli_types*.go, store.go → store.go + store_session.go), fix 35 unchecked DB query errors, fix readOnlySubcommands for `task ready` and `propagation check`, LOC limit 850 → 650
 - **v5.1.0** (2026-03-29) -- Disposition `--detail` and `--evidence` flags, `landscape show` includes tree-wide dispositions from stakeholder-preferences pseudo-spec

@@ -37,10 +37,35 @@ func cmdSpecCreate(c *SpecCreateCmd) error {
 		return fmt.Errorf("creating spec: %w", err)
 	}
 
+	// Auto-generate ecosystem audit task if the tree has stakeholders.
+	// This ensures disposition data and ecosystem conventions are consulted
+	// before implementation begins.
+	var stakeholderCount int
+	if err := s.DB.QueryRow("SELECT COUNT(*) FROM stakeholders WHERE tree = ?", tree).Scan(&stakeholderCount); err != nil {
+		return fmt.Errorf("counting stakeholders: %w", err)
+	}
+	if stakeholderCount > 0 {
+		_, err = s.DB.Exec(
+			"INSERT INTO tasks (tree, spec, id, type, summary, status, gate, created) VALUES (?, ?, 't0', 'task', ?, 'pending', 'human', ?)",
+			tree, spec,
+			fmt.Sprintf("Ecosystem audit: review stakeholder dispositions, canonical references, and conventions before implementation (tree has %d stakeholders)", stakeholderCount),
+			store.Today(),
+		)
+		if err != nil {
+			return fmt.Errorf("creating audit task: %w", err)
+		}
+	}
+
 	if err := s.Commit(fmt.Sprintf("spec(%s/%s): create", tree, spec)); err != nil {
 		return err
 	}
-	return jsonOut(map[string]any{"tree": tree, "spec": spec, "goal": c.Goal, "created": store.Today()})
+
+	result := map[string]any{"tree": tree, "spec": spec, "goal": c.Goal, "created": store.Today()}
+	if stakeholderCount > 0 {
+		result["auto_task"] = "t0"
+		result["auto_task_reason"] = fmt.Sprintf("tree has %d stakeholders with recorded context", stakeholderCount)
+	}
+	return jsonOut(result)
 }
 
 func cmdSpecShow(c *SpecShowCmd) error {
