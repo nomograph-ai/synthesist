@@ -89,9 +89,28 @@ func main() {
 	}
 
 	if !readOnlyCommands[topCmd] && !readOnlySubcommands[subCmd] && store.Session == "" {
-		_, _ = fmt.Fprintf(os.Stderr, "error: --session or SYNTHESIST_SESSION required for write operations\n")
-		_, _ = fmt.Fprintf(os.Stderr, "  start a session:  synthesist session start <session-id>\n")
-		_, _ = fmt.Fprintf(os.Stderr, "  then:             synthesist --session=<id> %s\n", cmdPath)
+		_, _ = fmt.Fprintf(os.Stderr, "error: session required for write operations\n\n")
+		// Try to show active sessions for context
+		if s, err := store.Discover(); err == nil {
+			if branches, bErr := s.ListBranches(); bErr == nil {
+				var sessions []string
+				for _, b := range branches {
+					if b != "main" {
+						sessions = append(sessions, b)
+					}
+				}
+				if len(sessions) > 0 {
+					_, _ = fmt.Fprintf(os.Stderr, "  active sessions:\n")
+					for _, sess := range sessions {
+						_, _ = fmt.Fprintf(os.Stderr, "    - %s\n", sess)
+					}
+					_, _ = fmt.Fprintf(os.Stderr, "\n  join one:  SYNTHESIST_SESSION=%s %s\n", sessions[0], cmdPath)
+				}
+			}
+			_ = s.Close()
+		}
+		_, _ = fmt.Fprintf(os.Stderr, "  start new: synthesist session start <name>\n")
+		_, _ = fmt.Fprintf(os.Stderr, "  then:      SYNTHESIST_SESSION=<name> synthesist %s\n", cmdPath)
 		os.Exit(1)
 	}
 

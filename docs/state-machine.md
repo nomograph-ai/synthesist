@@ -11,11 +11,37 @@ work without a session.
 
 Pattern: `S="synthesist --session=my-session"` then `$S task create ...`
 
-**Concurrent agents:** Multiple agents can work in the same project
-simultaneously. Each agent must start its own session. Sessions are
-isolated Dolt branches — writes are invisible to other sessions until
-merge. Assign each agent a different spec for zero-contention parallel
-execution. Task claim is atomic; two agents cannot claim the same task.
+## Concurrent Sessions
+
+Multiple agents can work in the same project simultaneously. This is
+the intended production pattern, not an edge case.
+
+**Session isolation:** Each agent starts its own session (`session start`).
+Each session is a Dolt branch — writes are invisible to other sessions
+until merge. Read commands always see main branch state.
+
+**Zero-contention pattern:** Assign each agent a different spec. Two
+agents working on different specs will never conflict on merge.
+
+**Task claim is atomic:** `task claim` uses `UPDATE WHERE status='pending'
+AND owner IS NULL`. Two agents cannot claim the same task. If they race,
+one succeeds and the other gets an error — retry with a different task.
+
+**Lock retry:** If the database LOCK file is held by another process,
+the binary retries automatically (200ms, 500ms, 1s backoff). Stale
+locks from crashed processes are auto-cleared after 60 seconds.
+
+**Merge protocol:**
+1. Finish all work in your session
+2. `synthesist session merge <name>` — merges your Dolt branch to main
+3. If conflicts: resolve with `--ours` (keep your changes) or `--theirs`
+   (keep main). Conflicts only occur when two sessions modify the same
+   row in the same table.
+4. After merge, git commits the combined `.synth/` state
+
+**Session naming:** Use descriptive names that identify the agent and
+work: `paper-citations`, `grammar-fixes`, `agent-b-deploy`. Avoid
+generic names like `session-1`.
 
 ## Session Start Sequence
 
