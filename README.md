@@ -354,6 +354,13 @@ Key properties of the session model:
   operations do not create git commits. The merge operation commits both the
   Dolt state and the outer git repository in one step.
 
+- **Sub-agents and parallel execution are supported.** Multiple LLM agents
+  (Cursor tabs, Claude Code instances, or framework sub-agents) can each
+  start their own session and work concurrently. Assign each agent a
+  different spec for zero-contention parallel execution. The Dolt LOCK
+  file is process-exclusive but short-lived (<100ms per command); stale
+  locks from crashed processes are auto-cleared after 60 seconds.
+
 ## Architecture
 
 ### Dolt embedded database
