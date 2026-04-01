@@ -677,6 +677,7 @@ The Makefile auto-detects ICU on macOS via Homebrew and sets the correct
 
 See [CHANGELOG.md](CHANGELOG.md) for the full history.
 
+- **v5.3.1** (2026-03-31) -- ORIENT mandates landscape/stance queries when stakeholders exist, AGREE requires ecosystem constraints in plan presentation
 - **v5.3.0** (2026-03-31) -- Lock retry with backoff for concurrent sessions, scaffold generates Claude Code + Cursor agent configs, session-aware onboarding, merge dry-run, concurrent session protocol docs
 - **v5.2.0** (2026-03-30) -- Auto-generated ecosystem audit task on spec create (when tree has stakeholders), ORIENT phase now requires landscape summary before PLAN
 - **v5.1.2** (2026-03-30) -- Cursor harness guide (`docs/cursor.md`), contributed by @jmeekhof
