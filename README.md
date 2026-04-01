@@ -18,8 +18,12 @@ one crew member whose job isn't expertise, but coherence.
 
 ```toml
 # .mise.toml
-[tools]
-"ubi:nomograph/synthesist" = { version = "latest", exe = "synthesist", provider = "gitlab" }
+[tools."http:synthesist"]
+version = "5.3.1"
+
+[tools."http:synthesist".platforms]
+macos-arm64 = { url = "https://gitlab.com/api/v4/projects/80084971/packages/generic/synthesist/v{{version}}/synthesist-darwin-arm64", bin = "synthesist" }
+linux-x64 = { url = "https://gitlab.com/api/v4/projects/80084971/packages/generic/synthesist/v{{version}}/synthesist-linux-amd64", bin = "synthesist" }
 ```
 
 ### Build from source
