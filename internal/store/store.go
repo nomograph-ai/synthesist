@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	_ "github.com/dolthub/driver"
@@ -25,16 +26,36 @@ type Store struct {
 
 // clearStaleLock removes a Dolt LOCK file if the owning process is dead.
 // A stale LOCK from a crashed synthesist process blocks all subsequent invocations.
+// Uses two strategies: PID-based liveness check (immediate) and age-based timeout (5s).
 func clearStaleLock(dbPath string) {
 	lockPath := filepath.Join(dbPath, "synthesist", ".dolt", "noms", "LOCK")
 	info, err := os.Stat(lockPath)
 	if err != nil {
 		return // no LOCK file, nothing to do
 	}
-	// If LOCK is older than 60 seconds, it's likely stale (normal operations take <5s)
-	if time.Since(info.ModTime()) > 60*time.Second {
+
+	age := time.Since(info.ModTime()).Round(time.Second)
+
+	// Strategy 1: PID-based liveness check.
+	// Try to read the LOCK file for a PID. If the process is dead, clear immediately.
+	if data, err := os.ReadFile(lockPath); err == nil && len(data) > 0 {
+		var pid int
+		if _, err := fmt.Sscanf(string(data), "%d", &pid); err == nil && pid > 0 {
+			if proc, err := os.FindProcess(pid); err == nil {
+				// On Unix, FindProcess always succeeds. Signal 0 checks liveness.
+				if proc.Signal(syscall.Signal(0)) != nil {
+					_ = os.Remove(lockPath)
+					fmt.Fprintf(os.Stderr, "warning: cleared LOCK file (pid %d is dead, age: %s)\n", pid, age)
+					return
+				}
+			}
+		}
+	}
+
+	// Strategy 2: Age-based timeout. 5 seconds is generous for any single command.
+	if age > 5*time.Second {
 		_ = os.Remove(lockPath)
-		fmt.Fprintf(os.Stderr, "warning: cleared stale LOCK file (age: %s)\n", time.Since(info.ModTime()).Round(time.Second))
+		fmt.Fprintf(os.Stderr, "warning: cleared stale LOCK file (age: %s)\n", age)
 	}
 }
 

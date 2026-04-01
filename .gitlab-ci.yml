@@ -186,8 +186,12 @@ release:
       ## Install (mise)
 
       ```toml
-      [tools]
-      "ubi:nomograph/synthesist" = { version = "${CI_COMMIT_TAG}", exe = "synthesist", provider = "gitlab" }
+      [tools."http:synthesist"]
+      version = "${CI_COMMIT_TAG#v}"
+
+      [tools."http:synthesist".platforms]
+      macos-arm64 = { url = "https://gitlab.com/api/v4/projects/${CI_PROJECT_ID}/packages/generic/synthesist/${CI_COMMIT_TAG}/synthesist-darwin-arm64", bin = "synthesist" }
+      linux-x64 = { url = "https://gitlab.com/api/v4/projects/${CI_PROJECT_ID}/packages/generic/synthesist/${CI_COMMIT_TAG}/synthesist-linux-amd64", bin = "synthesist" }
       ```
 
       ## Install (manual)
