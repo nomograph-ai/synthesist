@@ -7,3 +7,6 @@
 dist/
 *.test
 *.out
+
+# Dolt temp files
+.synth/**/.dolt/temptf/

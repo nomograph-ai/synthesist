@@ -108,6 +108,19 @@ func cmdSessionMerge(c *SessionMergeCmd) error {
 		})
 	}
 
+	// Commit any uncommitted changes on the session branch before merging.
+	// Without this, writes made with --no-commit are silently discarded
+	// because Dolt merge operates on committed state only. (fixes #2)
+	if err := s.SwitchBranch(sessionID); err != nil {
+		return fmt.Errorf("switching to session branch: %w", err)
+	}
+	if err := s.DoltCommit(fmt.Sprintf("session(%s): auto-commit before merge", sessionID)); err != nil {
+		return fmt.Errorf("auto-commit on session branch: %w", err)
+	}
+	if err := s.SwitchBranch("main"); err != nil {
+		return fmt.Errorf("switching back to main: %w", err)
+	}
+
 	conflicts, err := s.MergeBranch(sessionID)
 	if err != nil {
 		return err

@@ -681,6 +681,7 @@ The Makefile auto-detects ICU on macOS via Homebrew and sets the correct
 
 See [CHANGELOG.md](CHANGELOG.md) for the full history.
 
+- **v5.3.4** (2026-04-01) -- Fix `--no-commit` data loss on merge (#2), lock timeout 60s→5s with PID liveness check (#3), CI template fix, gitignore cleanup
 - **v5.3.2** (2026-03-31) -- Migrate mise from deprecated ubi: to http: backend with GitLab package registry URLs
 - **v5.3.1** (2026-03-31) -- ORIENT mandates landscape/stance queries when stakeholders exist, AGREE requires ecosystem constraints in plan presentation
 - **v5.3.0** (2026-03-31) -- Lock retry with backoff for concurrent sessions, scaffold generates Claude Code + Cursor agent configs, session-aware onboarding, merge dry-run, concurrent session protocol docs

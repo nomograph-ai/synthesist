@@ -6,6 +6,22 @@ Versions represent architectural generations, not semver.
 
 ---
 
+## [v5.3.4] -- 2026-04-01
+
+### Fixed
+
+- **`--no-commit` data loss on merge** (#2): `session merge` now auto-commits
+  uncommitted changes on the session branch before merging to main. Previously,
+  writes made with `--no-commit` were silently discarded.
+- **Lock timeout too long** (#3): Reduced from 60s to 5s. Added PID-based
+  liveness check — if the process that created the LOCK is dead, clear
+  immediately regardless of age.
+- CI release template updated from deprecated `ubi:` to `http:` backend.
+- `.gitignore` now excludes Dolt temp files (`.synth/**/.dolt/temptf/`).
+- Cleaned up stale local branches from v3/v4/v5 development.
+
+---
+
 ## [v5.3.2] -- 2026-03-31
 
 ### Fixed
