@@ -6,6 +6,16 @@ Versions represent architectural generations, not semver.
 
 ---
 
+## [v5.3.2] -- 2026-03-31
+
+### Fixed
+
+- Migrate mise config from deprecated `ubi:` backend to `http:` backend
+  pointing at GitLab package registry with `{{version}}` templating.
+  Affects scaffold output and README install instructions.
+
+---
+
 ## [v5.3.1] -- 2026-03-31
 
 ### Changed
