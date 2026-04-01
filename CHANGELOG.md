@@ -6,6 +6,19 @@ Versions represent architectural generations, not semver.
 
 ---
 
+## [v5.3.1] -- 2026-03-31
+
+### Changed
+
+- **ORIENT phase**: `landscape show` and `stance` queries are now mandatory
+  (not optional) when the tree has stakeholders. Landscape summary must be
+  presented before transitioning to PLAN.
+- **AGREE protocol**: Plan presentation must include ecosystem constraints
+  from stakeholder dispositions and discoveries. Missing constraints when
+  stakeholders exist signals incomplete ORIENT.
+
+---
+
 ## [v5.3.0] -- 2026-03-31
 
 ### Added

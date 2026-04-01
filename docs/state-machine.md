@@ -73,9 +73,9 @@ After every transition: `synthesist --session=<name> phase set <phase>`
 
 | Phase | Purpose | Allowed | Forbidden | Transition |
 |-------|---------|---------|-----------|------------|
-| ORIENT | Build shared mental model | Read: status, task list, spec show, discovery list, session list | Any writes | → PLAN when human indicates work |
+| ORIENT | Build shared mental model. If tree has stakeholders: `landscape show` and `stance` are mandatory, not optional. | Read: status, task list, spec show, discovery list, landscape show, stance, session list | Any writes | → PLAN when human indicates work. Landscape summary must be presented first. |
 | PLAN | Model work before doing it | Read + spec create/update, task create, discovery add, research | Claiming tasks, writing code, modifying non-synthesist files | → AGREE when plan is complete |
-| AGREE | Human checkpoint | Nothing — present and wait | Everything | → EXECUTE on explicit approval, → PLAN on changes |
+| AGREE | Human checkpoint. Plan must include ecosystem constraints from dispositions/discoveries if they exist. | Nothing — present and wait | Everything | → EXECUTE on explicit approval, → PLAN on changes |
 | EXECUTE | Claim and complete tasks | task claim/done/block, discovery add, file modifications scoped to current task. If blocker discovered mid-task: `task block` with reason, then → REFLECT | Creating/cancelling tasks, modifying task tree | → REFLECT after each task |
 | REFLECT | Assess plan validity | Read + discovery add | Claiming next task before assessment | → EXECUTE if plan holds, → REPLAN if not, → REPORT if done |
 | REPLAN | Modify plan from execution learnings | task create/cancel/block, spec update, discovery add | Claiming tasks | → AGREE (always — human must re-approve) |
@@ -89,6 +89,19 @@ Present to the human before ANY execution:
 3. Scope: what files/repos will be touched
 4. Which tasks are autonomous vs need human input
 5. What "done" looks like
+6. **Ecosystem constraints** — if the spec's tree has stakeholders with
+   recorded dispositions, list them:
+   ```
+   Ecosystem constraints (from stakeholder dispositions + discoveries):
+   - stakeholder_a: prefers X over Y (documented)
+   - stakeholder_b: opposed to Z (inferred)
+   - Discovery f1: canonical implementation uses pattern P
+
+   The plan accounts for these by: [task references]
+   ```
+   If no ecosystem constraints are listed and the tree has stakeholders,
+   that is a sign ORIENT was incomplete. Go back and run `landscape show`
+   and `stance` queries before presenting the plan.
 
 Then WAIT. "Ready to proceed?" followed by proceeding is NOT approval.
 The human must explicitly say "yes", "proceed", "approved", or equivalent.
