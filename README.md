@@ -1,16 +1,22 @@
 # Synthesist
 
+[![Nomograph Labs](https://img.shields.io/badge/Nomograph_Labs-1a1a1a?style=flat&labelColor=f2f0eb&color=1a1a1a)](https://nomograph.ai)
+[![License: MIT](https://img.shields.io/badge/License-MIT-1a1a1a.svg)](LICENSE)
+[![Pipeline](https://gitlab.com/nomograph/synthesist/badges/main/pipeline.svg)](https://gitlab.com/nomograph/synthesist/-/pipelines)
+[![Go](https://img.shields.io/badge/Go-1.26+-1a1a1a?style=flat&labelColor=f2f0eb)](https://go.dev)
+[![Latest Release](https://img.shields.io/gitlab/v/release/nomograph/synthesist?color=1a1a1a&labelColor=f2f0eb)](https://gitlab.com/nomograph/synthesist/-/releases)
+
 A specification graph manager for AI-augmented projects. Synthesist is an
-LLM-mediated tool -- the human never calls it directly. The LLM is the
+LLM-mediated tool — the human never calls it directly. The LLM is the
 complete interface: it reads estate state, presents plans, gets human
 approval, executes work, and reports results. Under the hood, a Go binary
 with an embedded Dolt database tracks task DAGs, stakeholder intelligence,
 temporal dispositions, and retrospective patterns. LLM agents interact
-exclusively through CLI commands -- they never read or write data files
+exclusively through CLI commands — they never read or write data files
 directly.
 
-Named for the role aboard the *Theseus* in Peter Watts' *Blindsight* -- the
-one crew member whose job isn't expertise, but coherence.
+Named for the role aboard the *Theseus* in Peter Watts' *Blindsight* —
+the one crew member whose job isn't expertise, but coherence.
 
 ## Install
 
@@ -125,7 +131,7 @@ graph TD
 
 Each spec has a landscape: who influences the work, what they've
 signaled, and our assessment of their stance. Dispositions and
-directions are temporal -- they have validity windows and form
+directions are temporal — they have validity windows and form
 supersession chains.
 
 ```mermaid
@@ -178,7 +184,7 @@ graph LR
 
 Dispositions and directions have validity windows. Signals are
 bi-temporal (event time vs record time). When evidence changes an
-assessment, the old record is superseded -- not deleted. The full
+assessment, the old record is superseded — not deleted. The full
 history is preserved and queryable.
 
 This diagram shows how a disposition evolves as new signals arrive:
@@ -189,20 +195,20 @@ sequenceDiagram
     participant Synthesist as synthesist
     participant DB as Dolt DB
 
-    Note over Agent,DB: Mar 1 -- Initial assessment based on PR comments
+    Note over Agent,DB: Mar 1 — Initial assessment based on PR comments
     Agent->>Synthesist: signal record (PR comment from Mar 1)
     Synthesist->>DB: Signal s1 {date: Mar 1, recorded: Mar 1}
     Agent->>Synthesist: disposition add --stance cautious --confidence inferred
     Synthesist->>DB: Disposition d1 {stance: cautious, valid_from: Mar 1}
 
-    Note over Agent,DB: Mar 18 -- New review changes our read
+    Note over Agent,DB: Mar 18 — New review changes our read
     Agent->>Synthesist: signal record (review from Mar 18)
     Synthesist->>DB: Signal s2 {date: Mar 18, recorded: Mar 18}
     Agent->>Synthesist: disposition supersede d1 --new-stance supportive --evidence s2
     Synthesist->>DB: d1.valid_until = Mar 18, d1.superseded_by = d2
     Synthesist->>DB: Disposition d2 {stance: supportive, valid_from: Mar 18, evidence: s2}
 
-    Note over Agent,DB: Mar 25 -- Discover a week-old comment we missed
+    Note over Agent,DB: Mar 25 — Discover a week-old comment we missed
     Agent->>Synthesist: signal record --date Mar 20 (retroactive)
     Synthesist->>DB: Signal s3 {date: Mar 20, recorded: Mar 25}
 
@@ -223,14 +229,14 @@ Key properties:
 
 | Node | Scope | Temporal | Description |
 |------|-------|----------|-------------|
-| **Estate** | global | -- | Top-level switchboard. Lists trees and active threads. |
-| **Tree** | estate | -- | Domain of work (upstream, harness, account). |
-| **Campaign** | tree | -- | Active and backlog specs within a tree. |
+| **Estate** | global | —| Top-level switchboard. Lists trees and active threads. |
+| **Tree** | estate | —| Domain of work (upstream, harness, account). |
+| **Campaign** | tree | —| Active and backlog specs within a tree. |
 | **Spec** | tree | created | Unit of work with goal, constraints, and decisions. Contains task DAG and landscape. |
 | **Thread** | estate | date | Active workstream pointer. Pruned after 7 days if idle. |
 | **Task** | spec | created, completed | DAG node with acceptance criteria. Status: pending, in_progress, done, blocked, waiting. |
 | **Retro** | spec | created, completed | Task node (type=retro) with arc, transforms, pattern links. |
-| **Stakeholder** | tree | -- | Human actor. Identity registered once per tree. |
+| **Stakeholder** | tree | —| Human actor. Identity registered once per tree. |
 | **Signal** | spec | date, recorded_date | Immutable evidence. Bi-temporal: event time vs record time. |
 | **Disposition** | spec | valid_from, valid_until | Temporal stance assessment. Supersession chains preserve history. |
 | **Direction** | tree | valid_from, valid_until | Upstream technical trajectory. Supersedable. Impacts linked to specs. |
@@ -254,7 +260,7 @@ Key properties:
 ## Workflow State Machine
 
 The LLM agent follows a 7-phase state machine when mediating between the
-human and synthesist. The human never calls synthesist directly -- the LLM
+human and synthesist. The human never calls synthesist directly — the LLM
 is the complete interface, and this state machine governs how it behaves.
 
 ```mermaid
@@ -272,29 +278,29 @@ stateDiagram-v2
     REPORT --> [*]
 ```
 
-**ORIENT** -- Build a shared mental model of where things stand. The LLM
+**ORIENT** — Build a shared mental model of where things stand. The LLM
 reads estate state and presents it in plain language. No writes.
 
-**PLAN** -- Model the work before doing it. Create specs and tasks. Task
+**PLAN** — Model the work before doing it. Create specs and tasks. Task
 claims are forbidden in this phase.
 
-**AGREE** -- Explicit human checkpoint. The LLM presents the full plan,
+**AGREE** — Explicit human checkpoint. The LLM presents the full plan,
 states assumptions, identifies decision points, and waits for approval.
 "Ready to proceed?" followed by proceeding without a response is NOT
 approval.
 
-**EXECUTE** -- Claim and complete tasks in dependency order. Task creation
+**EXECUTE** — Claim and complete tasks in dependency order. Task creation
 is forbidden in this phase (that would be changing the plan without
 agreement).
 
-**REFLECT** -- After each task, assess whether the plan still holds. If
+**REFLECT** — After each task, assess whether the plan still holds. If
 it does, continue executing. If not, enter REPLAN.
 
-**REPLAN** -- Modify the plan (add/cancel/rewire tasks), then return to
+**REPLAN** — Modify the plan (add/cancel/rewire tasks), then return to
 AGREE. The human must concur with every plan change before execution
 resumes.
 
-**REPORT** -- Summarize what was accomplished. Record retrospective
+**REPORT** — Summarize what was accomplished. Record retrospective
 patterns for future transfer.
 
 The `synthesist phase` command lets the agent declare its current phase.
@@ -363,14 +369,14 @@ Key properties of the session model:
   start their own session and work concurrently. Assign each agent a
   different spec for zero-contention parallel execution. The Dolt LOCK
   file is process-exclusive but short-lived (<100ms per command); stale
-  locks from crashed processes are auto-cleared after 60 seconds.
+  locks from crashed processes are auto-cleared after 5 seconds.
 
 ## Architecture
 
 ### Dolt embedded database
 
 The Dolt database lives at `.synth/synthesist/.dolt/` inside the consuming project.
-Dolt is an embedded SQL database with git semantics -- content-addressed storage,
+Dolt is an embedded SQL database with git semantics — content-addressed storage,
 branch/merge on data, and table-level diffing.
 
 ```
@@ -409,7 +415,7 @@ The command tree is defined as Go structs with Kong struct tags. Kong
 parses flags and arguments from the struct definitions, giving typed flag
 parsing without a separate flag-registration layer. Wrong flags fail at
 compile time, not at runtime. The `synthesist skill` command generates the
-LLM skill file from struct reflection -- the skill file is always in sync
+LLM skill file from struct reflection — the skill file is always in sync
 with the actual command tree because it reads the same structs that Kong
 uses for parsing.
 
@@ -424,7 +430,7 @@ The `synthesist` binary is the single write path to the database. This enforces:
 
 LLMs produce better results when constrained to well-formed operations (Yegge,
 Beads 2026). A CLI with typed commands prevents invalid states and handles
-computation LLMs are bad at -- temporal resolution, graph traversal, date math.
+computation LLMs are bad at — temporal resolution, graph traversal, date math.
 
 ### LLM-maintainability conventions
 
@@ -458,12 +464,12 @@ navigate and modify:
 
 The skill file has two layers:
 
-1. **Command reference** -- generated from Kong struct reflection. Every
+1. **Command reference** — generated from Kong struct reflection. Every
    command, flag, and argument is extracted from the same Go structs that
    Kong uses for parsing. The reference cannot drift from the code because
    it is the code.
 
-2. **Authored behavioral rules** -- embedded from
+2. **Authored behavioral rules** — embedded from
    [docs/state-machine.md](docs/state-machine.md). Phase rules, display
    rules, pre-execution protocol, and error protocol. These are authored
    content that describe how the LLM should behave, not what commands
@@ -474,7 +480,7 @@ that serves as the complete UI specification for LLM consumers.
 
 ## The Skill File
 
-`synthesist skill` outputs the complete LLM behavioral contract -- the full
+`synthesist skill` outputs the complete LLM behavioral contract — the full
 command reference, rules, and usage patterns. This is the primary interface
 documentation for agents. The skill file IS the UI specification: it defines
 not just what commands exist, but how the LLM should sequence them, what to
@@ -484,7 +490,7 @@ Install it into any LLM harness by referencing the skill output in your agent
 instructions:
 
 ```bash
-# For Claude Code -- add to CLAUDE.md:
+# For Claude Code — add to CLAUDE.md:
 # "Run synthesist skill for the full command reference"
 
 # For any other agent framework:
@@ -512,18 +518,18 @@ at (reasoning over context, making implementation decisions).
 **Why temporal dispositions?** The delta between proposed implementation and what
 a maintainer will accept is the real cost of upstream contributions. Disposition
 tracking models that delta so agents make informed choices instead of contributing
-blind. The temporal model preserves history -- when a maintainer changes their
+blind. The temporal model preserves history — when a maintainer changes their
 mind, we can see the arc.
 
 **Why retrospective replay?** Retro nodes with labeled transforms enable "play
 back this work onto a different project." An agent reads the transforms (what moves
 were made and why), checks the landscape (what stakeholder constraints shaped
 choices), and generates a new spec adapted for the target context. This is the
-Synthesist's core competency -- making work transferable.
+Synthesist's core competency — making work transferable.
 
 **Why sessions over git branches?** The `.synth/` directory is a binary blob to
 git. Two git branches modifying `.synth/` concurrently will always conflict on
-merge -- git cannot diff binary database files. Dolt sessions solve this by
+merge — git cannot diff binary database files. Dolt sessions solve this by
 branching the data inside the database, where merge operates at the row level.
 Two sessions that touch different specs merge cleanly. Two sessions that touch
 the same row produce a structured conflict that the binary can resolve or
@@ -532,7 +538,7 @@ surface, rather than a binary blob conflict that requires manual intervention.
 **Why a workflow state machine?** Without enforcement, LLMs skip planning and
 jump straight to execution. They present a plan and immediately start working
 without waiting for human approval. The state machine makes the AGREE phase
-mandatory -- the LLM cannot claim tasks until the human has explicitly approved
+mandatory — the LLM cannot claim tasks until the human has explicitly approved
 the plan. This is not a soft guideline; synthesist validates that the current
 phase allows the attempted operation.
 
@@ -573,7 +579,7 @@ we adopted: "findings survive context death." Our retrospective nodes
 and pattern registry exist because of this.
 
 **[PlugMem](https://www.microsoft.com/en-us/research/blog/from-raw-interaction-to-reusable-knowledge-rethinking-memory-for-ai-agents/)**
-(Microsoft Research, 2025) -- transforms raw agent interactions into
+(Microsoft Research, 2025) — transforms raw agent interactions into
 propositional knowledge (facts) and prescriptive knowledge (reusable
 skills). Maps directly to our separation of signals (raw observations)
 from dispositions (assessed stances) and patterns (transferable
@@ -582,7 +588,7 @@ approaches).
 ### Temporal knowledge graphs
 
 **[Graphiti/Zep](https://github.com/getzep/graphiti)**
-([arXiv:2501.13956](https://arxiv.org/abs/2501.13956)) -- bi-temporal
+([arXiv:2501.13956](https://arxiv.org/abs/2501.13956)) — bi-temporal
 knowledge graph where every edge carries validity windows: when a fact
 became true (event time) and when it was recorded (transaction time).
 94.8% accuracy on Deep Memory Retrieval benchmark. We adopted the
@@ -597,11 +603,11 @@ memory" and "user profiling" as categories but has no taxonomy for
 stakeholder dynamics in collaborative development. This gap is what we
 fill.
 
-**[MAGMA](https://arxiv.org/abs/2601.03236)** (2025) -- four
+**[MAGMA](https://arxiv.org/abs/2601.03236)** (2025) — four
 orthogonal graph structures (semantic, temporal, causal, entity) with
 policy-guided traversal. We chose a simpler approach: a single
 relational schema with temporal validity on specific node types. The
-complexity tradeoff is deliberate -- our consumer is an LLM calling CLI
+complexity tradeoff is deliberate — our consumer is an LLM calling CLI
 commands, not a graph reasoning engine.
 
 ### Influence and decision theory
@@ -629,7 +635,7 @@ these structures appear and evolve over time is lacking." Our disposition
 supersession chains are a direct response.
 
 **[GitHub Blog](https://github.blog/open-source/maintainers/what-to-expect-for-open-source-in-2026/)**
-(2026) -- documents widening gap between participants and maintainers.
+(2026) — documents widening gap between participants and maintainers.
 "The gap between the number of participants and the number of maintainers
 with a sense of ownership widens as new developers grow at record rates."
 Confirms the practical need for contributor-side context modeling.
@@ -681,21 +687,15 @@ The Makefile auto-detects ICU on macOS via Homebrew and sets the correct
 
 See [CHANGELOG.md](CHANGELOG.md) for the full history.
 
-- **v5.3.4** (2026-04-01) -- Fix `--no-commit` data loss on merge (#2), lock timeout 60s→5s with PID liveness check (#3), CI template fix, gitignore cleanup
-- **v5.3.2** (2026-03-31) -- Migrate mise from deprecated ubi: to http: backend with GitLab package registry URLs
-- **v5.3.1** (2026-03-31) -- ORIENT mandates landscape/stance queries when stakeholders exist, AGREE requires ecosystem constraints in plan presentation
-- **v5.3.0** (2026-03-31) -- Lock retry with backoff for concurrent sessions, scaffold generates Claude Code + Cursor agent configs, session-aware onboarding, merge dry-run, concurrent session protocol docs
-- **v5.2.0** (2026-03-30) -- Auto-generated ecosystem audit task on spec create (when tree has stakeholders), ORIENT phase now requires landscape summary before PLAN
-- **v5.1.2** (2026-03-30) -- Cursor harness guide (`docs/cursor.md`), contributed by @jmeekhof
-- **v5.1.1** (2026-03-29) -- File splitting refactor (main.go → main.go + cli_types*.go, store.go → store.go + store_session.go), fix 35 unchecked DB query errors, fix readOnlySubcommands for `task ready` and `propagation check`, LOC limit 850 → 650
-- **v5.1.0** (2026-03-29) -- Disposition `--detail` and `--evidence` flags, `landscape show` includes tree-wide dispositions from stakeholder-preferences pseudo-spec
-- **v5.0.1** (2026-03-29) -- Stale Dolt LOCK file detection (auto-clear on Open if >60s old), date-independent golden tests
-- **v5.0.0** (2026-03-29) -- Dolt embedded storage, Go CLI binary, temporal specification graphs, Kong CLI framework, concurrent sessions on Dolt branches, workflow state machine, LLM-maintainability refactor (errors.go catalog, package READMEs, golden tests, golangci-lint, LOC limit, file splitting)
-- **v4** (2026-03-27) -- Concurrent session support with active threads
-- **v3** (2026-03-21) -- Context trees, estate switchboard, campaign coordination
-- **v2** (2026-03-18) -- Single primary agent, campaigns, concurrent sessions
-- **v1** (2026-03-15) -- Spec format, agent roles, executable acceptance criteria
+- **v5.3** (2026-04-01) — Concurrent session safety: lock retry with backoff, scaffold generates Claude Code + Cursor agent configs, session-aware onboarding, merge dry-run, `--no-commit` data loss fix, lock timeout 60s→5s with PID liveness, mandatory landscape orientation, ecosystem constraints in AGREE protocol. Contributed: Cursor harness guide by @jmeekhof.
+- **v5.2** (2026-03-30) — Auto-generated ecosystem audit task on spec create, ORIENT phase requires landscape summary before PLAN.
+- **v5.1** (2026-03-29) — Disposition `--detail`/`--evidence` flags, tree-wide landscape show, file splitting refactor (main.go + store.go), 35 unchecked DB query errors fixed, LOC limit enforcement.
+- **v5.0** (2026-03-29) — Ground-up rebuild: Dolt embedded storage, Go CLI, temporal specification graphs, Kong framework, concurrent Dolt-branched sessions, 7-phase workflow state machine, LLM-maintainability conventions.
+- **v4** (2026-03-27) — Concurrent session support with active threads.
+- **v3** (2026-03-21) — Context trees, estate switchboard, campaign coordination.
+- **v2** (2026-03-18) — Single primary agent, campaigns, concurrent sessions.
+- **v1** (2026-03-15) — Spec format, agent roles, executable acceptance criteria.
 
 ## License
 
-MIT -- see [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE).
