@@ -1,3 +1,5 @@
+![synthesist hero](hero.svg)
+
 # Synthesist
 
 [![Nomograph Labs](https://img.shields.io/badge/Nomograph_Labs-1a1a1a?style=flat&labelColor=f2f0eb&color=1a1a1a)](https://nomograph.ai)
