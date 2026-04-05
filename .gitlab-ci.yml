@@ -1,6 +1,7 @@
 stages:
   - test
   - build
+  - sign
   - publish
   - release
   - notify
@@ -60,6 +61,7 @@ build:linux:
   image: golang:1.26
   before_script:
     - apt-get update -qq && apt-get install -y -qq libicu-dev > /dev/null 2>&1
+    - go install github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@latest
   script:
     - |
       VERSION=${CI_COMMIT_TAG:-${CI_COMMIT_SHORT_SHA}}
@@ -69,12 +71,15 @@ build:linux:
         -ldflags "-X main.version=${VERSION}" \
         -o ${BINARY_NAME}-linux-amd64 ./cmd/synthesist
     - ls -lh ${BINARY_NAME}-*
-    - sha256sum ${BINARY_NAME}-* > checksums-linux.txt
+    - sha256sum ${BINARY_NAME}-linux-amd64 > checksums-linux.txt
     - cat checksums-linux.txt
+    - echo "--- Generating CycloneDX SBOM ---"
+    - cyclonedx-gomod mod -json -output ${BINARY_NAME}-linux-amd64.sbom.cdx.json
   artifacts:
     paths:
       - ${BINARY_NAME}-linux-amd64
       - checksums-linux.txt
+      - ${BINARY_NAME}-linux-amd64.sbom.cdx.json
     expire_in: 1 hour
   rules:
     - if: $CI_COMMIT_TAG
@@ -87,6 +92,7 @@ build:darwin:
   image: macos-15-xcode-16
   before_script:
     - brew install go icu4c@78
+    - go install github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@latest
   script:
     - |
       VERSION=${CI_COMMIT_TAG:-${CI_COMMIT_SHORT_SHA}}
@@ -101,13 +107,83 @@ build:darwin:
         -ldflags "-X main.version=${VERSION}" \
         -o ${BINARY_NAME}-darwin-arm64 ./cmd/synthesist
     - ls -lh ${BINARY_NAME}-*
-    - shasum -a 256 ${BINARY_NAME}-* > checksums-darwin.txt
+    - shasum -a 256 ${BINARY_NAME}-darwin-arm64 > checksums-darwin.txt
     - cat checksums-darwin.txt
+    - echo "--- Generating CycloneDX SBOM ---"
+    - cyclonedx-gomod mod -json -output ${BINARY_NAME}-darwin-arm64.sbom.cdx.json
   artifacts:
     paths:
       - ${BINARY_NAME}-darwin-arm64
       - checksums-darwin.txt
+      - ${BINARY_NAME}-darwin-arm64.sbom.cdx.json
     expire_in: 1 hour
+  rules:
+    - if: $CI_COMMIT_TAG
+
+# =============================================================================
+# Sign -- cosign keyless via GitLab OIDC
+# =============================================================================
+
+sign:linux:
+  stage: sign
+  image:
+    name: bitnami/cosign:latest
+    entrypoint: [""]
+  needs:
+    - job: build:linux
+      artifacts: true
+  id_tokens:
+    SIGSTORE_ID_TOKEN:
+      aud: sigstore
+  script:
+    - echo "--- Signing binary ---"
+    - cosign sign-blob --yes
+        --bundle ${BINARY_NAME}-linux-amd64.bundle
+        ${BINARY_NAME}-linux-amd64
+    - echo "--- Signing SBOM ---"
+    - cosign sign-blob --yes
+        --bundle ${BINARY_NAME}-linux-amd64.sbom.cdx.json.bundle
+        ${BINARY_NAME}-linux-amd64.sbom.cdx.json || echo 'SBOM signing skipped'
+  artifacts:
+    paths:
+      - ${BINARY_NAME}-linux-amd64.bundle
+      - ${BINARY_NAME}-linux-amd64.sbom.cdx.json.bundle
+    expire_in: 1 hour
+  rules:
+    - if: $CI_COMMIT_TAG
+
+sign:darwin:
+  stage: sign
+  image:
+    name: bitnami/cosign:latest
+    entrypoint: [""]
+  needs:
+    - job: build:darwin
+      artifacts: true
+      optional: true
+  id_tokens:
+    SIGSTORE_ID_TOKEN:
+      aud: sigstore
+  script:
+    - |
+      if [ ! -f "${BINARY_NAME}-darwin-arm64" ]; then
+        echo "Darwin binary not available, skipping signing"
+        exit 0
+      fi
+    - echo "--- Signing binary ---"
+    - cosign sign-blob --yes
+        --bundle ${BINARY_NAME}-darwin-arm64.bundle
+        ${BINARY_NAME}-darwin-arm64
+    - echo "--- Signing SBOM ---"
+    - cosign sign-blob --yes
+        --bundle ${BINARY_NAME}-darwin-arm64.sbom.cdx.json.bundle
+        ${BINARY_NAME}-darwin-arm64.sbom.cdx.json || echo 'SBOM signing skipped'
+  artifacts:
+    paths:
+      - ${BINARY_NAME}-darwin-arm64.bundle
+      - ${BINARY_NAME}-darwin-arm64.sbom.cdx.json.bundle
+    expire_in: 1 hour
+    when: always
   rules:
     - if: $CI_COMMIT_TAG
 
@@ -121,7 +197,11 @@ publish:
   needs:
     - build:linux
     - job: build:darwin
-      optional: true          # proceed even if macOS build unavailable
+      optional: true
+    - job: sign:linux
+      optional: true
+    - job: sign:darwin
+      optional: true
   before_script:
     - apk add --no-cache curl
   script:
