@@ -1,5 +1,5 @@
-<svg viewBox="0 0 1200 400" xmlns="http://www.w3.org/2000/svg">
-  <rect x="0" y="0" width="1200" height="400" fill="#faf6ed" stroke="#2c2417" stroke-width="3"/>
+<svg viewBox="0 0 1200 420" xmlns="http://www.w3.org/2000/svg">
+  <rect x="0" y="0" width="1200" height="420" fill="#faf6ed" stroke="#2c2417" stroke-width="3"/>
 
   <!-- Title bar -->
   <rect x="0" y="0" width="1200" height="36" fill="#2c2417"/>
@@ -107,4 +107,11 @@
   <!-- Footer -->
   <line x1="40" y1="360" x2="1160" y2="360" stroke="#c4b99a" stroke-width="1"/>
   <text x="600" y="380" font-family="'IBM Plex Mono', monospace" font-size="10" fill="#6b5d4f" text-anchor="middle">model before doing · sessions as branches · all output is JSON for agents</text>
+  <text x="568" y="395" text-anchor="middle" fill="#2c2417" font-family="'IBM Plex Mono', monospace" font-size="9" font-weight="600">Built with GitLab</text>
+  <g transform="translate(618, 386) scale(0.045)">
+    <path d="M282.83,170.73l-.27-.69-26.14-68.22a6.81,6.81,0,0,0-2.69-3.24,7,7,0,0,0-8,.43,7,7,0,0,0-2.32,3.52l-17.65,54H154.29l-17.65-54A6.86,6.86,0,0,0,134.32,99a7,7,0,0,0-8-.43,6.87,6.87,0,0,0-2.69,3.24L97.44,170l-.26.69a48.54,48.54,0,0,0,16.1,56.1l.09.07.24.17,39.82,29.82,19.7,14.91,12,9.06a8.07,8.07,0,0,0,9.76,0l12-9.06,19.7-14.91,40.06-30,.1-.08A48.56,48.56,0,0,0,282.83,170.73Z" fill="#E24329"/>
+    <path d="M282.83,170.73l-.27-.69a88.3,88.3,0,0,0-35.15,15.8L190,229.25c19.55,14.79,36.57,27.64,36.57,27.64l40.06-30,.1-.08A48.56,48.56,0,0,0,282.83,170.73Z" fill="#FC6D26"/>
+    <path d="M153.43,256.89l19.7,14.91,12,9.06a8.07,8.07,0,0,0,9.76,0l12-9.06,19.7-14.91S209.55,244,190,229.25C170.45,244,153.43,256.89,153.43,256.89Z" fill="#FCA326"/>
+    <path d="M132.58,185.84A88.19,88.19,0,0,0,97.44,170l-.26.69a48.54,48.54,0,0,0,16.1,56.1l.09.07.24.17,39.82,29.82s17-12.85,36.57-27.64Z" fill="#FC6D26"/>
+  </g>
 </svg>
