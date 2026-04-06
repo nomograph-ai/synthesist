@@ -7,6 +7,7 @@
 [![Pipeline](https://gitlab.com/nomograph/synthesist/badges/main/pipeline.svg)](https://gitlab.com/nomograph/synthesist/-/pipelines)
 [![Go](https://img.shields.io/badge/Go-1.26+-1a1a1a?style=flat&labelColor=f2f0eb)](https://go.dev)
 [![Latest Release](https://img.shields.io/gitlab/v/release/nomograph/synthesist?color=1a1a1a&labelColor=f2f0eb)](https://gitlab.com/nomograph/synthesist/-/releases)
+![built with GitLab](https://img.shields.io/badge/built_with-GitLab-FC6D26?logo=gitlab)
 
 A specification graph manager for AI-augmented projects. Synthesist is an
 LLM-mediated tool — the human never calls it directly. The LLM is the
@@ -701,3 +702,6 @@ See [CHANGELOG.md](CHANGELOG.md) for the full history.
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+---
+Built by Andrew Dunn, April 2026.
