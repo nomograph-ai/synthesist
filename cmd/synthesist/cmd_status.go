@@ -132,6 +132,9 @@ func cmdStatus() error {
 	}
 	result["pattern_count"] = patternCount
 
+	// Version + update check (non-blocking, 3s timeout)
+	result["version"] = versionInfo(false)
+
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
 	return enc.Encode(result)

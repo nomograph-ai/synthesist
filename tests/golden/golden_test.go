@@ -30,7 +30,7 @@ func runSynth(t *testing.T, dir string, args ...string) string {
 
 	cmd := exec.Command(binary, args...)
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "NO_COLOR=1", "SYNTHESIST_SESSION=main")
+	cmd.Env = append(os.Environ(), "NO_COLOR=1", "SYNTHESIST_SESSION=main", "SYNTHESIST_OFFLINE=1")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		// Some commands return non-zero on purpose (e.g., check with errors)
@@ -77,11 +77,15 @@ func normalizeJSON(t *testing.T, raw string) string {
 	for _, old := range isoPattern.FindAllString(result, -1) {
 		result = strings.Replace(result, old, "YYYY-MM-DDT00:00:00Z", 1)
 	}
+	for _, old := range versionPattern.FindAllString(result, -1) {
+		result = strings.Replace(result, old, "vX.Y.Z", 1)
+	}
 	return result + "\n"
 }
 
 var datePattern = regexp.MustCompile(`\d{4}-\d{2}-\d{2}`)
 var isoPattern = regexp.MustCompile(`\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z`)
+var versionPattern = regexp.MustCompile(`v\d+\.\d+\.\d+[^\s"]*`)
 
 // golden compares output against a .golden file. If -update is passed,
 // overwrites the golden file with the current output.
@@ -184,7 +188,7 @@ func runSynthInSession(t *testing.T, dir, session string, args ...string) string
 
 	cmd := exec.Command(binary, args...)
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "NO_COLOR=1", "SYNTHESIST_SESSION="+session)
+	cmd.Env = append(os.Environ(), "NO_COLOR=1", "SYNTHESIST_SESSION="+session, "SYNTHESIST_OFFLINE=1")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		if len(out) == 0 {

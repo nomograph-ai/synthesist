@@ -12,6 +12,7 @@ type TaskCmd struct {
 	Ready      TaskReadyCmd      `cmd:"" help:"Show ready tasks"`
 	Acceptance TaskAcceptanceCmd `cmd:"" help:"Add acceptance criterion"`
 	Cancel     TaskCancelCmd     `cmd:"" help:"Cancel a task"`
+	Reset      TaskResetCmd      `cmd:"" help:"Reset orphaned tasks to pending"`
 }
 
 type TaskCreateCmd struct {
@@ -91,3 +92,12 @@ type TaskCancelCmd struct {
 }
 
 func (c *TaskCancelCmd) Run() error { return cmdTaskCancel(c) }
+
+type TaskResetCmd struct {
+	TreeSpec string `arg:"" optional:"" help:"tree/spec format"`
+	TaskID   string `arg:"" optional:"" help:"Task ID"`
+	Session  string `name:"session" default:"" help:"Reset all in_progress tasks owned by this session"`
+	Reason   string `name:"reason" default:"" help:"Reset reason"`
+}
+
+func (c *TaskResetCmd) Run() error { return cmdTaskReset(c) }
