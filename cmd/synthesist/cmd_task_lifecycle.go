@@ -291,3 +291,89 @@ func cmdTaskCancel(c *TaskCancelCmd) error {
 	}
 	return jsonOut(map[string]any{"id": taskID, "status": "cancelled"})
 }
+
+func cmdTaskReset(c *TaskResetCmd) error {
+	s, err := discoverStore()
+	if err != nil {
+		return err
+	}
+	defer s.Close() //nolint:errcheck
+
+	var notePtr *string
+	if c.Reason != "" {
+		notePtr = &c.Reason
+	}
+
+	// Bulk mode: reset all in_progress tasks owned by a session.
+	if c.Session != "" {
+		var query string
+		var args []any
+		if c.TreeSpec != "" {
+			tree, spec, err := parseTreeSpec(c.TreeSpec)
+			if err != nil {
+				return err
+			}
+			query = "UPDATE tasks SET status = 'pending', owner = NULL, failure_note = ? WHERE owner = ? AND status = 'in_progress' AND tree = ? AND spec = ?"
+			args = []any{notePtr, c.Session, tree, spec}
+		} else {
+			query = "UPDATE tasks SET status = 'pending', owner = NULL, failure_note = ? WHERE owner = ? AND status = 'in_progress'"
+			args = []any{notePtr, c.Session}
+		}
+
+		res, err := s.DB.Exec(query, args...)
+		if err != nil {
+			return err
+		}
+		affected, _ := res.RowsAffected()
+
+		if affected > 0 {
+			msg := fmt.Sprintf("task reset: %d tasks released from session %s", affected, c.Session)
+			if c.Reason != "" {
+				msg += " -- " + c.Reason
+			}
+			if err := s.Commit(msg); err != nil {
+				return err
+			}
+		}
+
+		return jsonOut(map[string]any{"session": c.Session, "reset_count": affected})
+	}
+
+	// Single-task mode: requires tree/spec and task ID.
+	if c.TreeSpec == "" || c.TaskID == "" {
+		return ErrMissingFlags("session or positional tree/spec + task-id")
+	}
+
+	tree, spec, err := parseTreeSpec(c.TreeSpec)
+	if err != nil {
+		return err
+	}
+	taskID := c.TaskID
+
+	res, err := s.DB.Exec(
+		"UPDATE tasks SET status = 'pending', owner = NULL, failure_note = ? WHERE tree = ? AND spec = ? AND id = ? AND status = 'in_progress'",
+		notePtr, tree, spec, taskID)
+	if err != nil {
+		return err
+	}
+	affected, _ := res.RowsAffected()
+	if affected == 0 {
+		var status string
+		qErr := s.DB.QueryRow("SELECT status FROM tasks WHERE tree = ? AND spec = ? AND id = ?",
+			tree, spec, taskID).Scan(&status)
+		if qErr != nil {
+			return ErrNotFound("task", fmt.Sprintf("%s/%s/%s", tree, spec, taskID))
+		}
+		return ErrWrongState("task", taskID, status, "in_progress")
+	}
+
+	msg := fmt.Sprintf("spec(%s/%s): reset %s to pending", tree, spec, taskID)
+	if c.Reason != "" {
+		msg += " -- " + c.Reason
+	}
+	if err := s.Commit(msg); err != nil {
+		return err
+	}
+
+	return jsonOut(map[string]any{"id": taskID, "status": "pending"})
+}

@@ -96,11 +96,12 @@ type MigrateCmd struct{}
 
 func (c *MigrateCmd) Run() error { return cmdMigrate() }
 
-type VersionCmd struct{}
+type VersionCmd struct {
+	Offline bool `name:"offline" help:"Skip update check"`
+}
 
 func (c *VersionCmd) Run() error {
-	fmt.Println(version)
-	return nil
+	return jsonOut(versionInfo(c.Offline))
 }
 
 // --- Tree ---

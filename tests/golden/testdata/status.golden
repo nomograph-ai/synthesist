@@ -24,5 +24,8 @@
       "name": "test",
       "status": "active"
     }
-  ]
+  ],
+  "version": {
+    "version": "vX.Y.Z"
+  }
 }
