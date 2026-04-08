@@ -140,7 +140,8 @@ impl Store {
 
     /// Today's date as YYYY-MM-DD.
     pub fn today() -> String {
-        chrono::Local::now().format("%Y-%m-%d").to_string()
+        let now = time::OffsetDateTime::now_utc();
+        format!("{:04}-{:02}-{:02}", now.year(), now.month() as u8, now.day())
     }
 
     /// Generate the next sequential ID with a given prefix.
