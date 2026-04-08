@@ -93,7 +93,7 @@ fn run(cli: cli::Cli) -> anyhow::Result<()> {
     // Phase enforcement for write operations
     if !read_only && !is_list_or_show && !cli.force {
         let (top, sub) = command_path(&cli.command);
-        if top != "session" && top != "phase" && top != "import" {
+        if !matches!(top, "session" | "phase" | "import") {
             let store = store::Store::discover()?;
             cmd_phase::check_phase(&store, top, sub, cli.force)?;
         }
@@ -132,15 +132,16 @@ fn cmd_version(offline: bool) -> anyhow::Result<()> {
     let mut result = serde_json::Map::new();
     result.insert("version".into(), serde_json::json!(format!("v{version}")));
 
-    if !offline && std::env::var("SYNTHESIST_OFFLINE").as_deref() != Ok("1") {
-        if let Some((tag, url)) = check_latest_version() {
-            let current = version.split('-').next().unwrap_or(version);
-            let latest = tag.strip_prefix('v').unwrap_or(&tag);
-            let latest = latest.split('-').next().unwrap_or(latest);
-            result.insert("latest".into(), serde_json::json!(tag));
-            result.insert("update_available".into(), serde_json::json!(latest > current));
-            result.insert("update_url".into(), serde_json::json!(url));
-        }
+    if !offline
+        && std::env::var("SYNTHESIST_OFFLINE").as_deref() != Ok("1")
+        && let Some((tag, url)) = check_latest_version()
+    {
+        let current = version.split('-').next().unwrap_or(version);
+        let latest = tag.strip_prefix('v').unwrap_or(&tag);
+        let latest = latest.split('-').next().unwrap_or(latest);
+        result.insert("latest".into(), serde_json::json!(tag));
+        result.insert("update_available".into(), serde_json::json!(latest > current));
+        result.insert("update_url".into(), serde_json::json!(url));
     }
 
     store::json_out(&serde_json::Value::Object(result))
