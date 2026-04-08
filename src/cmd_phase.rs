@@ -25,6 +25,7 @@ fn cmd_phase_set(name: &str, force: bool) -> Result<()> {
         .conn
         .query_row("SELECT name FROM phase WHERE id = 1", [], |row| row.get(0))?;
 
+    #[allow(clippy::collapsible_if)]
     if let Some(current) = Phase::from_str(&current_str) {
         if !force && !current.can_transition_to(target) {
             let valid: Vec<&str> = current
@@ -32,16 +33,14 @@ fn cmd_phase_set(name: &str, force: bool) -> Result<()> {
                 .iter()
                 .map(|p| p.as_str())
                 .collect();
-            if valid.is_empty() {
-                bail!(
-                    "invalid phase transition: {current_str} -> {name} (no transitions allowed from {current_str})"
-                );
-            } else {
-                bail!(
-                    "invalid phase transition: {current_str} -> {name} (valid: {})",
+            bail!(
+                "invalid phase transition: {current_str} -> {name} (valid: {})",
+                if valid.is_empty() {
+                    "none".to_string()
+                } else {
                     valid.join(", ")
-                );
-            }
+                }
+            );
         }
     }
 
