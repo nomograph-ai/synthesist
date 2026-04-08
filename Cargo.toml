@@ -9,7 +9,7 @@ keywords = ["specification", "task", "dag", "agent"]
 categories = ["command-line-utilities"]
 readme = "README.md"
 license = "MIT"
-rust-version = "1.85"
+rust-version = "1.88"
 
 [[bin]]
 name = "synthesist"
