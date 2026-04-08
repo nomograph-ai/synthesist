@@ -134,14 +134,11 @@ fn cmd_version(offline: bool) -> anyhow::Result<()> {
 
     if !offline && std::env::var("SYNTHESIST_OFFLINE").as_deref() != Ok("1") {
         if let Some((tag, url)) = check_latest_version() {
+            let current = version.split('-').next().unwrap_or(version);
+            let latest = tag.strip_prefix('v').unwrap_or(&tag);
+            let latest = latest.split('-').next().unwrap_or(latest);
             result.insert("latest".into(), serde_json::json!(tag));
-            let current_clean = version.split('-').next().unwrap_or(version);
-            let latest_clean = tag.strip_prefix('v').unwrap_or(&tag);
-            let latest_clean = latest_clean.split('-').next().unwrap_or(latest_clean);
-            result.insert(
-                "update_available".into(),
-                serde_json::json!(latest_clean > current_clean),
-            );
+            result.insert("update_available".into(), serde_json::json!(latest > current));
             result.insert("update_url".into(), serde_json::json!(url));
         }
     }
@@ -149,31 +146,31 @@ fn cmd_version(offline: bool) -> anyhow::Result<()> {
     store::json_out(&serde_json::Value::Object(result))
 }
 
-/// Query GitLab API for the latest release. Returns (tag, url) or None.
-/// Non-blocking: 3-second timeout.
+/// Query GitLab releases API via curl. No TLS dependency in the binary.
 fn check_latest_version() -> Option<(String, String)> {
-    let agent = ureq::Agent::new_with_config(
-        ureq::config::Config::builder()
-            .timeout_global(Some(std::time::Duration::from_secs(3)))
-            .build(),
-    );
-
-    let mut response = agent
-        .get("https://gitlab.com/api/v4/projects/nomograph%2Fsynthesist/releases?per_page=1")
-        .call()
+    let output = std::process::Command::new("curl")
+        .args([
+            "-sf",
+            "--max-time", "3",
+            "https://gitlab.com/api/v4/projects/nomograph%2Fsynthesist/releases?per_page=1",
+        ])
+        .output()
         .ok()?;
-    let body: serde_json::Value = response.body_mut().read_json().ok()?;
 
-    let releases = body.as_array()?;
-    let release = releases.first()?;
+    if !output.status.success() {
+        return None;
+    }
+
+    let body: serde_json::Value = serde_json::from_slice(&output.stdout).ok()?;
+    let release = body.as_array()?.first()?;
     let tag = release.get("tag_name")?.as_str()?.to_string();
     let url = release
         .pointer("/_links/self")
         .and_then(|v| v.as_str())
-        .unwrap_or(&format!(
-            "https://gitlab.com/nomograph/synthesist/-/releases/{tag}"
-        ))
-        .to_string();
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| {
+            format!("https://gitlab.com/nomograph/synthesist/-/releases/{tag}")
+        });
     Some((tag, url))
 }
 
