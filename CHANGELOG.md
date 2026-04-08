@@ -1,259 +1,58 @@
 # Changelog
 
-All notable changes to Synthesist are documented here.
+## v1.0.0 (unreleased)
 
-Versions represent architectural generations, not semver.
-
----
-
-## [v5.3.4] -- 2026-04-01
-
-### Fixed
-
-- **`--no-commit` data loss on merge** (#2): `session merge` now auto-commits
-  uncommitted changes on the session branch before merging to main. Previously,
-  writes made with `--no-commit` were silently discarded.
-- **Lock timeout too long** (#3): Reduced from 60s to 5s. Added PID-based
-  liveness check — if the process that created the LOCK is dead, clear
-  immediately regardless of age.
-- CI release template updated from deprecated `ubi:` to `http:` backend.
-- `.gitignore` now excludes Dolt temp files (`.synth/**/.dolt/temptf/`).
-- Cleaned up stale local branches from v3/v4/v5 development.
-
----
-
-## [v5.3.2] -- 2026-03-31
-
-### Fixed
-
-- Migrate mise config from deprecated `ubi:` backend to `http:` backend
-  pointing at GitLab package registry with `{{version}}` templating.
-  Affects scaffold output and README install instructions.
-
----
-
-## [v5.3.1] -- 2026-03-31
+Full rewrite from Go+Dolt to Rust+SQLite. Schema stabilized for v1.0.0.
 
 ### Changed
 
-- **ORIENT phase**: `landscape show` and `stance` queries are now mandatory
-  (not optional) when the tree has stakeholders. Landscape summary must be
-  presented before transitioning to PLAN.
-- **AGREE protocol**: Plan presentation must include ecosystem constraints
-  from stakeholder dispositions and discoveries. Missing constraints when
-  stakeholders exist signals incomplete ORIENT.
-
----
-
-## [v5.3.0] -- 2026-03-31
-
-### Added
-
-- **Lock retry with backoff.** When the Dolt LOCK file is held by another
-  concurrent process, retries automatically (200ms, 500ms, 1s) before
-  failing. Makes N concurrent agent sessions safe without user intervention.
-- **Scaffold generates agent configs.** `synthesist scaffold` now creates
-  `.claude/commands/synthesist-orient.md` (Claude Code) and
-  `.cursor/rules/synthesist.mdc` (Cursor) that inject the behavioral
-  contract at session start.
-- **Session-aware onboarding.** Write commands without a session now show
-  active sessions and how to join or start one, instead of a generic error.
-- **Merge dry-run.** `session merge --dry-run` shows what would change
-  without actually merging.
-- **Concurrent session protocol.** State machine docs now include a
-  dedicated section on multi-session operation: naming, claim atomicity,
-  merge protocol, conflict resolution, lock retry behavior.
-
----
-
-## [v5.2.0] -- 2026-03-30
+- **Storage**: embedded Dolt replaced by SQLite via rusqlite (bundled).
+  No CGo, no ICU, no system dependencies beyond a C compiler.
+- **Data directory**: `.synth/` renamed to `synthesist/` (visible, full name).
+- **Schema**: 30 tables reduced to 16. Literature-informed cutline defers
+  14 tables pending empirical validation (see docs/architecture-v1.md).
+- **CLI**: ~55 command paths reduced to ~40. Consistent `add` verb for
+  creation. `tree/spec` format everywhere.
+- **Sessions**: Dolt branches replaced by per-file SQLite copies with
+  ATTACH-based three-way merge. PK-aware EXCEPT diffing with conflict
+  detection.
+- **Phase enforcement**: transitions validated (orient->plan->agree->execute).
+  Cannot jump from PLAN to EXECUTE without passing through AGREE.
+- **CI**: custom Go pipeline replaced by nomograph/pipeline rust-cli component.
 
 ### Added
 
-- `spec create` auto-generates a human-gated ecosystem audit task (t0) when
-  the tree has stakeholders with recorded context. Blocks implementation
-  until stakeholder dispositions and ecosystem conventions are reviewed.
-- Session start sequence now requires `landscape show` and `stance` queries
-  during ORIENT when stakeholders exist. Landscape summary must be presented
-  to the human before transitioning to PLAN.
+- `task reset` command for crash recovery (orphaned in_progress tasks).
+- `task show` and `task update` commands.
+- `spec list` and `spec update` commands (with status and outcome fields).
+- `synthesist sql` command for ad-hoc read-only queries.
+- Version check against GitLab releases API.
+- Session ID validation against path traversal.
+- Transaction wrapping for multi-table writes (task add, disposition
+  supersede, import, claim).
+- Foreign key constraints and performance indexes in schema.
+- 22 integration tests covering task DAG, sessions, dispositions,
+  phase enforcement, security.
 
----
+### Removed (deferred to future releases)
 
-## [v5.1.2] -- 2026-03-30
+- Directions (may be redundant with dispositions)
+- Influences (needs empirical evidence)
+- Patterns (belongs in context files per literature)
+- Retros/transforms (representation unclear)
+- Propagation chains (staleness mechanism needs design)
+- Archives (replaced by spec status field)
+- Threads (merged into session_meta)
+- Quality/validations (unimplemented in v5)
 
-### Added
+Each deferred feature has a documented re-entry criterion in
+docs/architecture-v1.md.
 
-- `docs/cursor.md` -- guide for using Synthesist with Cursor (shell access,
-  skill output, sessions, phase state machine, v5 vs legacy OpenCode bundle)
-  (contributed by @jmeekhof)
+## v5.4.0 (2026-04-07)
 
----
+- `task reset`: release orphaned in_progress tasks to pending.
+- Version check: JSON output with update availability from GitLab API.
 
-## [v5.1.1] -- 2026-03-29
+## v5.3.4 and earlier
 
-### Refactor
-
-- Split `main.go` (801 LOC) into `main.go` (157, infrastructure) +
-  `cli_types.go` (431, estate/spec/retro/query types) +
-  `cli_types_task.go` (93) + `cli_types_landscape.go` (121)
-- Split `store.go` into `store.go` (519, core DB) + `store_session.go`
-  (108, branch/session operations)
-- LOC limit lowered from 850 to 650
-
-### Fixed
-
-- 35 unchecked `s.DB.Query()` / `s.DB.QueryRow()` errors across 11 files
-  now properly checked and returned instead of silently discarded
-- `task ready` and `propagation check` subcommands no longer require a
-  session (they are read-only operations)
-
----
-
-## [v5.1.0] -- 2026-03-29
-
-### Added
-
-- `disposition add --detail` flag for recording reasoning/context
-- `disposition add --evidence` flag for linking a signal ID as evidence
-- `landscape show` now includes tree-wide architectural dispositions from
-  the `stakeholder-preferences` pseudo-spec, tagged `scope: tree-wide`
-
----
-
-## [v5.0.1] -- 2026-03-29
-
-### Fixed
-
-- Stale Dolt LOCK file detection: auto-cleared on `Open()` if >60s old
-  (prevents crashes from blocking subsequent invocations)
-- Golden tests use date normalization for CI date-independence
-
----
-
-## [v5.0.0] -- 2026-03-29
-
-Synthesist is now a Go binary with an embedded Dolt database. The
-repository contains only the binary source, its tests, and documentation.
-All legacy file-based scaffolding (specs/, prompts/, tools/, staging/,
-.opencode/) has been removed.
-
-### Architecture
-
-Dolt embedded database replaces JSON files as the storage layer. LLM
-agents interact exclusively through `synthesist` CLI commands. The binary
-validates state transitions, handles temporal resolution, and auto-commits
-to git. The Dolt database at `.synth/` is git-tracked and portable.
-
-Why Dolt: git-native data diffing, branch/merge on data, content-addressed
-storage. Why a binary: LLMs produce better results when constrained to
-well-formed operations (Yegge, Beads 2026). A CLI decouples storage
-format from the agent interface.
-
-### Data model
-
-Six node types connected by eight typed edges:
-
-- **Task** -- unit of work with executable acceptance criteria and a DAG
-- **Stakeholder** -- human actor, registered per-tree
-- **Disposition** -- temporal assessment of a stakeholder's stance on a
-  technical direction (what implementation choices they will accept)
-- **Signal** -- immutable, bi-temporal evidence from stakeholder actions
-- **Direction** -- upstream technical trajectory with impact links to specs
-- **Pattern** -- named, reusable approach discovered through retrospectives
-
-Retrospective nodes (type=retro) sit in the task DAG and carry labeled
-transforms for cross-project replay.
-
-### Commands
-
-27 commands across 6 domains: estate, task DAG, landscape (stakeholders,
-dispositions, signals), directions, retro + patterns, and queries
-(landscape show, stance, replay). `synthesist skill` outputs the full
-LLM behavioral contract.
-
-### Kong migration
-
-Command tree defined as Go structs with Kong struct tags. Typed flag
-parsing replaces manual flag registration. The `synthesist skill` command
-generates the LLM skill file from struct reflection -- the skill file is
-always in sync with the actual command tree.
-
-### Session infrastructure
-
-Concurrent sessions built on Dolt branching. Each session gets its own
-Dolt branch; merges reconcile data when sessions complete.
-
-- `synthesist session start/merge/list/status/prune` commands
-- `--session` flag and `SYNTHESIST_SESSION` environment variable
-- Atomic task claim prevents TOCTOU race when multiple agents claim tasks
-  concurrently across sessions
-
-### Workflow state machine
-
-7-phase LLM behavioral contract:
-ORIENT -> PLAN -> AGREE -> EXECUTE <-> REFLECT -> REPORT (with REPLAN).
-
-- `synthesist phase` command for phase declaration and validation
-- Phase rules enforced: no task claims in PLAN, no task creation in
-  EXECUTE, mandatory AGREE checkpoint between PLAN and EXECUTE
-- Full behavioral contract (display rules, phase rules, error protocol)
-  embedded in the skill file output
-- Specification: [docs/state-machine.md](docs/state-machine.md)
-
-### LLM-maintainability conventions
-
-- Centralized error constructors in `cmd/synthesist/errors.go` -- all
-  command errors use typed constructors, never inline `fmt.Errorf`
-- Package-level README files explain each package's purpose and key types
-- Golden tests in `tests/golden/` with `make golden-update` for regeneration
-- golangci-lint replaces `go vet` -- errcheck, staticcheck, bodyclose
-  enabled. Zero-warning policy enforced by `make lint`
-- 650 LOC limit per file enforced by `make loc-check`
-
-### File splitting
-
-Large command files split into single-concern files (13 files from 3):
-
-- `cmd_landscape.go` -> `cmd_landscape_show.go`, `cmd_disposition.go`,
-  `cmd_signal.go`, `cmd_stakeholder.go`, `cmd_stance.go`
-- `cmd_task.go` -> `cmd_task_create.go`, `cmd_task_lifecycle.go`,
-  `cmd_task_list.go`, `cmd_task_query.go`, `cmd_task_helpers.go`
-- `cmd_retro.go` -> `cmd_retro_create.go`, `cmd_replay.go`, `cmd_pattern.go`
-
-### Quality
-
-- 9 unit tests covering store layer (init, CRUD, dependencies,
-  dispositions, bi-temporal signals, directions)
-- Integration test exercising the full task lifecycle
-- LLM tool use simulation: 4 parallel Sonnet instances evaluated the
-  interface, found 15 issues, 10 fixed before release
-
-### Removed (from repository)
-
-- `specs/` -- templates, examples, SPEC_FORMAT.md, estate.json (all
-  replaced by schema in the binary and `synthesist init`)
-- `prompts/` -- framework.md and instance.md (replaced by `synthesist skill`)
-- `.opencode/` -- OpenCode agent configs (tool is agent-agnostic now)
-- `opencode.json` -- OpenCode configuration
-- `tools/lint-specs.py` -- replaced by `synthesist check`
-- `staging/` -- OpenCode chunked write staging
-
----
-
-## Prior versions (v1-v4)
-
-Synthesist v1-v4 was a file-based specification framework for OpenCode.
-Agents read and wrote JSON files directly. The evolution:
-
-- **v1** (2026-03-15): Spec format (spec.md + state.json), agent roles,
-  executable acceptance criteria, cross-model review
-- **v2** (2026-03-18): Single primary agent (replaced plan/build split),
-  campaign coordination, concurrent session safety
-- **v3** (2026-03-21): Context trees, estate.json meta-switchboard,
-  campaign/archive mechanics, cross-references, integrity tooling
-- **v4** (2026-03-27): Concurrent sessions via active_threads array,
-  contributed upstream as MR !3
-
-v5 is a ground-up rebuild that preserves the conceptual model (specs,
-tasks, trees, campaigns) while replacing the implementation (files to
-database, manual JSON to CLI, Python linter to Go binary).
+See git history for the Go+Dolt era.

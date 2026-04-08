@@ -1,12 +1,9 @@
 .DS_Store
 *.log
 
-# Go build artifacts
-/synthesist
-/synthesist-*
-dist/
-*.test
-*.out
+# Rust build artifacts
+/target
 
-# Dolt temp files
-.synth/**/.dolt/temptf/
+# Binary (release builds)
+/synthesist
+dist/
