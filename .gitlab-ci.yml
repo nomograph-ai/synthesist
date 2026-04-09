@@ -5,6 +5,7 @@ include:
       binary_name: synthesist
       project_description: "Specification graph manager."
       audit_allow_failure: false
+      crates_publish: true
 
 stages: [test, build, sign, publish, release]
 
