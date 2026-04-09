@@ -7,3 +7,6 @@
 # Binary (release builds)
 /synthesist
 dist/
+
+# Legacy v5 Dolt data (removed in v1.0.0)
+.synth/

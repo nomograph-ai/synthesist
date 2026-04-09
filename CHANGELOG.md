@@ -1,6 +1,6 @@
 # Changelog
 
-## v1.0.0 (unreleased)
+## v1.0.0 (2026-04-07)
 
 Full rewrite from Go+Dolt to Rust+SQLite. Schema stabilized for v1.0.0.
 

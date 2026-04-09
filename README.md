@@ -37,7 +37,7 @@ the crew member whose job is not expertise, but coherence.
 
 ```toml
 [tools."http:synthesist"]
-version = "1.0.0"
+version = "1.1.0"
 
 [tools."http:synthesist".platforms]
 macos-arm64 = { url = "https://gitlab.com/api/v4/projects/80084971/packages/generic/synthesist/v{{version}}/synthesist-darwin-arm64", bin = "synthesist" }
@@ -135,7 +135,7 @@ different from a documented position stated in a design review.
 
 See the companion paper: "Context Asymmetry Is a Representation
 Problem: Disposition Graphs for AI-Augmented Collaborative
-Development" (Dunn, 2026).
+Development" (Dunn, 2026, in preparation).
 
 ## Workflow State Machine
 
