@@ -1,6 +1,6 @@
 # Synthesist
 
-Specification graph manager. Rust + SQLite (v1.0.0 rewrite, formerly Go + Dolt).
+Specification graph manager. Rust + SQLite.
 
 ## Build
 
@@ -28,7 +28,7 @@ and other harness agents consume this output.
 
 ## Sessions
 
-Sessions use per-file SQLite copies (not Dolt branches). Always set the
+Sessions use per-file SQLite copies for isolation. Always set the
 session context:
 
 - **Environment variable**: `SYNTHESIST_SESSION=<name>` (preferred)
