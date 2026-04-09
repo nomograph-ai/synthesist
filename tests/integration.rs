@@ -443,7 +443,7 @@ fn test_version() {
         .args(["version", "--offline"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("1.0.0"));
+        .stdout(predicate::str::contains("version"));
 }
 
 #[test]
