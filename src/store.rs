@@ -30,7 +30,7 @@ pub struct Store {
 impl Store {
     /// Open the database at the given path. Sets PRAGMAs and creates schema.
     fn open(db_path: &Path, root: PathBuf, data_dir: PathBuf) -> Result<Self> {
-        let conn = Connection::open(db_path)
+        let mut conn = Connection::open(db_path)
             .with_context(|| format!("opening database at {}", db_path.display()))?;
 
         // PRAGMAs: journal_mode=DELETE (not WAL), foreign keys on, busy timeout 5s.
@@ -40,7 +40,11 @@ impl Store {
              PRAGMA busy_timeout = 5000;",
         )?;
 
-        conn.execute_batch(schema::CREATE_SCHEMA)?;
+        // Run schema migrations (creates tables on first open, upgrades on later opens).
+        let migrations = schema::migrations();
+        migrations
+            .to_latest(&mut conn)
+            .with_context(|| "schema migration failed")?;
 
         Ok(Store {
             conn,
@@ -121,6 +125,18 @@ impl Store {
                 );
             }
         }
+    }
+
+    /// Check current schema version and report migration status.
+    pub fn migration_status(&self) -> Result<serde_json::Value> {
+        let migrations = schema::migrations();
+        let current = migrations
+            .current_version(&self.conn)
+            .map_err(|e| anyhow::anyhow!("failed to read schema version: {e}"))?;
+        Ok(serde_json::json!({
+            "schema_version": format!("{current:?}"),
+            "status": "up to date",
+        }))
     }
 
     /// Path to the sessions directory.
