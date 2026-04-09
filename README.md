@@ -4,7 +4,7 @@
 
 [![pipeline](https://gitlab.com/nomograph/synthesist/badges/main/pipeline.svg)](https://gitlab.com/nomograph/synthesist/-/pipelines)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-![built with GitLab](https://img.shields.io/badge/built_with-GitLab-FC6D26?logo=gitlab)
+[![built with GitLab](https://img.shields.io/badge/built_with-GitLab-FC6D26?logo=gitlab)](https://gitlab.com/nomograph/synthesist)
 
 Specification graph manager for AI-augmented collaborative development.
 
