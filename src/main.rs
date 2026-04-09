@@ -40,6 +40,7 @@ fn run(cli: cli::Cli) -> anyhow::Result<()> {
         &cli.command,
         cli::Command::Status
             | cli::Command::Check
+            | cli::Command::Migrate
             | cli::Command::Export
             | cli::Command::Sql { .. }
             | cli::Command::Stance { .. }
@@ -103,6 +104,11 @@ fn run(cli: cli::Cli) -> anyhow::Result<()> {
     match &cli.command {
         cli::Command::Status => cmd_init::cmd_status(),
         cli::Command::Check => cmd_init::cmd_check(),
+        cli::Command::Migrate => {
+            let store = store::Store::discover()?;
+            let status = store.migration_status()?;
+            store::json_out(&status)
+        }
         cli::Command::Tree { cmd } => cmd_tree::run(cmd, &cli.session),
         cli::Command::Spec { cmd } => cmd_spec::run(cmd, &cli.session),
         cli::Command::Task { cmd } => cmd_task::run(cmd, &cli.session),

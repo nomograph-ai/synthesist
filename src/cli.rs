@@ -91,6 +91,8 @@ pub enum Command {
         #[command(subcommand)]
         cmd: PhaseCmd,
     },
+    /// Check schema version and run pending migrations.
+    Migrate,
     /// Export all tables as JSON (for backup or migration).
     Export,
     /// Import tables from JSON (stdin if no file given).
