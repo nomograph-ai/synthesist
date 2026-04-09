@@ -1,8 +1,9 @@
 [package]
-name = "synthesist"
+name = "nomograph-synthesist"
 version = "1.1.0"
 edition = "2024"
 description = "Specification graph manager"
+authors = ["Andrew Dunn <andunn@gitlab.com>"]
 repository = "https://gitlab.com/nomograph/synthesist"
 homepage = "https://gitlab.com/nomograph/synthesist"
 keywords = ["specification", "task", "dag", "agent"]
