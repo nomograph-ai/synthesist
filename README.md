@@ -53,6 +53,10 @@ cd synthesist && make build
 
 Requires Rust 1.88+. No system dependencies beyond a C compiler.
 
+## Spec Tree
+
+![spec tree](spec-tree.svg)
+
 ## How It Works
 
 Synthesist is an LLM-mediated tool. The human interacts with an LLM
@@ -138,6 +142,8 @@ Problem: Disposition Graphs for AI-Augmented Collaborative
 Development" (Dunn, 2026, in preparation).
 
 ## Workflow State Machine
+
+![state machine](state-machine.svg)
 
 LLM agents left unconstrained skip planning and proceed directly to
 code generation. The workflow state machine enforces a different

@@ -1,0 +1,176 @@
+<svg viewBox="0 0 1200 560" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="arr" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="5" markerHeight="5" orient="auto">
+      <path d="M 0 0 L 8 4 L 0 8 z" fill="#2c2417"/>
+    </marker>
+    <marker id="arrd" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="5" markerHeight="5" orient="auto">
+      <path d="M 0 0 L 8 4 L 0 8 z" fill="#c4b99a"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1200" height="560" fill="#faf6ed" stroke="#2c2417" stroke-width="3"/>
+  <rect x="0" y="0" width="1200" height="36" fill="#2c2417"/>
+  <text x="16" y="24" font-family="'IBM Plex Mono', monospace" font-size="14" fill="#faf6ed" font-weight="bold">synthesist -- workflow state machine</text>
+  <text x="1184" y="24" font-family="'IBM Plex Mono', monospace" font-size="11" fill="#c4b99a" text-anchor="end">phase transitions are algorithmically enforced</text>
+
+  <!-- ═══════════════════════════════════════════════════════
+       MAIN FLOW: top row — ORIENT through REPORT
+       ═══════════════════════════════════════════════════════ -->
+
+  <!-- Phase box helper: each is 120w x 64h -->
+  <!-- Row 1 centers: y=130. Phases: ORIENT, PLAN, AGREE, EXECUTE, REFLECT, REPORT -->
+  <!-- Spacing: x centers at 90, 250, 410, 590, 750, 990 -->
+
+  <!-- ORIENT -->
+  <rect x="30" y="98" width="120" height="64" fill="none" stroke="#2c2417" stroke-width="2"/>
+  <rect x="30" y="98" width="120" height="22" fill="#2c2417"/>
+  <text x="90" y="113" font-family="'IBM Plex Mono', monospace" font-size="10" fill="#faf6ed" text-anchor="middle" font-weight="bold">ORIENT</text>
+  <text x="90" y="133" font-family="'IBM Plex Mono', monospace" font-size="8" fill="#6b5d4f" text-anchor="middle">read landscape</text>
+  <text x="90" y="147" font-family="'IBM Plex Mono', monospace" font-size="8" fill="#6b5d4f" text-anchor="middle">no writes</text>
+
+  <!-- arrow ORIENT → PLAN -->
+  <line x1="150" y1="130" x2="186" y2="130" stroke="#2c2417" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- PLAN -->
+  <rect x="190" y="98" width="120" height="64" fill="none" stroke="#2c2417" stroke-width="2"/>
+  <rect x="190" y="98" width="120" height="22" fill="#2c2417"/>
+  <text x="250" y="113" font-family="'IBM Plex Mono', monospace" font-size="10" fill="#faf6ed" text-anchor="middle" font-weight="bold">PLAN</text>
+  <text x="250" y="133" font-family="'IBM Plex Mono', monospace" font-size="8" fill="#6b5d4f" text-anchor="middle">create specs + tasks</text>
+  <text x="250" y="147" font-family="'IBM Plex Mono', monospace" font-size="8" fill="#6b5d4f" text-anchor="middle">no task claims</text>
+
+  <!-- arrow PLAN → AGREE -->
+  <line x1="310" y1="130" x2="346" y2="130" stroke="#2c2417" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- AGREE — highlighted as gate -->
+  <rect x="350" y="88" width="120" height="84" fill="none" stroke="#2c2417" stroke-width="3"/>
+  <rect x="350" y="88" width="120" height="22" fill="#2c2417"/>
+  <text x="410" y="103" font-family="'IBM Plex Mono', monospace" font-size="10" fill="#faf6ed" text-anchor="middle" font-weight="bold">AGREE</text>
+  <text x="410" y="124" font-family="'IBM Plex Mono', monospace" font-size="8" fill="#2c2417" text-anchor="middle" font-weight="bold">present full plan</text>
+  <text x="410" y="138" font-family="'IBM Plex Mono', monospace" font-size="8" fill="#2c2417" text-anchor="middle">surface dispositions</text>
+  <text x="410" y="152" font-family="'IBM Plex Mono', monospace" font-size="8" fill="#2c2417" text-anchor="middle">agent halts, human approves</text>
+  <!-- gate marker -->
+  <text x="410" y="167" font-family="'IBM Plex Mono', monospace" font-size="8" fill="#2c2417" text-anchor="middle" font-weight="bold">◈ HARD GATE</text>
+
+  <!-- arrow AGREE → EXECUTE -->
+  <line x1="470" y1="130" x2="506" y2="130" stroke="#2c2417" stroke-width="1.5" marker-end="url(#arr)"/>
+  <!-- approval label -->
+  <text x="488" y="122" font-family="'IBM Plex Mono', monospace" font-size="7" fill="#6b5d4f" text-anchor="middle">approved</text>
+
+  <!-- EXECUTE -->
+  <rect x="510" y="98" width="120" height="64" fill="none" stroke="#2c2417" stroke-width="2"/>
+  <rect x="510" y="98" width="120" height="22" fill="#2c2417"/>
+  <text x="570" y="113" font-family="'IBM Plex Mono', monospace" font-size="10" fill="#faf6ed" text-anchor="middle" font-weight="bold">EXECUTE</text>
+  <text x="570" y="133" font-family="'IBM Plex Mono', monospace" font-size="8" fill="#6b5d4f" text-anchor="middle">claim + complete tasks</text>
+  <text x="570" y="147" font-family="'IBM Plex Mono', monospace" font-size="8" fill="#6b5d4f" text-anchor="middle">plan is fixed</text>
+
+  <!-- arrow EXECUTE → REFLECT -->
+  <line x1="630" y1="130" x2="666" y2="130" stroke="#2c2417" stroke-width="1.5" marker-end="url(#arr)"/>
+  <!-- after each task label -->
+  <text x="648" y="122" font-family="'IBM Plex Mono', monospace" font-size="7" fill="#6b5d4f" text-anchor="middle">each task</text>
+
+  <!-- REFLECT -->
+  <rect x="670" y="98" width="120" height="64" fill="none" stroke="#2c2417" stroke-width="2"/>
+  <rect x="670" y="98" width="120" height="22" fill="#2c2417"/>
+  <text x="730" y="113" font-family="'IBM Plex Mono', monospace" font-size="10" fill="#faf6ed" text-anchor="middle" font-weight="bold">REFLECT</text>
+  <text x="730" y="133" font-family="'IBM Plex Mono', monospace" font-size="8" fill="#6b5d4f" text-anchor="middle">assess plan validity</text>
+  <text x="730" y="147" font-family="'IBM Plex Mono', monospace" font-size="8" fill="#6b5d4f" text-anchor="middle">record discoveries</text>
+
+  <!-- arrow REFLECT → EXECUTE (plan still valid) -->
+  <path d="M 730 98 Q 730 74 650 74 Q 570 74 570 98" fill="none" stroke="#2c2417" stroke-width="1.5" marker-end="url(#arr)"/>
+  <text x="650" y="68" font-family="'IBM Plex Mono', monospace" font-size="7" fill="#6b5d4f" text-anchor="middle">plan still valid</text>
+
+  <!-- arrow REFLECT → REPLAN (plan changed) — goes down -->
+  <line x1="730" y1="162" x2="730" y2="218" stroke="#2c2417" stroke-width="1.5" marker-end="url(#arr)"/>
+  <text x="744" y="196" font-family="'IBM Plex Mono', monospace" font-size="7" fill="#6b5d4f">plan changed</text>
+
+  <!-- REPLAN -->
+  <rect x="670" y="222" width="120" height="64" fill="none" stroke="#2c2417" stroke-width="2"/>
+  <rect x="670" y="222" width="120" height="22" fill="#2c2417"/>
+  <text x="730" y="237" font-family="'IBM Plex Mono', monospace" font-size="10" fill="#faf6ed" text-anchor="middle" font-weight="bold">REPLAN</text>
+  <text x="730" y="257" font-family="'IBM Plex Mono', monospace" font-size="8" fill="#6b5d4f" text-anchor="middle">modify task tree</text>
+  <text x="730" y="271" font-family="'IBM Plex Mono', monospace" font-size="8" fill="#6b5d4f" text-anchor="middle">returns to AGREE</text>
+
+  <!-- arrow REPLAN → AGREE (must re-approve) -->
+  <path d="M 670 254 Q 540 254 540 220 Q 540 186 470 172" fill="none" stroke="#2c2417" stroke-width="1.5" marker-end="url(#arr)"/>
+  <text x="530" y="248" font-family="'IBM Plex Mono', monospace" font-size="7" fill="#6b5d4f">must re-approve</text>
+
+  <!-- arrow REPORT — from REFLECT right side, or from EXECUTE -->
+  <!-- REPORT box -->
+  <rect x="870" y="98" width="120" height="64" fill="none" stroke="#2c2417" stroke-width="2"/>
+  <rect x="870" y="98" width="120" height="22" fill="#2c2417"/>
+  <text x="930" y="113" font-family="'IBM Plex Mono', monospace" font-size="10" fill="#faf6ed" text-anchor="middle" font-weight="bold">REPORT</text>
+  <text x="930" y="133" font-family="'IBM Plex Mono', monospace" font-size="8" fill="#6b5d4f" text-anchor="middle">summarize outcomes</text>
+  <text x="930" y="147" font-family="'IBM Plex Mono', monospace" font-size="8" fill="#6b5d4f" text-anchor="middle">merge session</text>
+
+  <!-- arrow REFLECT → REPORT -->
+  <line x1="790" y1="130" x2="866" y2="130" stroke="#2c2417" stroke-width="1.5" marker-end="url(#arr)"/>
+  <text x="828" y="122" font-family="'IBM Plex Mono', monospace" font-size="7" fill="#6b5d4f" text-anchor="middle">all done</text>
+
+  <!-- ═══════════════════════════════════════════════════════
+       FORBIDDEN TRANSITIONS (red X indicators)
+       ═══════════════════════════════════════════════════════ -->
+
+  <text x="30" y="310" font-family="'IBM Plex Mono', monospace" font-size="10" fill="#6b5d4f" font-weight="bold">ENFORCEMENT -- the CLI rejects these transitions:</text>
+  <line x1="30" y1="316" x2="1170" y2="316" stroke="#c4b99a" stroke-width="0.8"/>
+
+  <!-- Forbidden 1: PLAN → EXECUTE -->
+  <rect x="30" y="328" width="340" height="52" fill="none" stroke="#c4b99a" stroke-width="1"/>
+  <text x="40" y="344" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#2c2417" font-weight="bold">synthesist phase set execute</text>
+  <text x="40" y="360" font-family="'IBM Plex Mono', monospace" font-size="8" fill="#c4b99a">  # while in PLAN phase</text>
+  <text x="40" y="374" font-family="'IBM Plex Mono', monospace" font-size="8" fill="#2c2417">error: plan → execute (valid: agree)</text>
+
+  <!-- Forbidden 2: task claim in PLAN -->
+  <rect x="390" y="328" width="340" height="52" fill="none" stroke="#c4b99a" stroke-width="1"/>
+  <text x="400" y="344" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#2c2417" font-weight="bold">synthesist task claim tree/spec t1</text>
+  <text x="400" y="360" font-family="'IBM Plex Mono', monospace" font-size="8" fill="#c4b99a">  # while in PLAN phase</text>
+  <text x="400" y="374" font-family="'IBM Plex Mono', monospace" font-size="8" fill="#2c2417">error: task claims not allowed in PLAN</text>
+
+  <!-- Forbidden 3: task add in EXECUTE -->
+  <rect x="750" y="328" width="420" height="52" fill="none" stroke="#c4b99a" stroke-width="1"/>
+  <text x="760" y="344" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#2c2417" font-weight="bold">synthesist task add tree/spec "new task"</text>
+  <text x="760" y="360" font-family="'IBM Plex Mono', monospace" font-size="8" fill="#c4b99a">  # while in EXECUTE phase</text>
+  <text x="760" y="374" font-family="'IBM Plex Mono', monospace" font-size="8" fill="#2c2417">error: task creation not allowed in EXECUTE</text>
+
+  <!-- ═══════════════════════════════════════════════════════
+       PHASE PERMISSIONS TABLE
+       ═══════════════════════════════════════════════════════ -->
+
+  <line x1="30" y1="398" x2="1170" y2="398" stroke="#c4b99a" stroke-width="0.8"/>
+
+  <!-- Header row -->
+  <text x="40" y="415" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f" font-weight="bold">PHASE</text>
+  <text x="180" y="415" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f" font-weight="bold">ALLOWED</text>
+  <text x="680" y="415" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f" font-weight="bold">FORBIDDEN</text>
+  <line x1="30" y1="420" x2="1170" y2="420" stroke="#c4b99a" stroke-width="0.5"/>
+
+  <text x="40" y="435" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#2c2417">ORIENT</text>
+  <text x="180" y="435" font-family="'IBM Plex Mono', monospace" font-size="8" fill="#6b5d4f">status, stance, discovery list, spec show</text>
+  <text x="680" y="435" font-family="'IBM Plex Mono', monospace" font-size="8" fill="#6b5d4f">all writes (spec add, task add, signal record ...)</text>
+
+  <text x="40" y="451" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#2c2417">PLAN</text>
+  <text x="180" y="451" font-family="'IBM Plex Mono', monospace" font-size="8" fill="#6b5d4f">spec add, task add, signal record, discovery add</text>
+  <text x="680" y="451" font-family="'IBM Plex Mono', monospace" font-size="8" fill="#6b5d4f">task claim, task done (no executing before agreeing)</text>
+
+  <text x="40" y="467" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#2c2417" font-weight="bold">AGREE</text>
+  <text x="180" y="467" font-family="'IBM Plex Mono', monospace" font-size="8" fill="#6b5d4f">reads only -- agent presents plan and waits</text>
+  <text x="680" y="467" font-family="'IBM Plex Mono', monospace" font-size="8" fill="#6b5d4f">all writes (agent stops here)</text>
+
+  <text x="40" y="483" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#2c2417">EXECUTE</text>
+  <text x="180" y="483" font-family="'IBM Plex Mono', monospace" font-size="8" fill="#6b5d4f">task claim, task done, discovery add</text>
+  <text x="680" y="483" font-family="'IBM Plex Mono', monospace" font-size="8" fill="#6b5d4f">task add, task cancel (plan is fixed)</text>
+
+  <text x="40" y="499" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#2c2417">REFLECT</text>
+  <text x="180" y="499" font-family="'IBM Plex Mono', monospace" font-size="8" fill="#6b5d4f">discovery add, disposition add, signal record</text>
+  <text x="680" y="499" font-family="'IBM Plex Mono', monospace" font-size="8" fill="#6b5d4f">task claim (step back before stepping forward)</text>
+
+  <!-- Footer -->
+  <line x1="40" y1="521" x2="1160" y2="521" stroke="#c4b99a" stroke-width="1"/>
+  <text x="600" y="540" font-family="'IBM Plex Mono', monospace" font-size="10" fill="#6b5d4f" text-anchor="middle">AGREE is the irreducible gate -- agent presents full plan, human decides, no shortcuts</text>
+  <text x="590" y="554" text-anchor="middle" fill="#2c2417" font-family="'IBM Plex Mono', monospace" font-size="9" font-weight="600">Built with GitLab</text>
+  <g transform="translate(634, 543) scale(0.045)">
+    <path d="M282.83,170.73l-.27-.69-26.14-68.22a6.81,6.81,0,0,0-2.69-3.24,7,7,0,0,0-8,.43,7,7,0,0,0-2.32,3.52l-17.65,54H154.29l-17.65-54A6.86,6.86,0,0,0,134.32,99a7,7,0,0,0-8-.43,6.87,6.87,0,0,0-2.69,3.24L97.44,170l-.26.69a48.54,48.54,0,0,0,16.1,56.1l.09.07.24.17,39.82,29.82,19.7,14.91,12,9.06a8.07,8.07,0,0,0,9.76,0l12-9.06,19.7-14.91,40.06-30,.1-.08A48.56,48.56,0,0,0,282.83,170.73Z" fill="#E24329"/>
+    <path d="M282.83,170.73l-.27-.69a88.3,88.3,0,0,0-35.15,15.8L190,229.25c19.55,14.79,36.57,27.64,36.57,27.64l40.06-30,.1-.08A48.56,48.56,0,0,0,282.83,170.73Z" fill="#FC6D26"/>
+    <path d="M153.43,256.89l19.7,14.91,12,9.06a8.07,8.07,0,0,0,9.76,0l12-9.06,19.7-14.91S209.55,244,190,229.25C170.45,244,153.43,256.89,153.43,256.89Z" fill="#FCA326"/>
+    <path d="M132.58,185.84A88.19,88.19,0,0,0,97.44,170l-.26.69a48.54,48.54,0,0,0,16.1,56.1l.09.07.24.17,39.82,29.82s17-12.85,36.57-27.64Z" fill="#FC6D26"/>
+  </g>
+</svg>

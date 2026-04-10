@@ -1,0 +1,169 @@
+<svg viewBox="0 0 1200 560" xmlns="http://www.w3.org/2000/svg">
+
+  <rect x="0" y="0" width="1200" height="560" fill="#faf6ed" stroke="#2c2417" stroke-width="3"/>
+  <rect x="0" y="0" width="1200" height="36" fill="#2c2417"/>
+  <text x="16" y="24" font-family="'IBM Plex Mono', monospace" font-size="14" fill="#faf6ed" font-weight="bold">synthesist -- spec tree</text>
+  <text x="1184" y="24" font-family="'IBM Plex Mono', monospace" font-size="11" fill="#c4b99a" text-anchor="end">tree › spec › task  ·  addressed as  tree/spec</text>
+
+  <!-- ═══════════════════════════════════════════════════════
+       LEFT: TREE VIEW
+       Row centers (y): root=68, spec1=96, t1=122, t2=148, t3=174, t4=200, spec2=234, t1=260, t2=286, t3=312
+       Branch x: root-v=58, spec-h terminates at x=94, task-h terminates at x=124
+       ═══════════════════════════════════════════════════════ -->
+
+  <!-- ROOT -->
+  <text x="46" y="72" font-family="'IBM Plex Mono', monospace" font-size="11" fill="#2c2417" font-weight="bold">tree: api-project</text>
+  <text x="240" y="72" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#c4b99a">-- a domain or campaign; groups related specs</text>
+
+  <!-- Root vertical branch: x=58, root center (68) to spec2 center (234) -->
+  <line x1="58" y1="68" x2="58" y2="234" stroke="#2c2417" stroke-width="1.5"/>
+
+  <!-- ─── SPEC 1 ─── -->
+  <!-- ├── connector -->
+  <line x1="58" y1="96" x2="94" y2="96" stroke="#2c2417" stroke-width="1.5"/>
+  <text x="100" y="100" font-family="'IBM Plex Mono', monospace" font-size="10" fill="#2c2417" font-weight="bold">spec: auth-migration</text>
+  <text x="310" y="100" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#c4b99a">goal: migrate auth API from v2 to v3    address: api-project/auth-migration</text>
+
+  <!-- Spec1 vertical branch: x=94, spec1 center (96) to t4 center (200) -->
+  <line x1="94" y1="96" x2="94" y2="200" stroke="#2c2417" stroke-width="1.5"/>
+
+  <!-- t1: done -->
+  <line x1="94" y1="122" x2="124" y2="122" stroke="#2c2417" stroke-width="1.5"/>
+  <rect x="128" y="116" width="10" height="10" fill="#2c2417"/>
+  <text x="144" y="126" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#2c2417" font-weight="bold">t1</text>
+  <text x="166" y="126" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">Research versioning strategy</text>
+  <text x="718" y="126" font-family="'IBM Plex Mono', monospace" font-size="8" fill="#c4b99a" text-anchor="end">done</text>
+
+  <!-- t2: done, depends t1 -->
+  <line x1="94" y1="148" x2="124" y2="148" stroke="#2c2417" stroke-width="1.5"/>
+  <rect x="128" y="142" width="10" height="10" fill="#2c2417"/>
+  <text x="144" y="152" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#2c2417" font-weight="bold">t2</text>
+  <text x="166" y="152" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">Implement token migration</text>
+  <text x="540" y="152" font-family="'IBM Plex Mono', monospace" font-size="8" fill="#c4b99a">depends: t1</text>
+  <text x="718" y="152" font-family="'IBM Plex Mono', monospace" font-size="8" fill="#c4b99a" text-anchor="end">done</text>
+
+  <!-- t3: in_progress, depends t2 -->
+  <line x1="94" y1="174" x2="124" y2="174" stroke="#2c2417" stroke-width="1.5"/>
+  <rect x="128" y="168" width="10" height="10" fill="#6b5d4f"/>
+  <text x="144" y="178" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#2c2417" font-weight="bold">t3</text>
+  <text x="166" y="178" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">Write integration tests</text>
+  <text x="540" y="178" font-family="'IBM Plex Mono', monospace" font-size="8" fill="#c4b99a">depends: t2</text>
+  <text x="718" y="178" font-family="'IBM Plex Mono', monospace" font-size="8" fill="#6b5d4f" text-anchor="end">in_progress</text>
+
+  <!-- t4: pending, gate=human, depends t3  (└──) -->
+  <line x1="94" y1="200" x2="124" y2="200" stroke="#2c2417" stroke-width="1.5"/>
+  <rect x="128" y="194" width="10" height="10" fill="none" stroke="#2c2417" stroke-width="1.5"/>
+  <text x="144" y="204" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#2c2417" font-weight="bold">t4</text>
+  <text x="166" y="204" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">Deploy to staging</text>
+  <rect x="390" y="195" width="82" height="12" fill="none" stroke="#2c2417" stroke-width="1"/>
+  <text x="431" y="205" font-family="'IBM Plex Mono', monospace" font-size="8" fill="#2c2417" text-anchor="middle" font-weight="bold">gate: human</text>
+  <text x="540" y="204" font-family="'IBM Plex Mono', monospace" font-size="8" fill="#c4b99a">depends: t3</text>
+  <text x="718" y="204" font-family="'IBM Plex Mono', monospace" font-size="8" fill="#c4b99a" text-anchor="end">pending</text>
+
+  <!-- ─── SPEC 2 ─── -->
+  <!-- └── connector (last child) -->
+  <line x1="58" y1="234" x2="94" y2="234" stroke="#2c2417" stroke-width="1.5"/>
+  <text x="100" y="238" font-family="'IBM Plex Mono', monospace" font-size="10" fill="#2c2417" font-weight="bold">spec: rate-limiting</text>
+  <text x="310" y="238" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#c4b99a">goal: add per-client rate limiting to all endpoints</text>
+
+  <!-- Spec2 vertical branch: x=94, spec2 center (234) to t3 center (312) -->
+  <line x1="94" y1="234" x2="94" y2="312" stroke="#2c2417" stroke-width="1.5"/>
+
+  <!-- t1: done -->
+  <line x1="94" y1="260" x2="124" y2="260" stroke="#2c2417" stroke-width="1.5"/>
+  <rect x="128" y="254" width="10" height="10" fill="#2c2417"/>
+  <text x="144" y="264" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#2c2417" font-weight="bold">t1</text>
+  <text x="166" y="264" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">Design rate limit model</text>
+  <text x="718" y="264" font-family="'IBM Plex Mono', monospace" font-size="8" fill="#c4b99a" text-anchor="end">done</text>
+
+  <!-- t2: pending, depends t1 -->
+  <line x1="94" y1="286" x2="124" y2="286" stroke="#2c2417" stroke-width="1.5"/>
+  <rect x="128" y="280" width="10" height="10" fill="none" stroke="#2c2417" stroke-width="1.5"/>
+  <text x="144" y="290" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#2c2417" font-weight="bold">t2</text>
+  <text x="166" y="290" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">Implement middleware</text>
+  <text x="540" y="290" font-family="'IBM Plex Mono', monospace" font-size="8" fill="#c4b99a">depends: t1</text>
+  <text x="718" y="290" font-family="'IBM Plex Mono', monospace" font-size="8" fill="#c4b99a" text-anchor="end">pending</text>
+
+  <!-- t3: pending, gate=human, depends t2 (└──) -->
+  <line x1="94" y1="312" x2="124" y2="312" stroke="#2c2417" stroke-width="1.5"/>
+  <rect x="128" y="306" width="10" height="10" fill="none" stroke="#2c2417" stroke-width="1.5"/>
+  <text x="144" y="316" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#2c2417" font-weight="bold">t3</text>
+  <text x="166" y="316" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">Load test in staging</text>
+  <rect x="390" y="307" width="82" height="12" fill="none" stroke="#2c2417" stroke-width="1"/>
+  <text x="431" y="317" font-family="'IBM Plex Mono', monospace" font-size="8" fill="#2c2417" text-anchor="middle" font-weight="bold">gate: human</text>
+  <text x="540" y="316" font-family="'IBM Plex Mono', monospace" font-size="8" fill="#c4b99a">depends: t2</text>
+  <text x="718" y="316" font-family="'IBM Plex Mono', monospace" font-size="8" fill="#c4b99a" text-anchor="end">pending</text>
+
+  <!-- ─── command examples ─── -->
+  <line x1="46" y1="334" x2="730" y2="334" stroke="#c4b99a" stroke-width="0.8"/>
+  <text x="46" y="352" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#2c2417">synthesist task claim api-project/auth-migration t3</text>
+  <text x="500" y="352" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">-- claim t3 (t2 is done, t3 is unblocked)</text>
+  <text x="46" y="370" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#2c2417">synthesist task ready api-project/rate-limiting</text>
+  <text x="500" y="370" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">-- returns [t2]  (t1 done, t2 claimable)</text>
+  <text x="46" y="388" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#2c2417">synthesist task add api-project/auth-migration "Run smoke test" --depends-on t4</text>
+
+  <!-- ═══════════════════════════════════════════════════════
+       RIGHT: REFERENCE
+       ═══════════════════════════════════════════════════════ -->
+
+  <!-- ADDRESSING -->
+  <line x1="760" y1="52" x2="1168" y2="52" stroke="#c4b99a" stroke-width="0.8"/>
+  <text x="760" y="68" font-family="'IBM Plex Mono', monospace" font-size="10" fill="#6b5d4f" font-weight="bold">ADDRESSING</text>
+
+  <text x="760" y="88" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">tree     a domain / campaign area</text>
+  <text x="760" y="104" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">spec     a body of work within a tree</text>
+  <text x="760" y="120" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">task     atomic unit (t1, t2...) within a spec</text>
+  <text x="760" y="144" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#c4b99a">keaton/bootstrap-friction</text>
+  <text x="760" y="160" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#c4b99a">nomograph-release/sysml-bench</text>
+  <text x="760" y="176" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#c4b99a">outreach/gkg-collab</text>
+
+  <!-- TASK STATES -->
+  <line x1="760" y1="196" x2="1168" y2="196" stroke="#c4b99a" stroke-width="0.8"/>
+  <text x="760" y="214" font-family="'IBM Plex Mono', monospace" font-size="10" fill="#6b5d4f" font-weight="bold">TASK STATES</text>
+
+  <rect x="760" y="226" width="10" height="10" fill="none" stroke="#2c2417" stroke-width="1.5"/>
+  <text x="778" y="236" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#2c2417">pending      not started or deps not met</text>
+
+  <rect x="760" y="248" width="10" height="10" fill="#6b5d4f"/>
+  <text x="778" y="258" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#2c2417">in_progress  claimed, work underway</text>
+
+  <rect x="760" y="270" width="10" height="10" fill="#2c2417"/>
+  <text x="778" y="280" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#2c2417">done         completed, acceptance verified</text>
+
+  <rect x="760" y="292" width="10" height="10" fill="none" stroke="#c4b99a" stroke-width="1.5"/>
+  <line x1="760" y1="292" x2="770" y2="302" stroke="#c4b99a" stroke-width="1.5"/>
+  <line x1="770" y1="292" x2="760" y2="302" stroke="#c4b99a" stroke-width="1.5"/>
+  <text x="778" y="302" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#2c2417">blocked      external blocker, cannot proceed</text>
+
+  <!-- GATES -->
+  <line x1="760" y1="320" x2="1168" y2="320" stroke="#c4b99a" stroke-width="0.8"/>
+  <text x="760" y="338" font-family="'IBM Plex Mono', monospace" font-size="10" fill="#6b5d4f" font-weight="bold">HUMAN GATES</text>
+
+  <rect x="760" y="348" width="82" height="14" fill="none" stroke="#2c2417" stroke-width="1.5"/>
+  <text x="801" y="359" font-family="'IBM Plex Mono', monospace" font-size="8" fill="#2c2417" text-anchor="middle" font-weight="bold">gate: human</text>
+  <text x="850" y="359" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">agent presents task, halts</text>
+  <text x="778" y="377" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">human must explicitly approve before claim</text>
+  <text x="778" y="393" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">use for: deployments, migrations, releases</text>
+
+  <!-- DEPENDENCIES -->
+  <line x1="760" y1="412" x2="1168" y2="412" stroke="#c4b99a" stroke-width="0.8"/>
+  <text x="760" y="430" font-family="'IBM Plex Mono', monospace" font-size="10" fill="#6b5d4f" font-weight="bold">DEPENDENCIES</text>
+
+  <text x="760" y="448" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">tasks within a spec form a DAG</text>
+  <text x="760" y="466" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">depends: t1  --  cannot claim until t1 is done</text>
+  <text x="760" y="484" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">no depends_on  --  immediately claimable</text>
+  <text x="760" y="504" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#2c2417">synthesist task ready tree/spec</text>
+  <text x="760" y="520" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#c4b99a">  returns tasks with all deps satisfied</text>
+
+  <!-- Footer -->
+  <line x1="40" y1="415" x2="730" y2="415" stroke="#c4b99a" stroke-width="0.8" stroke-dasharray="3,3"/>
+  <line x1="40" y1="521" x2="1160" y2="521" stroke="#c4b99a" stroke-width="1"/>
+  <text x="600" y="540" font-family="'IBM Plex Mono', monospace" font-size="10" fill="#6b5d4f" text-anchor="middle">trees group domains · specs contain goals · tasks are atomic work with dependency ordering and human gates</text>
+  <text x="590" y="554" text-anchor="middle" fill="#2c2417" font-family="'IBM Plex Mono', monospace" font-size="9" font-weight="600">Built with GitLab</text>
+  <g transform="translate(634, 543) scale(0.045)">
+    <path d="M282.83,170.73l-.27-.69-26.14-68.22a6.81,6.81,0,0,0-2.69-3.24,7,7,0,0,0-8,.43,7,7,0,0,0-2.32,3.52l-17.65,54H154.29l-17.65-54A6.86,6.86,0,0,0,134.32,99a7,7,0,0,0-8-.43,6.87,6.87,0,0,0-2.69,3.24L97.44,170l-.26.69a48.54,48.54,0,0,0,16.1,56.1l.09.07.24.17,39.82,29.82,19.7,14.91,12,9.06a8.07,8.07,0,0,0,9.76,0l12-9.06,19.7-14.91,40.06-30,.1-.08A48.56,48.56,0,0,0,282.83,170.73Z" fill="#E24329"/>
+    <path d="M282.83,170.73l-.27-.69a88.3,88.3,0,0,0-35.15,15.8L190,229.25c19.55,14.79,36.57,27.64,36.57,27.64l40.06-30,.1-.08A48.56,48.56,0,0,0,282.83,170.73Z" fill="#FC6D26"/>
+    <path d="M153.43,256.89l19.7,14.91,12,9.06a8.07,8.07,0,0,0,9.76,0l12-9.06,19.7-14.91S209.55,244,190,229.25C170.45,244,153.43,256.89,153.43,256.89Z" fill="#FCA326"/>
+    <path d="M132.58,185.84A88.19,88.19,0,0,0,97.44,170l-.26.69a48.54,48.54,0,0,0,16.1,56.1l.09.07.24.17,39.82,29.82s17-12.85,36.57-27.64Z" fill="#FC6D26"/>
+  </g>
+</svg>
