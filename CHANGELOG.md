@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.2.1 (2026-04-10)
+
+### Fixed
+
+- `--version` / `-V` now works. Previously returned exit code 2 with an unhelpful
+  "unexpected argument" error, breaking automated verification scripts.
+
 ## v1.0.0 (2026-04-07)
 
 Full rewrite from Go+Dolt to Rust+SQLite. Schema stabilized for v1.0.0.

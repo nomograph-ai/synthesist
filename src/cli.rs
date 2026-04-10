@@ -8,6 +8,7 @@ use clap::{Parser, Subcommand};
 #[derive(Parser)]
 #[command(
     name = "synthesist",
+    version = env!("CARGO_PKG_VERSION"),
     about = "Specification graph manager for AI-augmented projects",
     after_help = "All output is JSON. Reads use main.db; writes use the session .db if one exists.\nRun 'synthesist skill' for the full behavioral contract and worked examples."
 )]
