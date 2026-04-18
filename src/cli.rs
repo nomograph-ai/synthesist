@@ -3,6 +3,8 @@
 //! Every argument and option has a help string. These descriptions are the
 //! LLM's first contact with the tool when it runs `--help`.
 
+use std::path::PathBuf;
+
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
@@ -17,6 +19,12 @@ pub struct Cli {
     /// Reads always use main.db regardless of this flag.
     #[arg(long, env = "SYNTHESIST_SESSION", global = true)]
     pub session: Option<String>,
+
+    /// Path to the synthesist data directory (the one containing main.db).
+    /// Overrides SYNTHESIST_DIR and the parent-directory walk.
+    /// Use in worktrees or detached checkouts to point at the main data dir.
+    #[arg(long, global = true, value_name = "PATH")]
+    pub data_dir: Option<PathBuf>,
 
     /// Skip phase enforcement and phase transition validation.
     #[arg(long, global = true)]

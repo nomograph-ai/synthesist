@@ -1,5 +1,22 @@
 # Changelog
 
+## v1.3.0 (2026-04-18)
+
+### Added
+
+- `--data-dir` global CLI flag and `SYNTHESIST_DIR` environment variable
+  override the parent-directory walk for locating the synthesist data
+  directory. Resolution order: `--data-dir` flag > `SYNTHESIST_DIR` env
+  > parent-directory walk (unchanged fallback).
+
+  Intended use: git worktrees and other detached checkouts that have no
+  `synthesist/main.db` in their ancestry but need to reach a main
+  checkout's data directory. Previously required a filesystem symlink;
+  the env var is the architecturally correct solution.
+
+  Clear errors when the explicit path exists but contains no `main.db`,
+  and when no data directory is found via any method.
+
 ## v1.2.1 (2026-04-10)
 
 ### Fixed

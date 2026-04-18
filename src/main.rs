@@ -27,6 +27,20 @@ fn main() {
 }
 
 fn run(cli: cli::Cli) -> anyhow::Result<()> {
+    // Propagate --data-dir to SYNTHESIST_DIR so every Store::discover call picks
+    // it up. Store::find_data_dir reads SYNTHESIST_DIR; the flag is syntactic
+    // sugar so callers don't have to export the env var manually.
+    // SAFETY: set_var is unsafe in edition 2024 because env vars are
+    // process-global and not thread-safe. Synthesist is single-threaded at
+    // this point -- we're before any Store::open or command dispatch.
+    if let Some(path) = cli.data_dir.as_ref() {
+        // Canonicalize best-effort for a clearer error if the path is wrong.
+        let value = path.to_string_lossy().into_owned();
+        unsafe {
+            std::env::set_var("SYNTHESIST_DIR", value);
+        }
+    }
+
     // Commands that don't need a database
     match &cli.command {
         cli::Command::Init => return cmd_init::cmd_init(),

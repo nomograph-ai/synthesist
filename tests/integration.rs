@@ -929,3 +929,116 @@ fn test_phase_transitions() {
         .success()
         .stdout(predicate::str::contains("reflect"));
 }
+
+// ---------------------------------------------------------------------------
+// Data directory resolution: --data-dir flag and SYNTHESIST_DIR env var.
+//
+// Covers the worktree/detached-checkout use case where a cwd has no ancestor
+// synthesist/main.db but must reach a main checkout's data dir.
+// ---------------------------------------------------------------------------
+
+/// Build a synth command that does NOT cd into the data dir, simulating a
+/// worktree or unrelated cwd. Clears inherited env vars so tests are hermetic.
+fn synth_in_cwd(cwd: &std::path::Path) -> Command {
+    let mut cmd = Command::cargo_bin("synthesist").unwrap();
+    cmd.current_dir(cwd);
+    cmd.env("SYNTHESIST_OFFLINE", "1");
+    cmd.env_remove("SYNTHESIST_DIR");
+    cmd.env_remove("SYNTHESIST_SESSION");
+    cmd
+}
+
+#[test]
+fn test_data_dir_flag_resolves_remote_dir() {
+    // Main checkout with initialized synthesist.
+    let main = TempDir::new().unwrap();
+    init(&main);
+
+    // Unrelated cwd (no synthesist in ancestry).
+    let elsewhere = TempDir::new().unwrap();
+    let data_dir = main.path().join("synthesist");
+
+    synth_in_cwd(elsewhere.path())
+        .args(["--data-dir", data_dir.to_str().unwrap(), "status"])
+        .assert()
+        .success()
+        .stdout(predicate::str::is_empty().not());
+}
+
+#[test]
+fn test_synthesist_dir_env_resolves_remote_dir() {
+    let main = TempDir::new().unwrap();
+    init(&main);
+
+    let elsewhere = TempDir::new().unwrap();
+    let data_dir = main.path().join("synthesist");
+
+    synth_in_cwd(elsewhere.path())
+        .env("SYNTHESIST_DIR", data_dir.to_str().unwrap())
+        .arg("status")
+        .assert()
+        .success();
+}
+
+#[test]
+fn test_data_dir_flag_takes_precedence_over_env() {
+    // Two initialized trees. --data-dir should win over SYNTHESIST_DIR.
+    let main_a = TempDir::new().unwrap();
+    init(&main_a);
+    synth(&main_a)
+        .args([
+            "--session", "t", "--force", "tree", "add", "alpha-only",
+            "--description", "only in A",
+        ])
+        .assert()
+        .success();
+
+    let main_b = TempDir::new().unwrap();
+    init(&main_b);
+    synth(&main_b)
+        .args([
+            "--session", "t", "--force", "tree", "add", "beta-only",
+            "--description", "only in B",
+        ])
+        .assert()
+        .success();
+
+    let elsewhere = TempDir::new().unwrap();
+    let data_a = main_a.path().join("synthesist");
+    let data_b = main_b.path().join("synthesist");
+
+    // Env points at A, flag points at B. Flag wins -> we see B's tree.
+    synth_in_cwd(elsewhere.path())
+        .env("SYNTHESIST_DIR", data_a.to_str().unwrap())
+        .args(["--data-dir", data_b.to_str().unwrap(), "tree", "list"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("beta-only"))
+        .stdout(predicate::str::contains("alpha-only").not());
+}
+
+#[test]
+fn test_data_dir_missing_main_db_errors_clearly() {
+    // Directory exists but has no main.db.
+    let empty = TempDir::new().unwrap();
+
+    synth_in_cwd(empty.path())
+        .args(["--data-dir", empty.path().to_str().unwrap(), "status"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("main.db"))
+        .stderr(predicate::str::contains("initialized synthesist data directory"));
+}
+
+#[test]
+fn test_missing_data_dir_from_unrelated_cwd_suggests_override() {
+    // No synthesist anywhere in ancestry and no override set.
+    let elsewhere = TempDir::new().unwrap();
+
+    synth_in_cwd(elsewhere.path())
+        .arg("status")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("SYNTHESIST_DIR"))
+        .stderr(predicate::str::contains("--data-dir"));
+}

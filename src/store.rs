@@ -110,8 +110,22 @@ impl Store {
         }
     }
 
-    /// Walk parent directories to find the synthesist data directory.
+    /// Locate the synthesist data directory.
+    ///
+    /// Resolution order:
+    /// 1. `SYNTHESIST_DIR` env var (also set by the `--data-dir` CLI flag).
+    ///    Must point at an existing data directory containing `main.db`.
+    /// 2. Walk parent directories from the current working directory looking
+    ///    for a `synthesist/main.db`.
+    ///
+    /// The explicit override exists so that git worktrees (and other detached
+    /// working trees) can reach the main checkout's data directory without
+    /// filesystem symlinks. Set `SYNTHESIST_DIR=/path/to/main/synthesist`.
     fn find_data_dir() -> Result<(PathBuf, PathBuf)> {
+        if let Ok(explicit) = std::env::var("SYNTHESIST_DIR") {
+            return Self::resolve_explicit_data_dir(&explicit);
+        }
+
         let mut dir = std::env::current_dir()?;
         loop {
             let data_dir = dir.join(DATA_DIR);
@@ -121,10 +135,33 @@ impl Store {
             }
             if !dir.pop() {
                 bail!(
-                    "no synthesist database found in any parent directory -- run 'synthesist init'"
+                    "no synthesist database found in any parent directory -- run 'synthesist init', or set SYNTHESIST_DIR (or pass --data-dir) to point at an existing data directory"
                 );
             }
         }
+    }
+
+    /// Validate an explicit data directory path and derive its project root.
+    fn resolve_explicit_data_dir(value: &str) -> Result<(PathBuf, PathBuf)> {
+        if value.is_empty() {
+            bail!("SYNTHESIST_DIR is set but empty");
+        }
+        let data_dir = PathBuf::from(value);
+        let db_path = data_dir.join(DB_FILE);
+        if !db_path.exists() {
+            bail!(
+                "SYNTHESIST_DIR points at '{}' but no {} exists there -- expected an initialized synthesist data directory",
+                data_dir.display(),
+                DB_FILE
+            );
+        }
+        // Root is the parent of the data dir (conventional layout: <root>/synthesist/main.db).
+        // If the data dir has no parent (filesystem root), fall back to the data dir itself.
+        let root = data_dir
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| data_dir.clone());
+        Ok((root, data_dir))
     }
 
     /// Check current schema version and report migration status.
