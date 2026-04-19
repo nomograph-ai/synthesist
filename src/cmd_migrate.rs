@@ -790,8 +790,12 @@ fn migrate_phase(conn: &Connection, store: &mut Store, s: &mut MigrationSummary)
         )
         .ok();
     if let Some(name) = name {
+        // Must match workflow::phase::GLOBAL_SESSION_ID. `synthesist
+        // phase show` (no --session) reads the phase claim with this
+        // exact session_id; a mismatch silently loses the migrated
+        // phase state.
         let props = json!({
-            "session_id": "migrated-singleton",
+            "session_id": nomograph_workflow::phase::GLOBAL_SESSION_ID,
             "name": name,
         });
         let claim = build_claim(ClaimType::Phase, props, Utc::now(), None);
