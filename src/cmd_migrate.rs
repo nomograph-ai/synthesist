@@ -9,7 +9,8 @@
 //! and `spec = "v1-to-v2"` is written on completion; subsequent runs
 //! detect it and refuse to re-migrate unless `overwrite = true`.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use chrono::{DateTime, TimeZone, Utc};
 use nomograph_claim::{Claim, ClaimId, ClaimType, Store};
@@ -45,6 +46,9 @@ pub struct MigrationSummary {
     pub signals: usize,
     pub phase: usize,
     pub skipped: Vec<String>,
+    /// Path to the timestamped v1 db backup written before migration.
+    /// `None` on dry-run, or when migration was aborted before backup.
+    pub backup_path: Option<PathBuf>,
 }
 
 impl MigrationSummary {
@@ -74,6 +78,8 @@ pub enum MigrateError {
     AlreadyMigrated,
     #[error("source db missing at {0}")]
     SourceMissing(String),
+    #[error("post-migration row-count verification failed: {}", mismatches.join("; "))]
+    VerificationFailed { mismatches: Vec<String> },
 }
 
 pub type Result<T> = std::result::Result<T, MigrateError>;
@@ -95,6 +101,13 @@ pub fn migrate(from: &Path, to: &Path, dry_run: bool, overwrite: bool) -> Result
             std::fs::remove_dir_all(to)?;
         }
     }
+
+    // Preserve a stable rollback artifact before any claim is written.
+    let backup_path = if dry_run {
+        None
+    } else {
+        Some(backup_v1_db(from)?)
+    };
 
     let mut store = if dry_run {
         // Throwaway store in tmpdir so append/validate paths still exercise.
@@ -119,11 +132,132 @@ pub fn migrate(from: &Path, to: &Path, dry_run: bool, overwrite: bool) -> Result
     migrate_signals(&conn, store_mut, &mut summary)?;
     migrate_phase(&conn, store_mut, &mut summary)?;
 
+    summary.backup_path = backup_path;
+
+    // Verify migrated row counts match the v1 source before sealing the
+    // log with the idempotence marker. A mismatch aborts without marker.
+    if !dry_run {
+        verify_counts(&conn, &summary)?;
+    }
+
     // Write idempotence marker
     let marker = build_claim(ClaimType::Discovery, marker_props(), Utc::now(), None);
     store_mut.append(&marker)?;
 
     Ok(summary)
+}
+
+/// Copy the v1 db to `<from>.v1-backup-<unix_ts>` so an operator has a
+/// stable rollback artifact. Returns the backup path on success.
+fn backup_v1_db(from: &Path) -> Result<PathBuf> {
+    let ts = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let fname = match from.file_name() {
+        Some(n) => n.to_os_string(),
+        None => std::ffi::OsString::from("main.db"),
+    };
+    let mut backup_name = fname;
+    backup_name.push(format!(".v1-backup-{ts}"));
+    let backup_path = match from.parent() {
+        Some(p) if !p.as_os_str().is_empty() => p.join(&backup_name),
+        _ => PathBuf::from(&backup_name),
+    };
+    std::fs::copy(from, &backup_path)?;
+    // Best-effort durability: fsync the parent directory so the backup
+    // entry survives a crash immediately after copy.
+    let parent = backup_path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    if let Ok(dir) = std::fs::File::open(parent) {
+        let _ = dir.sync_all();
+    }
+    Ok(backup_path)
+}
+
+/// Re-query every v1 table's COUNT(*), compare against the matching
+/// field on the summary. Returns Err with a human-readable diff on any
+/// mismatch; Ok(()) when all counts agree.
+fn verify_counts(conn: &Connection, summary: &MigrationSummary) -> Result<()> {
+    fn count(conn: &Connection, sql: &str) -> Result<usize> {
+        let n: i64 = conn.query_row(sql, [], |r| r.get(0))?;
+        Ok(n.max(0) as usize)
+    }
+
+    let skipped_for = |table: &str| -> usize {
+        summary
+            .skipped
+            .iter()
+            .filter(|entry| entry.starts_with(table))
+            .count()
+    };
+
+    let mut mismatches: Vec<String> = Vec::new();
+
+    let checks: [(&str, usize, &str); 9] = [
+        ("trees", summary.trees, "SELECT COUNT(*) FROM trees"),
+        ("specs", summary.specs, "SELECT COUNT(*) FROM specs"),
+        ("tasks", summary.tasks, "SELECT COUNT(*) FROM tasks"),
+        (
+            "discoveries",
+            summary.discoveries,
+            "SELECT COUNT(*) FROM discoveries",
+        ),
+        (
+            "sessions",
+            summary.sessions,
+            "SELECT COUNT(*) FROM session_meta",
+        ),
+        (
+            "stakeholders",
+            summary.stakeholders,
+            "SELECT COUNT(*) FROM stakeholders",
+        ),
+        (
+            "dispositions",
+            summary.dispositions,
+            "SELECT COUNT(*) FROM dispositions",
+        ),
+        (
+            "signals",
+            summary.signals,
+            "SELECT COUNT(*) FROM signals",
+        ),
+        (
+            "phase",
+            summary.phase,
+            "SELECT COUNT(*) FROM phase WHERE id = 1",
+        ),
+    ];
+
+    for (table, migrated, sql) in checks {
+        let v1 = count(conn, sql)?;
+        if v1 != migrated {
+            let skipped = skipped_for(table);
+            mismatches.push(format!(
+                "{table}: v1 had {v1} rows, migrated {migrated} ({skipped} skipped)"
+            ));
+        }
+    }
+
+    // campaigns: two v1 tables collapse into one Campaign family.
+    let campaigns_v1 = count(conn, "SELECT COUNT(*) FROM campaign_active")?
+        + count(conn, "SELECT COUNT(*) FROM campaign_backlog")?;
+    if campaigns_v1 != summary.campaigns {
+        let skipped = skipped_for("campaigns");
+        mismatches.push(format!(
+            "campaigns: v1 had {campaigns_v1} rows, migrated {} ({skipped} skipped)",
+            summary.campaigns
+        ));
+    }
+
+    if mismatches.is_empty() {
+        Ok(())
+    } else {
+        Err(MigrateError::VerificationFailed { mismatches })
+    }
 }
 
 fn is_already_migrated(claims_dir: &Path) -> Result<bool> {
@@ -723,11 +857,29 @@ fn cmd_v1_to_v2(
 ) -> anyhow::Result<()> {
     match migrate(from, to, dry_run, overwrite) {
         Ok(summary) => {
+            let backup_json = summary
+                .backup_path
+                .as_ref()
+                .map(|p| serde_json::Value::String(p.display().to_string()))
+                .unwrap_or(serde_json::Value::Null);
+            let mut next_actions: Vec<String> = vec![
+                "run `synthesist check` to verify claim integrity".to_string(),
+                "run `synthesist status` to confirm trees/tasks match your v1 counts"
+                    .to_string(),
+                "commit the claims/ directory to git".to_string(),
+            ];
+            if dry_run {
+                next_actions.push("re-run without --dry-run to migrate".to_string());
+            } else if let Some(p) = summary.backup_path.as_ref() {
+                next_actions.push(format!("your v1 db is preserved at {}", p.display()));
+            }
             json_out(&serde_json::json!({
                 "ok": true,
                 "dry_run": dry_run,
                 "from": from.display().to_string(),
                 "to": to.display().to_string(),
+                "backup_path": backup_json,
+                "verified": !dry_run,
                 "counts": {
                     "trees": summary.trees,
                     "specs": summary.specs,
@@ -742,11 +894,7 @@ fn cmd_v1_to_v2(
                 },
                 "total_claims_appended": summary.total(),
                 "skipped": summary.skipped,
-                "next_actions": [
-                    "run `synthesist check` to verify claim integrity",
-                    "run `synthesist status` to confirm trees/tasks match your v1 counts",
-                    "commit the claims/ directory to git",
-                ],
+                "next_actions": next_actions,
             }))
         }
         Err(MigrateError::AlreadyMigrated) => {
@@ -756,6 +904,26 @@ fn cmd_v1_to_v2(
         }
         Err(MigrateError::SourceMissing(p)) => {
             anyhow::bail!("source db not found at {p}")
+        }
+        Err(MigrateError::VerificationFailed { mismatches }) => {
+            // Emit the diagnostic JSON so operators get the diff, then
+            // exit non-zero.
+            let _ = json_out(&serde_json::json!({
+                "ok": false,
+                "dry_run": dry_run,
+                "from": from.display().to_string(),
+                "to": to.display().to_string(),
+                "verified": false,
+                "mismatches": mismatches,
+                "next_actions": [
+                    "inspect the mismatches above against your v1 db",
+                    "see MIGRATION.md for rollback using the backup copy",
+                ],
+            }));
+            anyhow::bail!(
+                "post-migration row-count verification failed: {}",
+                mismatches.join("; ")
+            )
         }
         Err(e) => Err(anyhow::anyhow!(e.to_string())),
     }
