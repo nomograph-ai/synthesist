@@ -1,0 +1,51 @@
+[package]
+name = "nomograph-claim"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Bi-temporal CRDT claim substrate with asserter attribution. Backbone of nomograph multi-user, multi-agent tooling."
+repository = "https://gitlab.com/nomograph/claim"
+readme = "README.md"
+keywords = ["crdt", "bi-temporal", "claim", "substrate", "multi-agent"]
+categories = ["data-structures", "database-implementations"]
+
+[lib]
+name = "nomograph_claim"
+path = "src/lib.rs"
+
+[[bin]]
+name = "claim"
+path = "src/bin/claim.rs"
+
+[dependencies]
+automerge = "0.8"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+blake3 = "1"
+anyhow = "1"
+thiserror = "1"
+rusqlite = { version = "0.39", features = ["bundled"] }
+chrono = { version = "0.4", features = ["serde"] }
+
+# E2EE
+chacha20poly1305 = "0.10"
+argon2 = "0.5"
+rand = "0.8"
+zeroize = { version = "1", features = ["zeroize_derive"] }
+
+# Config + paths
+directories = "5"
+toml = "0.8"
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+[dev-dependencies]
+tempfile = "3"
+proptest = "1"
+assert_cmd = "2"
+predicates = "3"
+
+[profile.release]
+opt-level = 3
+lto = "thin"

@@ -1,0 +1,20 @@
+.DS_Store
+*.log
+
+# Rust build artifacts
+/target
+Cargo.lock.bak
+
+# Binary (release builds)
+/claim
+dist/
+
+# Local, per-project claim caches (D3). Tracked files under claims/
+# are genesis.amc, changes/<hash>.amc, and config.toml. Everything
+# else is derived and must stay untracked.
+claims/view.sqlite
+claims/view.sqlite-journal
+claims/view.sqlite-wal
+claims/view.sqlite-shm
+claims/view.heads
+claims/snapshot.amc

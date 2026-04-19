@@ -1,0 +1,17 @@
+# gitlab.com/nomograph/claim .gitlab-ci.yml
+include:
+  - component: gitlab.com/nomograph/pipeline/rust-cli@main
+    inputs:
+      binary_name: claim
+      project_description: "Bi-temporal CRDT claim substrate (nomograph)"
+      crates_publish: true
+      crates_workspace_packages: "nomograph-claim"
+
+stages: [test, build, sign, publish, release]
+
+default:
+  tags: [storr]
+  interruptible: true
+
+variables:
+  CARGO_HOME: ${CI_PROJECT_DIR}/.cargo
