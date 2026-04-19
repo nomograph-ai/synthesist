@@ -92,13 +92,23 @@ impl SynthStore {
         Ok(s)
     }
 
-    /// Override the asserter used for subsequent writes.
+    /// Override the asserter used for subsequent writes. Reserved for
+    /// tests and for future callers that set asserter from a parsed
+    /// session claim (e.g. beacon sync) rather than `USER`.
+    #[allow(dead_code)]
     pub fn with_asserter(mut self, asserted_by: impl Into<String>) -> Self {
         self.asserted_by = asserted_by.into();
         self
     }
 
     /// Append a typed claim; syncs view before returning.
+    ///
+    /// Validates props against the per-type schema
+    /// ([`nomograph_claim::schema::validate_claim`]) BEFORE the write,
+    /// so a bad call site gets a prescriptive error without polluting
+    /// the claim log. The substrate itself intentionally does not
+    /// validate (per claim/src/schema.rs module docs: "validation at the
+    /// boundary"); synthesist IS that boundary for its own callers.
     pub fn append(
         &mut self,
         claim_type: ClaimType,
@@ -109,6 +119,7 @@ impl SynthStore {
         if let Some(prior) = supersedes {
             claim = claim.with_supersedes(prior);
         }
+        nomograph_claim::schema::validate_claim(&claim).context("validate claim before append")?;
         self.inner.append(&claim).context("append claim")?;
         self.view
             .sync(&mut self.inner)

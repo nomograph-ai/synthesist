@@ -552,6 +552,12 @@ pub enum SessionCmd {
         /// Session ID.
         id: String,
     },
+    /// Close a session. Appends a superseding `Session` claim marking
+    /// the session `closed`. Non-destructive: prior work stays in the log.
+    Close {
+        /// Session ID to close.
+        id: String,
+    },
 }
 
 // --- Phase ---

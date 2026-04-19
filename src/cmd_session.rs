@@ -36,6 +36,7 @@ pub fn run(cmd: &SessionCmd) -> Result<()> {
             "session discard removed in v2; use `synthesist conflicts resolve --pick` \
              or just stop referencing the session."
         ),
+        SessionCmd::Close { id } => cmd_session_close(id),
     }
 }
 
@@ -164,10 +165,8 @@ fn cmd_session_status(id: &str) -> Result<()> {
 /// Reserved for when the CLI gains a `close` subcommand. Appends a
 /// superseding Session claim with the opener's props.
 ///
-/// Not wired into `run()` because the clap enum does not yet expose
-/// `Close`; see the module-level note — when the CLI grows `Close`,
-/// call this from the dispatch arm.
-#[allow(dead_code)]
+/// `session close <id>` — append a superseding `Session` claim marking
+/// `status = "closed"`. Non-destructive: prior claims stay in the log.
 fn cmd_session_close(id: &str) -> Result<()> {
     let mut store = SynthStore::discover()?;
     let rows = store.query(
