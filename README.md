@@ -1,3 +1,5 @@
+![hero](hero.svg)
+
 # nomograph-claim
 
 [![pipeline](https://gitlab.com/nomograph/claim/badges/main/pipeline.svg)](https://gitlab.com/nomograph/claim/-/pipelines)
