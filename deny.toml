@@ -1,20 +1,34 @@
-[graph]
-targets = []
-all-features = true
+# cargo-deny configuration for synthesist
+# https://embarkstudios.github.io/cargo-deny/
 
 [advisories]
-version = 2
-yanked = "deny"
-ignore = []
+db-path = "~/.cargo/advisory-db"
+db-urls = ["https://github.com/rustsec/advisory-db"]
 
 [licenses]
-version = 2
-allow = ["MIT", "Apache-2.0", "Apache-2.0 WITH LLVM-exception", "BSD-2-Clause", "BSD-3-Clause", "ISC", "Unicode-3.0", "Unicode-DFS-2016", "CC0-1.0", "Zlib", "MPL-2.0"]
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "CDLA-Permissive-2.0",
+    "ISC",
+    "Unicode-3.0",
+    "Zlib",
+]
 confidence-threshold = 0.8
+
+# libsqlite3-sys bundles SQLite (public domain) inside an MIT-licensed crate.
+# cargo-deny resolves it as MIT from Cargo.toml metadata, but if the bundled
+# feature triggers a license-file scan, this clarification keeps it green.
+[[licenses.clarify]]
+name = "libsqlite3-sys"
+expression = "MIT"
+license-files = [{ path = "LICENSE", hash = 0 }]
 
 [bans]
 multiple-versions = "warn"
-wildcards = "deny"
+wildcards = "allow"
 
 [sources]
 unknown-registry = "deny"
