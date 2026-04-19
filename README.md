@@ -1,7 +1,7 @@
 # nomograph-claim
 
 [![pipeline](https://gitlab.com/nomograph/claim/badges/main/pipeline.svg)](https://gitlab.com/nomograph/claim/-/pipelines)
-[![license](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-green)](LICENSE)
+[![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![built with GitLab](https://img.shields.io/badge/built_with-GitLab-FC6D26?logo=gitlab)](https://gitlab.com/nomograph/claim)
 
 Bi-temporal CRDT claim substrate with asserter attribution and E2EE.
@@ -90,11 +90,11 @@ The locked design lives in the keaton repo under
 `research/graph-primitive/`:
 
 - [`BUILDING.md`](https://gitlab.com/nomograph/keaton/-/blob/main/research/graph-primitive/BUILDING.md)
-  — locked decisions (D1-D20), claim schema, file naming.
+  -- locked decisions (D1-D20), claim schema, file naming.
 - [`BUILDING-lever-principles.md`](https://gitlab.com/nomograph/keaton/-/blob/main/research/graph-primitive/BUILDING-lever-principles.md)
-  — LLM-correctness checklist for Rust implementors.
+  -- LLM-correctness checklist for Rust implementors.
 - [`BUILDING-pipeline-catalog.md`](https://gitlab.com/nomograph/keaton/-/blob/main/research/graph-primitive/BUILDING-pipeline-catalog.md)
-  — CI and container catalog.
+  -- CI and container catalog.
 
 ## Module Map
 
