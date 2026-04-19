@@ -668,3 +668,95 @@ fn migrate_phase(conn: &Connection, store: &mut Store, s: &mut MigrationSummary)
     }
     Ok(())
 }
+
+// =============================================================================
+// CLI wrappers — v2.1 folded the standalone `synthesist-migrate-v1-to-v2`
+// binary into synthesist proper as a subcommand. Single install path,
+// single binary users already have, composes with the rest of the CLI.
+// See /Users/andrewdunn/gitlab.com/nomograph/synthesist/MIGRATION.md.
+// =============================================================================
+
+use crate::cli::MigrateCmd;
+use crate::store::json_out;
+
+/// Dispatch a `synthesist migrate <...>` subcommand.
+pub fn run(cmd: &MigrateCmd) -> anyhow::Result<()> {
+    match cmd {
+        MigrateCmd::Status => cmd_status(),
+        MigrateCmd::V1ToV2 {
+            from,
+            to,
+            dry_run,
+            overwrite,
+        } => cmd_v1_to_v2(from, to, *dry_run, *overwrite),
+    }
+}
+
+/// `synthesist migrate status` — report claim-substrate state and
+/// whether a legacy v1 db is present. Named explicitly (was the old
+/// `synthesist migrate` no-arg behavior before v2.1).
+fn cmd_status() -> anyhow::Result<()> {
+    let legacy_db = std::path::Path::new(".synth/main.db");
+    let status = if legacy_db.exists() {
+        serde_json::json!({
+            "v1_legacy_present": true,
+            "next_action": "run `synthesist migrate v1-to-v2 --from .synth/main.db --to claims/`",
+            "docs": "synthesist/MIGRATION.md",
+        })
+    } else {
+        serde_json::json!({
+            "v1_legacy_present": false,
+            "schema_owner": "nomograph-claim",
+            "note": "v2 claim store has no versioned migrations; genesis.amc + changes/ ARE the schema",
+        })
+    };
+    json_out(&status)
+}
+
+/// `synthesist migrate v1-to-v2` — one-shot port of a v1 SQLite db to
+/// a v2 claim log.
+fn cmd_v1_to_v2(
+    from: &std::path::Path,
+    to: &std::path::Path,
+    dry_run: bool,
+    overwrite: bool,
+) -> anyhow::Result<()> {
+    match migrate(from, to, dry_run, overwrite) {
+        Ok(summary) => {
+            json_out(&serde_json::json!({
+                "ok": true,
+                "dry_run": dry_run,
+                "from": from.display().to_string(),
+                "to": to.display().to_string(),
+                "counts": {
+                    "trees": summary.trees,
+                    "specs": summary.specs,
+                    "tasks": summary.tasks,
+                    "discoveries": summary.discoveries,
+                    "campaigns": summary.campaigns,
+                    "sessions": summary.sessions,
+                    "stakeholders": summary.stakeholders,
+                    "dispositions": summary.dispositions,
+                    "signals": summary.signals,
+                    "phase": summary.phase,
+                },
+                "total_claims_appended": summary.total(),
+                "skipped": summary.skipped,
+                "next_actions": [
+                    "run `synthesist check` to verify claim integrity",
+                    "run `synthesist status` to confirm trees/tasks match your v1 counts",
+                    "commit the claims/ directory to git",
+                ],
+            }))
+        }
+        Err(MigrateError::AlreadyMigrated) => {
+            anyhow::bail!(
+                "destination already migrated; pass --overwrite to re-migrate (and see MIGRATION.md for rollback)"
+            )
+        }
+        Err(MigrateError::SourceMissing(p)) => {
+            anyhow::bail!("source db not found at {p}")
+        }
+        Err(e) => Err(anyhow::anyhow!(e.to_string())),
+    }
+}

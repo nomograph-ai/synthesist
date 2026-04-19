@@ -100,8 +100,11 @@ pub enum Command {
         #[command(subcommand)]
         cmd: PhaseCmd,
     },
-    /// Check schema version and run pending migrations.
-    Migrate,
+    /// Check schema version, or migrate a v1 `.synth/main.db` to v2 `claims/`.
+    Migrate {
+        #[command(subcommand)]
+        cmd: MigrateCmd,
+    },
     /// Export all tables as JSON (for backup or migration).
     Export,
     /// Import tables from JSON (stdin if no file given).
@@ -557,6 +560,33 @@ pub enum SessionCmd {
     Close {
         /// Session ID to close.
         id: String,
+    },
+}
+
+// --- Migrate ---
+
+#[derive(Subcommand)]
+pub enum MigrateCmd {
+    /// Report claim-substrate status. If a legacy v1 `.synth/main.db`
+    /// is present, the next_action field names the migrator to run.
+    Status,
+    /// Migrate a v1 `.synth/main.db` into a v2 `claims/` directory.
+    /// Preserves created_at timestamps; auto-backs up the v1 db; emits
+    /// JSON with verified row-count round-trip.
+    #[command(name = "v1-to-v2")]
+    V1ToV2 {
+        /// Path to the v1 SQLite database (e.g. `.synth/main.db`).
+        #[arg(long)]
+        from: PathBuf,
+        /// Path to the v2 `claims/` directory to create.
+        #[arg(long)]
+        to: PathBuf,
+        /// Read only; do not write any claims or backup.
+        #[arg(long)]
+        dry_run: bool,
+        /// Delete any existing `claims/` at `--to` before migrating.
+        #[arg(long)]
+        overwrite: bool,
     },
 }
 

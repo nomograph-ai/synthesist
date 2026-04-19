@@ -4,6 +4,7 @@ mod cmd_discovery;
 mod cmd_export;
 mod cmd_import;
 mod cmd_init;
+mod cmd_migrate;
 mod cmd_phase;
 mod cmd_session;
 mod cmd_spec;
@@ -73,7 +74,7 @@ fn run(cli: cli::Cli) -> anyhow::Result<()> {
         &cli.command,
         cli::Command::Status
             | cli::Command::Check
-            | cli::Command::Migrate
+            | cli::Command::Migrate { .. }
             | cli::Command::Export
             | cli::Command::Sql { .. }
             | cli::Command::Phase {
@@ -132,27 +133,7 @@ fn run(cli: cli::Cli) -> anyhow::Result<()> {
     match &cli.command {
         cli::Command::Status => cmd_init::cmd_status(),
         cli::Command::Check => cmd_init::cmd_check(),
-        cli::Command::Migrate => {
-            // v2: schema migrations are owned by nomograph-claim's genesis.amc
-            // (no versioned SQLite migrations). Report claim-store state.
-            // If an old v1 `.synth/main.db` is present, point at the
-            // one-shot migration tool.
-            let legacy_db = std::path::Path::new(".synth/main.db");
-            let status = if legacy_db.exists() {
-                serde_json::json!({
-                    "v1_legacy_present": true,
-                    "next_action": "run `synthesist-migrate-v1-to-v2 --from .synth/main.db --to claims/`",
-                    "tool": "tools/migrate-v1-to-v2",
-                })
-            } else {
-                serde_json::json!({
-                    "v1_legacy_present": false,
-                    "schema_owner": "nomograph-claim",
-                    "note": "v2 claim store has no versioned migrations; genesis.amc + changes/ ARE the schema",
-                })
-            };
-            store::json_out(&status)
-        }
+        cli::Command::Migrate { cmd } => cmd_migrate::run(cmd),
         cli::Command::Tree { cmd } => cmd_tree::run(cmd, &cli.session),
         cli::Command::Spec { cmd } => cmd_spec::run(cmd, &cli.session),
         cli::Command::Task { cmd } => cmd_task::run(cmd, &cli.session),
