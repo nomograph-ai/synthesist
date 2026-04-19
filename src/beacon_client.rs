@@ -273,7 +273,7 @@ impl BeaconClient {
         let text =
             serde_json::to_string(&frame).map_err(|e| Error::Other(format!("serialize: {e}")))?;
         self.ws
-            .send(Message::Text(text.into()))
+            .send(Message::Text(text))
             .await
             .map_err(|e| Error::Other(format!("ws send: {e}")))?;
         Ok(())

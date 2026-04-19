@@ -31,9 +31,9 @@ use crate::store::Store;
 const VIEW_DB_FILE: &str = "view.sqlite";
 /// Heads-snapshot filename under `claims/`.
 const VIEW_HEADS_FILE: &str = "view.heads";
-/// In-flight heads target used by the atomic rename dance.
-// VIEW_HEADS_NEW_FILE constant removed: atomic_write in store manages
-// its own `<path>.tmp` suffix, so we no longer need a separate constant.
+// The previous `VIEW_HEADS_NEW_FILE` constant was removed when write_heads
+// switched to the `atomic_write` helper in store.rs, which manages its
+// own `<path>.tmp` suffix.
 
 /// Local SQLite projection of a [`Store`].
 ///
