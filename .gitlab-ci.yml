@@ -1,50 +1,34 @@
-# Shared nomograph Rust crate pipeline.
-# Stages: check → fmt → clippy → test.
-# Crates.io publish is intentionally manual (run `cargo publish` locally).
+# gitlab.com/nomograph/synthesist .gitlab-ci.yml
+
+include:
+  - template: Jobs/Secret-Detection.gitlab-ci.yml
+  - component: gitlab.com/nomograph/pipeline/rust-cli@v2.4.6
+    inputs:
+      binary_name: synthesist
+      project_description: "Specification graph manager for AI-augmented projects, on the nomograph-claim substrate."
+      audit_allow_failure: false
+      crates_publish: true
+
+stages: [test, build, sign, publish, release, notify]
+
+# Nudge the kits registry to re-sense on tag push (kit-registry@v3.1.0+).
+notify-kits:
+  stage: notify
+  rules:
+    - if: $CI_COMMIT_TAG
+  trigger:
+    project: nomograph/kits
+    branch: main
+  # fire-and-forget; kits has its own lifecycle
 
 default:
-  image: rust:1.88-bookworm
   tags: [storr]
   interruptible: true
-  cache:
-    key:
-      files:
-        - Cargo.lock
-    paths:
-      - .cargo/
-      - target/
+  retry:
+    max: 2
+    when:
+      - runner_system_failure
+      - stuck_or_timeout_failure
 
 variables:
   CARGO_HOME: ${CI_PROJECT_DIR}/.cargo
-  CARGO_TERM_COLOR: always
-  RUSTFLAGS: "-D warnings"
-
-stages:
-  - check
-  - fmt
-  - clippy
-  - test
-
-check:
-  stage: check
-  script:
-    - cargo check --all-targets --all-features
-
-fmt:
-  stage: fmt
-  before_script:
-    - rustup component add rustfmt
-  script:
-    - cargo fmt --all --check
-
-clippy:
-  stage: clippy
-  before_script:
-    - rustup component add clippy
-  script:
-    - cargo clippy --all-targets --all-features -- -D warnings
-
-test:
-  stage: test
-  script:
-    - cargo test --all-features
