@@ -40,6 +40,10 @@ toml = "0.8"
 # CLI
 clap = { version = "4", features = ["derive"] }
 
+# Process-level advisory lock on the claims/ directory, used to
+# serialize compact() against concurrent append() in the same repo.
+fs4 = { version = "0.13", default-features = false, features = ["sync"] }
+
 [dev-dependencies]
 tempfile = "3"
 proptest = "1"

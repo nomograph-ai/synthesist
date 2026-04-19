@@ -43,7 +43,7 @@ fn random_phrase(rng: &mut StdRng) -> String {
 fn prop_encrypt_decrypt_round_trip() {
     // For any plaintext + AAD, decrypt(encrypt(x, aad), aad) == x.
     let mut rng = StdRng::seed_from_u64(0xC1A1_C0DE);
-    let key = derive_key("round-trip-passphrase", "nomograph/prop").unwrap();
+    let key = derive_key(b"round-trip-passphrase", "nomograph/prop").unwrap();
 
     for i in 0..ITERS {
         let plaintext = random_bytes(&mut rng, 512);
@@ -60,11 +60,11 @@ fn prop_wrong_key_always_errors() {
     // Decryption with a key derived from a *different* passphrase must
     // never succeed on a ciphertext we produced.
     let mut rng = StdRng::seed_from_u64(0xDEAD_BEEF);
-    let right = derive_key("right-passphrase", "nomograph/prop").unwrap();
+    let right = derive_key(b"right-passphrase", "nomograph/prop").unwrap();
     // Pre-derive one alternate key and flip random bytes in it for each
     // iteration. This gives us many "wrong key" samples without paying
     // the Argon2id memory cost per iteration.
-    let alt_base = derive_key("alternate-passphrase", "nomograph/prop").unwrap();
+    let alt_base = derive_key(b"alternate-passphrase", "nomograph/prop").unwrap();
 
     for i in 0..ITERS {
         let pt = random_bytes(&mut rng, 256);
@@ -88,7 +88,7 @@ fn prop_wrong_key_always_errors() {
 #[test]
 fn prop_wrong_aad_always_errors() {
     let mut rng = StdRng::seed_from_u64(0xA11_BAD);
-    let key = derive_key("aad-passphrase", "nomograph/prop").unwrap();
+    let key = derive_key(b"aad-passphrase", "nomograph/prop").unwrap();
 
     for i in 0..ITERS {
         let pt = random_bytes(&mut rng, 128);
@@ -121,8 +121,8 @@ fn prop_derive_key_is_deterministic() {
         let phrase = random_phrase(&mut rng);
         let project = format!("nomograph/prop-{}", i);
 
-        let a = derive_key(&phrase, &project).unwrap();
-        let b = derive_key(&phrase, &project).unwrap();
+        let a = derive_key(phrase.as_bytes(), &project).unwrap();
+        let b = derive_key(phrase.as_bytes(), &project).unwrap();
         assert_eq!(&*a, &*b, "iter {i}: derivation not deterministic");
     }
 }
@@ -132,8 +132,8 @@ fn prop_different_projects_yield_different_keys() {
     let mut rng = StdRng::seed_from_u64(0xF00D);
     for _ in 0..KDF_ITERS {
         let phrase = random_phrase(&mut rng);
-        let k_a = derive_key(&phrase, "nomograph/project-a").unwrap();
-        let k_b = derive_key(&phrase, "nomograph/project-b").unwrap();
+        let k_a = derive_key(phrase.as_bytes(), "nomograph/project-a").unwrap();
+        let k_b = derive_key(phrase.as_bytes(), "nomograph/project-b").unwrap();
         assert_ne!(
             &*k_a, &*k_b,
             "same passphrase must derive distinct keys per project"

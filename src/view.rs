@@ -32,7 +32,8 @@ const VIEW_DB_FILE: &str = "view.sqlite";
 /// Heads-snapshot filename under `claims/`.
 const VIEW_HEADS_FILE: &str = "view.heads";
 /// In-flight heads target used by the atomic rename dance.
-const VIEW_HEADS_NEW_FILE: &str = "view.heads.new";
+// VIEW_HEADS_NEW_FILE constant removed: atomic_write in store manages
+// its own `<path>.tmp` suffix, so we no longer need a separate constant.
 
 /// Local SQLite projection of a [`Store`].
 ///
@@ -259,9 +260,16 @@ fn write_heads(path: &Path, heads: &[ChangeHash]) -> Result<()> {
         body.push_str(&h.to_string());
         body.push('\n');
     }
-    let tmp = path.with_file_name(VIEW_HEADS_NEW_FILE);
-    fs::write(&tmp, body.as_bytes())?;
-    fs::rename(&tmp, path)?;
+    // atomic_write does tmp file + fsync_all + rename. We also fsync the
+    // parent dir so the rename is durable across a crash: without it,
+    // macOS/ext4 may not flush the dir entry change before the next
+    // reboot, leaving the old heads file in place. The adversarial
+    // review (CRITICAL #4) caught this case against a write_heads that
+    // used a bare fs::write + rename.
+    crate::store::atomic_write(path, body.as_bytes())?;
+    if let Some(parent) = path.parent() {
+        crate::store::fsync_dir(parent)?;
+    }
     Ok(())
 }
 

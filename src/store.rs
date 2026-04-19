@@ -40,6 +40,8 @@ use std::path::{Path, PathBuf};
 use automerge::transaction::Transactable;
 use automerge::{AutoCommit, ChangeHash, ObjId, ObjType, ReadDoc, ROOT};
 
+use fs4::fs_std::FileExt;
+
 use crate::claim::{AsserterId, Claim, ClaimId, ClaimType};
 use crate::error::{Error, Result};
 
@@ -60,6 +62,10 @@ const SNAPSHOT_NEW_FILE: &str = "snapshot.amc.new";
 const CHANGE_EXT: &str = "amc";
 /// Key under which the claim list is stored in the Automerge root map.
 const CLAIMS_KEY: &str = "claims";
+/// Advisory lockfile name, used to serialize compact() against
+/// concurrent append() within the same claims/ directory. File content
+/// is irrelevant; only fs-level flock state matters. Gitignored.
+const LOCK_FILE: &str = ".lock";
 
 /// On-disk claim store rooted at a project's `claims/` directory.
 ///
@@ -148,8 +154,34 @@ impl Store {
         }
 
         for path in list_change_files(&root)? {
-            let bytes = fs::read(&path)?;
-            doc.load_incremental(&bytes)?;
+            // A partially-written or corrupt `.amc` in `changes/` must
+            // not crash the load. Partial writes can happen if a process
+            // crashes between `File::create` and `sync_all` on append;
+            // the adversarial review (HIGH #5) caught that the snapshot
+            // path has recovery above but changes did not.
+            //
+            // Policy: read-skip. If the file is unreadable or
+            // load_incremental rejects it, log and continue. The change
+            // is effectively lost — it was not yet on beacon, so we
+            // accept that loss rather than making the entire store
+            // unopenable.
+            let bytes = match fs::read(&path) {
+                Ok(b) => b,
+                Err(e) => {
+                    eprintln!(
+                        "nomograph-claim: skipping unreadable change {} ({e})",
+                        path.display()
+                    );
+                    continue;
+                }
+            };
+            if let Err(e) = doc.load_incremental(&bytes) {
+                eprintln!(
+                    "nomograph-claim: skipping corrupt change {} ({e})",
+                    path.display()
+                );
+                continue;
+            }
         }
 
         Ok(Self { root, doc })
@@ -162,7 +194,16 @@ impl Store {
     /// fsync), and returns. The write is NOT silent on disk failure: any
     /// io error propagates and leaves the in-memory doc in a committed
     /// state whose change is not yet on disk (caller retries).
+    ///
+    /// Concurrent-writer safety: this method acquires an exclusive flock
+    /// on `claims/.lock` for the duration of the write. Multiple
+    /// processes appending to the same `claims/` directory serialize on
+    /// this lock and cannot race with [`Store::compact`]
+    /// (ADVERSARIAL-REVIEW CRITICAL #2). The lock is released when the
+    /// guard drops, including on panic or process crash (kernel flock
+    /// semantics).
     pub fn append(&mut self, claim: &Claim) -> Result<()> {
+        let _lock = DirLock::exclusive(&self.root)?;
         let list = self.claims_list()?;
         let len = self.doc.length(&list);
         let entry = self.doc.insert_object(&list, len, ObjType::Map)?;
@@ -236,6 +277,12 @@ impl Store {
     /// verification or rename error so the previous good snapshot is
     /// preserved.
     pub fn compact(&mut self) -> Result<()> {
+        // Hold the directory lock across snapshot write + changes sweep
+        // so no other process can slip a fresh change file into
+        // `changes/` between our rename and our sweep. Without this the
+        // compact races against concurrent append() calls on the same
+        // claims/ (ADVERSARIAL-REVIEW CRITICAL #2).
+        let _lock = DirLock::exclusive(&self.root)?;
         let snapshot_path = self.root.join(SNAPSHOT_FILE);
         let staging = self.root.join(SNAPSHOT_NEW_FILE);
 
@@ -462,7 +509,7 @@ fn list_change_files(root: &Path) -> Result<Vec<PathBuf>> {
 }
 
 /// Atomic write via `<path>.tmp` + rename (05 rule #1).
-fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
+pub(crate) fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
     let mut tmp = path.as_os_str().to_os_string();
     tmp.push(".tmp");
     let tmp_path = PathBuf::from(tmp);
@@ -476,11 +523,47 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
     Ok(())
 }
 
+/// RAII guard around the `claims/.lock` file. Serializes mutating
+/// operations against each other within a single `claims/` directory
+/// across processes on the same host.
+///
+/// Acquire via [`DirLock::exclusive`]. The flock is released when the
+/// guard drops (the file closes). On crash the kernel releases it too,
+/// so a dead holder never wedges the directory.
+///
+/// Scope: advisory POSIX flock on unix, LockFileEx on Windows, via fs4.
+/// Network filesystems (NFS without lockd, SMB) do NOT participate; the
+/// lock is best-effort there. Synthesist assumes local filesystems.
+pub(crate) struct DirLock {
+    _file: fs::File,
+}
+
+impl DirLock {
+    /// Acquire an exclusive lock on `<claims_dir>/.lock`, creating the
+    /// file if missing. Blocks until granted; see fs4 for behavior.
+    ///
+    /// Used by both [`Store::append`] and [`Store::compact`] for 0.1.
+    /// Future work: differentiate shared-append vs exclusive-compact
+    /// once append throughput becomes load-bearing.
+    pub fn exclusive(claims_dir: &Path) -> Result<Self> {
+        fs::create_dir_all(claims_dir)?;
+        let path = claims_dir.join(LOCK_FILE);
+        let file = fs::OpenOptions::new()
+            .create(true)
+            .read(true)
+            .write(true)
+            .truncate(false)
+            .open(&path)?;
+        file.lock_exclusive()?;
+        Ok(Self { _file: file })
+    }
+}
+
 /// Fsync a directory so rename/unlink entries are durable (05 rule #4).
 ///
 /// No-op on platforms where opening a directory for fsync is not
 /// supported by `std::fs`.
-fn fsync_dir(dir: &Path) -> Result<()> {
+pub(crate) fn fsync_dir(dir: &Path) -> Result<()> {
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     {
         match fs::File::open(dir) {

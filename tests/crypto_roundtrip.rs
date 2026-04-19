@@ -18,7 +18,7 @@ fn with_tempdir<F: FnOnce()>(f: F) {
 fn save_then_load_round_trip() {
     with_tempdir(|| {
         let project = "nomograph/roundtrip";
-        let key = derive_key("passphrase-alpha", project).unwrap();
+        let key = derive_key(b"passphrase-alpha", project).unwrap();
 
         let path = save_key(project, &key).unwrap();
         assert!(path.exists(), "key file should exist at {}", path.display());
@@ -49,7 +49,7 @@ fn load_without_save_is_typed_not_found() {
 fn save_key_file_is_exactly_32_bytes() {
     with_tempdir(|| {
         let project = "nomograph/byte-length";
-        let key = derive_key("p", project).unwrap();
+        let key = derive_key(b"p", project).unwrap();
         let path = save_key(project, &key).unwrap();
         let bytes = std::fs::read(&path).unwrap();
         assert_eq!(bytes.len(), 32);
@@ -62,7 +62,7 @@ fn save_key_sets_mode_0600_on_unix() {
     use std::os::unix::fs::PermissionsExt;
     with_tempdir(|| {
         let project = "nomograph/perms";
-        let key = derive_key("p", project).unwrap();
+        let key = derive_key(b"p", project).unwrap();
         let path = save_key(project, &key).unwrap();
         let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode, 0o600, "expected 0600, got {mode:o}");
@@ -83,8 +83,8 @@ fn two_peers_same_passphrase_decrypt_each_other() {
     // Both peers derive the key independently from the shared passphrase
     // + project slug. Ciphertext round-trips.
     let project = "nomograph/peers";
-    let peer_a = derive_key("shared-secret", project).unwrap();
-    let peer_b = derive_key("shared-secret", project).unwrap();
+    let peer_a = derive_key(b"shared-secret", project).unwrap();
+    let peer_b = derive_key(b"shared-secret", project).unwrap();
 
     let (nonce, ct) = encrypt(&peer_a, b"claim-bytes", b"project=nomograph/peers").unwrap();
     let pt = decrypt(&peer_b, &nonce, &ct, b"project=nomograph/peers").unwrap();

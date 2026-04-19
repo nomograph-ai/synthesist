@@ -53,6 +53,23 @@ const SALT_LEN: usize = 16;
 /// deterministic: same passphrase + same project produces the same
 /// key on any machine.
 ///
+/// # Zeroization contract (important)
+///
+/// The passphrase is passed as `&[u8]` so the caller owns its backing
+/// storage and controls zeroization. The typical safe pattern is:
+///
+/// ```ignore
+/// use zeroize::Zeroizing;
+/// let phrase: Zeroizing<Vec<u8>> = Zeroizing::new(read_from_prompt());
+/// let key = nomograph_claim::crypto::derive_key(&phrase, "proj")?;
+/// // `phrase` zeroizes when it goes out of scope
+/// ```
+///
+/// Passing a plain `String`/`&str` works (`phrase.as_bytes()`), but the
+/// backing bytes linger in memory until the owning allocation is reused.
+/// A core dump or swap file would still expose them — see
+/// ADVERSARIAL-REVIEW CRITICAL #3.
+///
 /// # Errors
 ///
 /// Returns [`Error::Crypto`] if Argon2 rejects the parameters (should
@@ -63,11 +80,12 @@ const SALT_LEN: usize = 16;
 /// ```
 /// use nomograph_claim::crypto::derive_key;
 ///
-/// let k1 = derive_key("correct horse battery staple", "nomograph/multiuse").unwrap();
-/// let k2 = derive_key("correct horse battery staple", "nomograph/multiuse").unwrap();
+/// let phrase = b"correct horse battery staple";
+/// let k1 = derive_key(phrase, "nomograph/multiuse").unwrap();
+/// let k2 = derive_key(phrase, "nomograph/multiuse").unwrap();
 /// assert_eq!(&*k1, &*k2, "derivation is deterministic per (passphrase, project)");
 /// ```
-pub fn derive_key(passphrase: &str, project_slug: &str) -> Result<Key> {
+pub fn derive_key(passphrase: &[u8], project_slug: &str) -> Result<Key> {
     if passphrase.is_empty() {
         return Err(Error::Crypto(
             "Passphrase is empty; pass a non-empty passphrase to derive_key".into(),
@@ -84,7 +102,7 @@ pub fn derive_key(passphrase: &str, project_slug: &str) -> Result<Key> {
 
     let mut out = Zeroizing::new([0u8; KEY_LEN]);
     argon
-        .hash_password_into(passphrase.as_bytes(), &salt, out.as_mut_slice())
+        .hash_password_into(passphrase, &salt, out.as_mut_slice())
         .map_err(|e| Error::Crypto(format!("Argon2id failed ({e}); verify passphrase encoding")))?;
     Ok(out)
 }
@@ -107,7 +125,7 @@ pub fn derive_key(passphrase: &str, project_slug: &str) -> Result<Key> {
 /// ```
 /// use nomograph_claim::crypto::{derive_key, encrypt, decrypt};
 ///
-/// let key = derive_key("shared-passphrase", "proj").unwrap();
+/// let key = derive_key(b"shared-passphrase", "proj").unwrap();
 /// let (nonce, ct) = encrypt(&key, b"hello", b"aad").unwrap();
 /// let pt = decrypt(&key, &nonce, &ct, b"aad").unwrap();
 /// assert_eq!(pt, b"hello");
@@ -276,7 +294,7 @@ fn config_base() -> Result<PathBuf> {
 mod tests {
     use super::*;
 
-    const PHRASE: &str = "correct horse battery staple";
+    const PHRASE: &[u8] = b"correct horse battery staple";
     const PROJECT: &str = "nomograph/multiuse";
 
     #[test]
@@ -290,7 +308,7 @@ mod tests {
 
     #[test]
     fn derive_key_rejects_empty_passphrase() {
-        let err = derive_key("", PROJECT).unwrap_err();
+        let err = derive_key(b"", PROJECT).unwrap_err();
         match err {
             Error::Crypto(msg) => assert!(msg.contains("Passphrase"), "{msg}"),
             other => panic!("expected Error::Crypto, got {other:?}"),
@@ -352,7 +370,7 @@ mod tests {
         let key = derive_key(PHRASE, PROJECT).unwrap();
         let (nonce, ct) = encrypt(&key, b"secret", b"").unwrap();
 
-        let wrong = derive_key("a different passphrase", PROJECT).unwrap();
+        let wrong = derive_key(b"a different passphrase", PROJECT).unwrap();
         let err = decrypt(&wrong, &nonce, &ct, b"").unwrap_err();
         assert!(matches!(err, Error::Crypto(_)));
     }

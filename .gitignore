@@ -18,3 +18,4 @@ claims/view.sqlite-wal
 claims/view.sqlite-shm
 claims/view.heads
 claims/snapshot.amc
+claims/.lock

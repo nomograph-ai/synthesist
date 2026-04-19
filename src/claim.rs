@@ -83,6 +83,14 @@ impl Claim {
     /// Content hash over the canonical form of the required fields.
     /// NOT included in the hash: id itself, supersedes, parent_asserter.
     /// Reason: supersession chains and delegation shouldn't change identity.
+    ///
+    /// The canonical form sorts every object's keys lexicographically at
+    /// every nesting level, so two machines that build the same logical
+    /// claim always get the same bytes and therefore the same id. This
+    /// is the cross-machine dedup contract on merges: whatever the
+    /// `preserve_order` feature flag or ad-hoc construction order,
+    /// identical (claim_type, props, valid_from, asserted_by, asserted_at)
+    /// hash to the same id.
     pub fn compute_id(
         claim_type: &ClaimType,
         props: &serde_json::Value,
@@ -97,7 +105,8 @@ impl Claim {
             "asserted_by": asserted_by,
             "asserted_at": asserted_at.timestamp_millis(),
         });
-        let bytes = serde_json::to_vec(&canon).expect("serialize canonical form");
+        let mut bytes = Vec::with_capacity(256);
+        write_canonical(&canon, &mut bytes);
         blake3::hash(&bytes).to_hex().to_string()
     }
 
@@ -138,6 +147,64 @@ impl Claim {
     }
 }
 
+/// Serialize a JSON value with recursively sorted object keys.
+///
+/// Properties this provides and why each matters for claim identity:
+///  - Objects: keys sorted lexicographically (ASCII byte order). This
+///    makes `{"b":1,"a":2}` and `{"a":2,"b":1}` produce identical bytes,
+///    so the same logical claim built on Mac vs Linux hashes the same.
+///  - Arrays: order preserved. Arrays are ordered data; changing their
+///    order IS a different claim.
+///  - Strings: re-serialized through serde_json to reuse its RFC 8259
+///    escaping rules (backslashes, \uXXXX for controls). Keeps escapes
+///    consistent regardless of whether the input value came from parse
+///    or from `json!()`.
+///  - Numbers: serialized via `Number::Display`, which matches serde_json's
+///    default. Our props only use integers and strings (timestamps,
+///    ids, names), so number canonicalization quirks around floats
+///    don't bite us here.
+fn write_canonical(v: &serde_json::Value, buf: &mut Vec<u8>) {
+    match v {
+        serde_json::Value::Null => buf.extend_from_slice(b"null"),
+        serde_json::Value::Bool(true) => buf.extend_from_slice(b"true"),
+        serde_json::Value::Bool(false) => buf.extend_from_slice(b"false"),
+        serde_json::Value::Number(n) => {
+            buf.extend_from_slice(n.to_string().as_bytes());
+        }
+        serde_json::Value::String(s) => {
+            let escaped =
+                serde_json::to_string(s).expect("serialize string via serde_json");
+            buf.extend_from_slice(escaped.as_bytes());
+        }
+        serde_json::Value::Array(arr) => {
+            buf.push(b'[');
+            for (i, item) in arr.iter().enumerate() {
+                if i > 0 {
+                    buf.push(b',');
+                }
+                write_canonical(item, buf);
+            }
+            buf.push(b']');
+        }
+        serde_json::Value::Object(m) => {
+            buf.push(b'{');
+            let mut keys: Vec<&String> = m.keys().collect();
+            keys.sort();
+            for (i, k) in keys.iter().enumerate() {
+                if i > 0 {
+                    buf.push(b',');
+                }
+                let escaped =
+                    serde_json::to_string(k).expect("serialize key via serde_json");
+                buf.extend_from_slice(escaped.as_bytes());
+                buf.push(b':');
+                write_canonical(&m[*k], buf);
+            }
+            buf.push(b'}');
+        }
+    }
+}
+
 /// Asserter class discrimination per D8.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AsserterClass<'a> {
@@ -170,6 +237,53 @@ mod tests {
         let a = Claim::compute_id(&ClaimType::Spec, &props, t, "user:gitlab:andunn", t);
         let b = Claim::compute_id(&ClaimType::Spec, &props, t, "user:gitlab:andunn", t);
         assert_eq!(a, b);
+    }
+
+    /// Cross-machine dedup: same logical claim built with props in
+    /// different key orders must hash to the same id, otherwise the
+    /// CRDT merge produces duplicates. Regression for ADVERSARIAL-REVIEW
+    /// CRITICAL #1.
+    #[test]
+    fn content_hash_is_key_order_independent() {
+        let t = DateTime::from_timestamp_millis(1_700_000_000_000).unwrap();
+        let p1: serde_json::Value =
+            serde_json::from_str(r#"{"a":1,"b":2,"c":{"d":4,"e":5}}"#).unwrap();
+        let p2: serde_json::Value =
+            serde_json::from_str(r#"{"c":{"e":5,"d":4},"b":2,"a":1}"#).unwrap();
+        let p3: serde_json::Value =
+            serde_json::from_str(r#"{"b":2,"a":1,"c":{"d":4,"e":5}}"#).unwrap();
+        let h1 = Claim::compute_id(&ClaimType::Spec, &p1, t, "x", t);
+        let h2 = Claim::compute_id(&ClaimType::Spec, &p2, t, "x", t);
+        let h3 = Claim::compute_id(&ClaimType::Spec, &p3, t, "x", t);
+        assert_eq!(h1, h2);
+        assert_eq!(h1, h3);
+    }
+
+    #[test]
+    fn content_hash_preserves_array_order() {
+        let t = DateTime::from_timestamp_millis(1_700_000_000_000).unwrap();
+        let p1 = serde_json::json!({"items": [1, 2, 3]});
+        let p2 = serde_json::json!({"items": [3, 2, 1]});
+        let h1 = Claim::compute_id(&ClaimType::Spec, &p1, t, "x", t);
+        let h2 = Claim::compute_id(&ClaimType::Spec, &p2, t, "x", t);
+        assert_ne!(h1, h2, "array order is semantically meaningful");
+    }
+
+    #[test]
+    fn content_hash_handles_nested_scalars() {
+        let t = DateTime::from_timestamp_millis(1_700_000_000_000).unwrap();
+        let props = serde_json::json!({
+            "n": 42,
+            "f": 3.14,
+            "b": true,
+            "s": "hello \"world\" \n",
+            "nil": null,
+            "nested": {"z": 1, "a": {"deep": "val"}}
+        });
+        // Must not panic, must be deterministic
+        let h1 = Claim::compute_id(&ClaimType::Spec, &props, t, "x", t);
+        let h2 = Claim::compute_id(&ClaimType::Spec, &props, t, "x", t);
+        assert_eq!(h1, h2);
     }
 
     #[test]
