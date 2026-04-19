@@ -20,7 +20,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use automerge::ChangeHash;
-use rusqlite::{params, Connection, ToSql};
+use rusqlite::{Connection, ToSql, params};
 use serde_json::{Map, Value};
 
 use crate::claim::Claim;
@@ -147,7 +147,9 @@ impl View {
     pub fn query(&self, sql: &str, params: &[&dyn ToSql]) -> Result<Vec<Value>> {
         let trimmed = sql.trim_start();
         let lower = trimmed.to_ascii_lowercase();
-        if !(lower.starts_with("select") || lower.starts_with("with") || lower.starts_with("pragma"))
+        if !(lower.starts_with("select")
+            || lower.starts_with("with")
+            || lower.starts_with("pragma"))
         {
             return Err(Error::Other(format!(
                 "View::query accepts only SELECT/WITH/PRAGMA; got `{}`",

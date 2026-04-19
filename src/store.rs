@@ -38,7 +38,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use automerge::transaction::Transactable;
-use automerge::{AutoCommit, ChangeHash, ObjId, ObjType, ReadDoc, ROOT};
+use automerge::{AutoCommit, ChangeHash, ObjId, ObjType, ROOT, ReadDoc};
 
 use fs4::fs_std::FileExt;
 
@@ -208,9 +208,13 @@ impl Store {
         let len = self.doc.length(&list);
         let entry = self.doc.insert_object(&list, len, ObjType::Map)?;
         self.doc.put(&entry, "id", claim.id.as_str())?;
-        self.doc.put(&entry, "claim_type", claim.claim_type.as_str())?;
         self.doc
-            .put(&entry, "props", serde_json::to_string(&claim.props)?.as_str())?;
+            .put(&entry, "claim_type", claim.claim_type.as_str())?;
+        self.doc.put(
+            &entry,
+            "props",
+            serde_json::to_string(&claim.props)?.as_str(),
+        )?;
         self.doc
             .put(&entry, "valid_from", claim.valid_from.timestamp_millis())?;
         if let Some(vu) = claim.valid_until {
@@ -222,7 +226,8 @@ impl Store {
         if let Some(parent) = &claim.parent_asserter {
             self.doc.put(&entry, "parent_asserter", parent.as_str())?;
         }
-        self.doc.put(&entry, "asserted_by", claim.asserted_by.as_str())?;
+        self.doc
+            .put(&entry, "asserted_by", claim.asserted_by.as_str())?;
         self.doc
             .put(&entry, "asserted_at", claim.asserted_at.timestamp_millis())?;
         self.doc.commit();
@@ -375,14 +380,15 @@ fn read_claim(doc: &AutoCommit, entry: &ObjId) -> Result<Claim> {
     let props: serde_json::Value = serde_json::from_str(&props_str)?;
     let valid_from_ms = get_int(doc, entry, "valid_from")?;
     let valid_from = chrono::DateTime::from_timestamp_millis(valid_from_ms).ok_or_else(|| {
-        Error::Corrupt(format!("valid_from {} not a valid timestamp_ms", valid_from_ms))
+        Error::Corrupt(format!(
+            "valid_from {} not a valid timestamp_ms",
+            valid_from_ms
+        ))
     })?;
     let valid_until = match get_int_opt(doc, entry, "valid_until")? {
-        Some(ms) => Some(
-            chrono::DateTime::from_timestamp_millis(ms).ok_or_else(|| {
-                Error::Corrupt(format!("valid_until {} not a valid timestamp_ms", ms))
-            })?,
-        ),
+        Some(ms) => Some(chrono::DateTime::from_timestamp_millis(ms).ok_or_else(|| {
+            Error::Corrupt(format!("valid_until {} not a valid timestamp_ms", ms))
+        })?),
         None => None,
     };
     let supersedes = get_str_opt(doc, entry, "supersedes")?;

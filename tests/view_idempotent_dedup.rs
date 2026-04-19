@@ -57,8 +57,6 @@ fn total_rows_match_distinct_ids_after_redundant_work() {
 
     let mut view = View::open(&root).unwrap();
     view.rebuild(&mut store).unwrap();
-    let rows = view
-        .query("SELECT COUNT(*) AS n FROM claims", &[])
-        .unwrap();
+    let rows = view.query("SELECT COUNT(*) AS n FROM claims", &[]).unwrap();
     assert_eq!(rows[0]["n"], serde_json::json!(2));
 }

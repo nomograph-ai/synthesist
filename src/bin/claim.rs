@@ -19,13 +19,13 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use clap::{Parser, Subcommand};
 use nomograph_claim::claim::ClaimId;
 use nomograph_claim::schema::validate_claim;
 use nomograph_claim::session::SessionClaim;
 use nomograph_claim::{Claim, ClaimType, Error as ClaimError, Session, Store, View};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 #[derive(Debug, Parser)]
 #[command(name = "claim", version, about = "Bi-temporal CRDT claim substrate")]
@@ -334,10 +334,7 @@ fn cmd_conflicts() -> CmdResult {
     let mut supers: BTreeMap<String, Vec<String>> = BTreeMap::new();
     for c in &claims {
         if let Some(prior) = &c.supersedes {
-            supers
-                .entry(prior.clone())
-                .or_default()
-                .push(c.id.clone());
+            supers.entry(prior.clone()).or_default().push(c.id.clone());
         }
     }
 

@@ -25,9 +25,7 @@ fn all_ids(view: &View) -> Vec<String> {
 }
 
 fn row_count(view: &View) -> i64 {
-    let rows = view
-        .query("SELECT COUNT(*) AS n FROM claims", &[])
-        .unwrap();
+    let rows = view.query("SELECT COUNT(*) AS n FROM claims", &[]).unwrap();
     rows[0]["n"].as_i64().unwrap()
 }
 
@@ -51,7 +49,10 @@ fn rebuild_is_deterministic_across_sizes() {
         let second_count = row_count(&view);
         let second_ids = all_ids(&view);
 
-        assert_eq!(first_count, n as i64, "row count must equal input size for n={n}");
+        assert_eq!(
+            first_count, n as i64,
+            "row count must equal input size for n={n}"
+        );
         assert_eq!(first_count, second_count, "rebuild count drift at n={n}");
         assert_eq!(first_ids, second_ids, "rebuild id order drift at n={n}");
     }
@@ -101,7 +102,13 @@ fn sync_returns_true_exactly_when_rebuild_is_needed() {
     for i in 0..4 {
         store.append(&mk("user:gitlab:andunn", i)).unwrap();
         // Each append advances heads; exactly one sync must rebuild.
-        assert!(view.sync(&mut store).unwrap(), "append {i} did not trigger rebuild");
-        assert!(!view.sync(&mut store).unwrap(), "append {i} second sync must be no-op");
+        assert!(
+            view.sync(&mut store).unwrap(),
+            "append {i} did not trigger rebuild"
+        );
+        assert!(
+            !view.sync(&mut store).unwrap(),
+            "append {i} second sync must be no-op"
+        );
     }
 }

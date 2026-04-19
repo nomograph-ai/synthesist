@@ -1,17 +1,50 @@
-# gitlab.com/nomograph/claim .gitlab-ci.yml
-include:
-  - component: gitlab.com/nomograph/pipeline/rust-cli@main
-    inputs:
-      binary_name: claim
-      project_description: "Bi-temporal CRDT claim substrate (nomograph)"
-      crates_publish: true
-      crates_workspace_packages: "nomograph-claim"
-
-stages: [test, build, sign, publish, release]
+# Shared nomograph Rust crate pipeline.
+# Stages: check → fmt → clippy → test.
+# Crates.io publish is intentionally manual (run `cargo publish` locally).
 
 default:
+  image: rust:1.82-bookworm
   tags: [storr]
   interruptible: true
+  cache:
+    key:
+      files:
+        - Cargo.lock
+    paths:
+      - .cargo/
+      - target/
 
 variables:
   CARGO_HOME: ${CI_PROJECT_DIR}/.cargo
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+
+stages:
+  - check
+  - fmt
+  - clippy
+  - test
+
+check:
+  stage: check
+  script:
+    - cargo check --all-targets --all-features
+
+fmt:
+  stage: fmt
+  before_script:
+    - rustup component add rustfmt
+  script:
+    - cargo fmt --all --check
+
+clippy:
+  stage: clippy
+  before_script:
+    - rustup component add clippy
+  script:
+    - cargo clippy --all-targets --all-features -- -D warnings
+
+test:
+  stage: test
+  script:
+    - cargo test --all-features

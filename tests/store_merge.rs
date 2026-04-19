@@ -14,11 +14,7 @@ fn two_peers_sharing_genesis() -> (tempfile::TempDir, Store, Store) {
     let genesis = fs::read(a_root.join("genesis.amc")).unwrap();
     fs::write(b_root.join("genesis.amc"), &genesis).unwrap();
     fs::create_dir_all(b_root.join("changes")).unwrap();
-    fs::copy(
-        a_root.join("config.toml"),
-        b_root.join("config.toml"),
-    )
-    .unwrap();
+    fs::copy(a_root.join("config.toml"), b_root.join("config.toml")).unwrap();
     let store_b = Store::open(&b_root).unwrap();
     (tmp, store_a, store_b)
 }

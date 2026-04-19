@@ -107,8 +107,14 @@ fn diamond_supersession_preserves_both_branches() {
     let claims = a.load_claims().unwrap();
     let ids: Vec<&str> = claims.iter().map(|c| c.id.as_str()).collect();
     assert!(ids.contains(&base.id.as_str()), "base must be present");
-    assert!(ids.contains(&from_a.id.as_str()), "a's branch must be present");
-    assert!(ids.contains(&from_b.id.as_str()), "b's branch must be present");
+    assert!(
+        ids.contains(&from_a.id.as_str()),
+        "a's branch must be present"
+    );
+    assert!(
+        ids.contains(&from_b.id.as_str()),
+        "b's branch must be present"
+    );
     assert_eq!(claims.len(), 3, "3 distinct ids after dedup");
 }
 

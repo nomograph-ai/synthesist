@@ -20,8 +20,7 @@ fn session_start_tag_close_yields_no_live_sessions() {
     .expect("start");
 
     // list_live sees exactly this session while it's open.
-    let live_before: Vec<SessionClaim> =
-        Session::list_live(&mut store).expect("list_live open");
+    let live_before: Vec<SessionClaim> = Session::list_live(&mut store).expect("list_live open");
     assert_eq!(live_before.len(), 1, "one live session after start");
     assert_eq!(live_before[0].id, "sess-rt-1");
     assert_eq!(live_before[0].asserter_base, "user:gitlab:andunn");
@@ -52,8 +51,7 @@ fn session_start_tag_close_yields_no_live_sessions() {
 
     // Close the session and confirm no live sessions remain.
     handle.close(&mut store).expect("close");
-    let live_after: Vec<SessionClaim> =
-        Session::list_live(&mut store).expect("list_live closed");
+    let live_after: Vec<SessionClaim> = Session::list_live(&mut store).expect("list_live closed");
     assert!(
         live_after.is_empty(),
         "expected no live sessions after close, got {}",

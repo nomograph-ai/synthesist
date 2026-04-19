@@ -200,18 +200,18 @@ fn validate_task(props: &Value) -> Result<()> {
     }
     opt_str_array(map, "depends_on", "Task")?;
     opt_str_array(map, "files", "Task")?;
-    if let Some(v) = map.get("acceptance") {
-        if !v.is_null() {
-            let items = v
-                .as_array()
-                .ok_or_else(|| schema_err("Task field 'acceptance' must be an array"))?;
-            for item in items {
-                let inner = item.as_object().ok_or_else(|| {
-                    schema_err("Task field 'acceptance' entries must be objects")
-                })?;
-                req_str(inner, "criterion", "Task.acceptance")?;
-                req_str(inner, "verify_cmd", "Task.acceptance")?;
-            }
+    if let Some(v) = map.get("acceptance")
+        && !v.is_null()
+    {
+        let items = v
+            .as_array()
+            .ok_or_else(|| schema_err("Task field 'acceptance' must be an array"))?;
+        for item in items {
+            let inner = item
+                .as_object()
+                .ok_or_else(|| schema_err("Task field 'acceptance' entries must be objects"))?;
+            req_str(inner, "criterion", "Task.acceptance")?;
+            req_str(inner, "verify_cmd", "Task.acceptance")?;
         }
     }
     Ok(())
@@ -323,12 +323,7 @@ fn validate_directive(props: &Value) -> Result<()> {
     let map = obj(props, "Directive")?;
     req_str(map, "target", "Directive")?;
     let action = req_str(map, "action", "Directive")?;
-    check_enum(
-        action,
-        &["pause", "resume", "abort"],
-        "Directive",
-        "action",
-    )?;
+    check_enum(action, &["pause", "resume", "abort"], "Directive", "action")?;
     opt_str(map, "reason", "Directive")?;
     Ok(())
 }
@@ -635,4 +630,3 @@ mod tests {
         reject_blank(ClaimType::Disposition);
     }
 }
-

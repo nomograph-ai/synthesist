@@ -38,18 +38,14 @@ fn sync_after_append_rebuilds() {
     // the cache was empty and current heads are non-empty (the genesis
     // commit). Accept either outcome deterministically.
     let _ = view.sync(&mut store).unwrap();
-    let baseline = view
-        .query("SELECT COUNT(*) AS n FROM claims", &[])
-        .unwrap();
+    let baseline = view.query("SELECT COUNT(*) AS n FROM claims", &[]).unwrap();
     assert_eq!(baseline[0]["n"], serde_json::json!(0));
 
     // Append advances heads; next sync must rebuild.
     store.append(&mk(1)).unwrap();
     let rebuilt = view.sync(&mut store).unwrap();
     assert!(rebuilt, "sync after append must return true");
-    let rows = view
-        .query("SELECT COUNT(*) AS n FROM claims", &[])
-        .unwrap();
+    let rows = view.query("SELECT COUNT(*) AS n FROM claims", &[]).unwrap();
     assert_eq!(rows[0]["n"], serde_json::json!(1));
 }
 
@@ -72,9 +68,7 @@ fn sync_persists_heads_across_reopen() {
         !rebuilt,
         "reopen + sync on unchanged heads must not rebuild"
     );
-    let rows = view
-        .query("SELECT COUNT(*) AS n FROM claims", &[])
-        .unwrap();
+    let rows = view.query("SELECT COUNT(*) AS n FROM claims", &[]).unwrap();
     assert_eq!(
         rows[0]["n"],
         serde_json::json!(1),

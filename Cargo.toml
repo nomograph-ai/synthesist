@@ -1,13 +1,26 @@
 [package]
 name = "nomograph-claim"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
+rust-version = "1.88"
 license = "MIT"
 description = "Bi-temporal CRDT claim substrate with asserter attribution. Backbone of nomograph multi-user, multi-agent tooling."
+authors = ["Andrew Dunn <andunn@gitlab.com>"]
 repository = "https://gitlab.com/nomograph/claim"
+homepage = "https://gitlab.com/nomograph/claim"
 readme = "README.md"
 keywords = ["crdt", "bi-temporal", "claim", "substrate", "multi-agent"]
 categories = ["data-structures", "database-implementations"]
+exclude = [
+    "target/*",
+    "claims/*",
+    ".synth/*",
+    ".lock",
+    "*.swp",
+    "claim",
+    "dist/*",
+    "Cargo.lock.bak",
+]
 
 [lib]
 name = "nomograph_claim"

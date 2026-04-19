@@ -55,15 +55,15 @@ fn rebuild_after_append_surfaces_one_row() {
     let mut view = View::open(&root).unwrap();
     view.rebuild(&mut store).unwrap();
     let rows = view
-        .query(
-            "SELECT id, claim_type, asserted_by FROM claims",
-            &[],
-        )
+        .query("SELECT id, claim_type, asserted_by FROM claims", &[])
         .unwrap();
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0]["id"], serde_json::json!(claim.id));
     assert_eq!(rows[0]["claim_type"], serde_json::json!("spec"));
-    assert_eq!(rows[0]["asserted_by"], serde_json::json!("user:gitlab:andunn"));
+    assert_eq!(
+        rows[0]["asserted_by"],
+        serde_json::json!("user:gitlab:andunn")
+    );
 }
 
 #[test]

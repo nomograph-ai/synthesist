@@ -61,12 +61,20 @@ fn init_append_list_round_trip() {
     let stdout = String::from_utf8(list.get_output().stdout.clone()).unwrap();
     let claims: Value = serde_json::from_str(stdout.trim()).expect("list prints JSON array");
     let arr = claims.as_array().expect("list is array");
-    assert_eq!(arr.len(), 1, "expected exactly one claim, got {}", arr.len());
+    assert_eq!(
+        arr.len(),
+        1,
+        "expected exactly one claim, got {}",
+        arr.len()
+    );
     assert_eq!(
         arr[0].get("id").and_then(Value::as_str),
         Some(appended_id.as_str()),
     );
-    assert_eq!(arr[0].get("claim_type").and_then(Value::as_str), Some("spec"));
+    assert_eq!(
+        arr[0].get("claim_type").and_then(Value::as_str),
+        Some("spec")
+    );
 }
 
 #[test]

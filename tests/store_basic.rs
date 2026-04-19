@@ -92,7 +92,10 @@ fn claim_round_trips_all_optional_fields() {
     assert_eq!(got.id, claim.id);
     assert_eq!(got.claim_type, ClaimType::Spec);
     assert_eq!(got.supersedes.as_deref(), Some("prior-id"));
-    assert_eq!(got.parent_asserter.as_deref(), Some("user:gitlab:delegator"));
+    assert_eq!(
+        got.parent_asserter.as_deref(),
+        Some("user:gitlab:delegator")
+    );
 }
 
 #[test]

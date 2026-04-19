@@ -26,8 +26,8 @@ use serde_json::json;
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
 use tokio_tungstenite::accept_hdr_async;
-use tokio_tungstenite::tungstenite::handshake::server::{Request, Response};
 use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::tungstenite::handshake::server::{Request, Response};
 
 async fn spawn_mock(
     expect_token: &'static str,
@@ -42,6 +42,10 @@ async fn spawn_mock(
         let bearer_seen = Arc::new(std::sync::Mutex::new(false));
         let bearer_seen_cb = bearer_seen.clone();
 
+        // The callback signature is fixed by tokio-tungstenite's
+        // accept_hdr_async: `FnOnce(&Request, Response) -> Result<Response, ErrorResponse>`.
+        // The Response type is large (~136 bytes); we can't shrink it.
+        #[allow(clippy::result_large_err)]
         let ws = accept_hdr_async(stream, move |req: &Request, resp: Response| {
             let got_auth = req
                 .headers()
@@ -65,7 +69,7 @@ async fn spawn_mock(
             "session_id": "mock-do-id",
             "peer_count": 0,
         });
-        tx.send(Message::Text(hello.to_string().into()))
+        tx.send(Message::Text(hello.to_string()))
             .await
             .expect("send hello");
 
@@ -90,7 +94,10 @@ async fn spawn_mock(
         tokio::time::sleep(Duration::from_millis(50)).await;
         let _ = tx.send(Message::Close(None)).await;
 
-        assert!(*bearer_seen.lock().unwrap(), "mock did not observe the Bearer token");
+        assert!(
+            *bearer_seen.lock().unwrap(),
+            "mock did not observe the Bearer token"
+        );
     })
 }
 
@@ -115,7 +122,10 @@ async fn connect_send_recv_round_trip() {
 
     let key = derive_key(b"shared-passphrase", "nomograph/claim").expect("derive_key");
     let payload = b"automerge_save_incremental_bytes_here";
-    client.send_change(&key, payload).await.expect("send_change");
+    client
+        .send_change(&key, payload)
+        .await
+        .expect("send_change");
 
     // Echo-as-peer: recv should decrypt what we just sent.
     let recovered = client

@@ -31,8 +31,8 @@
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
+use base64::engine::general_purpose::STANDARD as B64;
 use futures_util::{SinkExt, StreamExt};
 use http::{HeaderValue, Request};
 use serde::{Deserialize, Serialize};
@@ -41,7 +41,7 @@ use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 use url::Url;
 
-use crate::crypto::{decrypt, encrypt, Key, Nonce};
+use crate::crypto::{Key, Nonce, decrypt, encrypt};
 use crate::error::{Error, Result};
 
 /// AAD attached to every change envelope. Must match the beacon's
@@ -181,7 +181,9 @@ impl BeaconClient {
         req.headers_mut().insert(
             "Authorization",
             HeaderValue::from_str(&format!("Bearer {forge_token}")).map_err(|e| {
-                Error::Other(format!("invalid forge token as header ({e}); strip newlines"))
+                Error::Other(format!(
+                    "invalid forge token as header ({e}); strip newlines"
+                ))
             })?,
         );
 
@@ -208,7 +210,7 @@ impl BeaconClient {
                             project: p,
                             session_id,
                             peer_count,
-                        }
+                        };
                     }
                     Ok(FrameIn::Error { reason }) => {
                         return Err(Error::Other(format!("beacon error frame: {reason}")));
@@ -324,9 +326,9 @@ impl BeaconClient {
                         FrameIn::Error { reason } => {
                             return Err(Error::Other(format!("beacon error: {reason}")));
                         }
-                        FrameIn::Hello { .. }
-                        | FrameIn::Directive { .. }
-                        | FrameIn::Unknown => continue,
+                        FrameIn::Hello { .. } | FrameIn::Directive { .. } | FrameIn::Unknown => {
+                            continue;
+                        }
                     }
                 }
                 Message::Ping(p) => {
@@ -396,7 +398,10 @@ mod tests {
 
     #[test]
     fn urlencoding_minimal_handles_slash_and_colon() {
-        assert_eq!(urlencoding_minimal("nomograph/keaton"), "nomograph%2Fkeaton");
+        assert_eq!(
+            urlencoding_minimal("nomograph/keaton"),
+            "nomograph%2Fkeaton"
+        );
         assert_eq!(urlencoding_minimal("a b"), "a%20b");
         assert_eq!(urlencoding_minimal("abc"), "abc");
     }

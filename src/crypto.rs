@@ -138,9 +138,17 @@ pub fn encrypt(key: &Key, plaintext: &[u8], aad: &[u8]) -> Result<(Nonce, Vec<u8
     let nonce = ChaChaNonce::from_slice(&nonce_bytes);
 
     let ct = cipher
-        .encrypt(nonce, Payload { msg: plaintext, aad })
+        .encrypt(
+            nonce,
+            Payload {
+                msg: plaintext,
+                aad,
+            },
+        )
         .map_err(|_| {
-            Error::Crypto("AEAD seal failed; report this, input sizes are internally bounded".into())
+            Error::Crypto(
+                "AEAD seal failed; report this, input sizes are internally bounded".into(),
+            )
         })?;
     Ok((nonce_bytes, ct))
 }
@@ -166,7 +174,13 @@ pub fn decrypt(key: &Key, nonce: &Nonce, ciphertext: &[u8], aad: &[u8]) -> Resul
     let cipher = ChaCha20Poly1305::new(ChaChaKey::from_slice(key.as_slice()));
     let nonce = ChaChaNonce::from_slice(nonce);
     cipher
-        .decrypt(nonce, Payload { msg: ciphertext, aad })
+        .decrypt(
+            nonce,
+            Payload {
+                msg: ciphertext,
+                aad,
+            },
+        )
         .map_err(|_| {
             Error::Crypto(
                 "AEAD open failed; check passphrase, project slug, and AAD match the encrypt call"
@@ -426,10 +440,19 @@ mod tests {
 
     #[test]
     fn key_path_uses_configured_root() {
+        // SAFETY: edition 2024 marks set_var/remove_var unsafe because
+        // they're process-global and racy. This is a unit test in the
+        // crypto module; no sibling test touches NOMOGRAPH_CONFIG_HOME,
+        // so serialization isn't required here. If that ever changes,
+        // add a static Mutex like the one in tests/crypto_roundtrip.rs.
         let tmp = tempfile::tempdir().unwrap();
-        std::env::set_var("NOMOGRAPH_CONFIG_HOME", tmp.path());
+        unsafe {
+            std::env::set_var("NOMOGRAPH_CONFIG_HOME", tmp.path());
+        }
         let path = key_path("nomograph/claim").unwrap();
-        std::env::remove_var("NOMOGRAPH_CONFIG_HOME");
+        unsafe {
+            std::env::remove_var("NOMOGRAPH_CONFIG_HOME");
+        }
         assert!(path.ends_with("keys/nomograph_claim.key"));
     }
 }

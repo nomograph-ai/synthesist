@@ -104,8 +104,7 @@ impl Session {
     ) -> Result<SessionHandle> {
         if id.is_empty() {
             return Err(Error::Schema(
-                "Session id must be non-empty; pass e.g. `sess-2026-04-18-abc`"
-                    .to_string(),
+                "Session id must be non-empty; pass e.g. `sess-2026-04-18-abc`".to_string(),
             ));
         }
         if asserter_base.is_empty() {
@@ -146,8 +145,7 @@ impl Session {
     pub fn list_live(store: &mut Store) -> Result<Vec<SessionClaim>> {
         let claims = store.load_claims()?;
 
-        let mut superseded: std::collections::HashSet<ClaimId> =
-            std::collections::HashSet::new();
+        let mut superseded: std::collections::HashSet<ClaimId> = std::collections::HashSet::new();
         for c in &claims {
             if !matches!(c.claim_type, ClaimType::Session) {
                 continue;
@@ -286,15 +284,8 @@ mod tests {
     #[test]
     fn handle_asserter_format() {
         let (_tmp, mut store) = fresh_store();
-        let h = Session::start(
-            &mut store,
-            "sess-7",
-            "user:gitlab:andunn",
-            None,
-            None,
-            None,
-        )
-        .expect("start");
+        let h = Session::start(&mut store, "sess-7", "user:gitlab:andunn", None, None, None)
+            .expect("start");
         assert_eq!(h.id(), "sess-7");
         assert_eq!(h.asserter(), "user:gitlab:andunn:sess-7");
     }

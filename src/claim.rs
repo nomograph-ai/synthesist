@@ -178,8 +178,7 @@ fn write_canonical(v: &serde_json::Value, buf: &mut Vec<u8>) {
             buf.extend_from_slice(n.to_string().as_bytes());
         }
         serde_json::Value::String(s) => {
-            let escaped =
-                serde_json::to_string(s).expect("serialize string via serde_json");
+            let escaped = serde_json::to_string(s).expect("serialize string via serde_json");
             buf.extend_from_slice(escaped.as_bytes());
         }
         serde_json::Value::Array(arr) => {
@@ -200,8 +199,7 @@ fn write_canonical(v: &serde_json::Value, buf: &mut Vec<u8>) {
                 if i > 0 {
                     buf.push(b',');
                 }
-                let escaped =
-                    serde_json::to_string(k).expect("serialize key via serde_json");
+                let escaped = serde_json::to_string(k).expect("serialize key via serde_json");
                 buf.extend_from_slice(escaped.as_bytes());
                 buf.push(b':');
                 write_canonical(&m[*k], buf);
@@ -280,7 +278,8 @@ mod tests {
         let t = DateTime::from_timestamp_millis(1_700_000_000_000).unwrap();
         let props = serde_json::json!({
             "n": 42,
-            "f": 3.14,
+            // Arbitrary float value; not a mathematical constant.
+            "f": 17.5,
             "b": true,
             "s": "hello \"world\" \n",
             "nil": null,

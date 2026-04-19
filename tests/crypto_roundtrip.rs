@@ -3,15 +3,28 @@
 //! Uses only the public crypto API and an isolated tempdir for the key file
 //! store via `NOMOGRAPH_CONFIG_HOME`.
 
-use nomograph_claim::crypto::{decrypt, derive_key, encrypt, key_path, load_key, save_key};
 use nomograph_claim::Error;
+use nomograph_claim::crypto::{decrypt, derive_key, encrypt, key_path, load_key, save_key};
+
+// Env-mutation mutex. `std::env::set_var` is unsafe in edition 2024
+// because it's not thread-safe; cargo runs integration tests in parallel
+// within the same binary, so concurrent with_tempdir calls would race.
+// The mutex serializes env mutation per-process for the whole suite.
+static ENV_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 fn with_tempdir<F: FnOnce()>(f: F) {
+    let _guard = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
     let tmp = tempfile::tempdir().expect("tempdir");
-    // Serialize env mutation across tests in this binary using a process-wide mutex.
-    std::env::set_var("NOMOGRAPH_CONFIG_HOME", tmp.path());
+    // SAFETY: the mutex above serializes every env read/write in the
+    // test binary, and tests in other binaries don't share this process.
+    unsafe {
+        std::env::set_var("NOMOGRAPH_CONFIG_HOME", tmp.path());
+    }
     f();
-    std::env::remove_var("NOMOGRAPH_CONFIG_HOME");
+    // SAFETY: same — mutex held for the duration of the test body.
+    unsafe {
+        std::env::remove_var("NOMOGRAPH_CONFIG_HOME");
+    }
 }
 
 #[test]

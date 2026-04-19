@@ -57,7 +57,11 @@ fn corrupt_snapshot_falls_back_to_genesis_plus_changes() {
     fs::write(root.join("snapshot.amc"), b"not a valid automerge doc").unwrap();
     let mut reopened = Store::open(&root).unwrap();
     let claims = reopened.load_claims().unwrap();
-    assert_eq!(claims.len(), 4, "must fall back to genesis + changes replay");
+    assert_eq!(
+        claims.len(),
+        4,
+        "must fall back to genesis + changes replay"
+    );
 }
 
 #[test]

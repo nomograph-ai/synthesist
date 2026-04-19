@@ -6,7 +6,7 @@
 
 use nomograph_claim::schema::validate_claim;
 use nomograph_claim::{Claim, ClaimType};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 fn fixture(ct: &ClaimType) -> Value {
     match ct {
