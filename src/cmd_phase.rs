@@ -18,16 +18,16 @@ use crate::types::Phase;
 /// `phase` table, not per-session).
 const GLOBAL_SESSION_ID: &str = "global-migrated";
 
-pub fn run(cmd: &PhaseCmd, force: bool) -> Result<()> {
-    // The top-level `--session` flag is declared `global = true` with
-    // `env = "SYNTHESIST_SESSION"`. Clap propagates it to env on parse
-    // (see tests around the env binding); if the caller passed nothing
-    // we fall through to the migrated default so legacy `phase show`
-    // still works.
-    let session = std::env::var("SYNTHESIST_SESSION").ok();
+pub fn run(cmd: &PhaseCmd, session: &Option<String>, force: bool) -> Result<()> {
+    // Clap's `env = "SYNTHESIST_SESSION"` on the top-level `--session`
+    // flag is read-only: it populates `cli.session` when the env var is
+    // set, but does NOT write the env var when `--session=<id>` is
+    // passed as a flag. So we must thread the parsed value through
+    // explicitly, same as cmd_tree / cmd_spec / cmd_task.
+    let session_ref = session.as_deref();
     match cmd {
-        PhaseCmd::Set { name } => cmd_phase_set(name, session.as_deref(), force),
-        PhaseCmd::Show => cmd_phase_show(session.as_deref()),
+        PhaseCmd::Set { name } => cmd_phase_set(name, session_ref, force),
+        PhaseCmd::Show => cmd_phase_show(session_ref),
     }
 }
 
@@ -127,14 +127,20 @@ fn current_phase_claim(store: &SynthStore, session_id: &str) -> Result<Option<(S
 /// claim exists for the session, we default to `orient` (the phase
 /// state machine's entry point) so fresh stores don't bail on every
 /// write.
-pub fn check_phase(store: &SynthStore, top_cmd: &str, sub_cmd: &str, force: bool) -> Result<()> {
+pub fn check_phase(
+    store: &SynthStore,
+    session: Option<&str>,
+    top_cmd: &str,
+    sub_cmd: &str,
+    force: bool,
+) -> Result<()> {
     if force {
         return Ok(());
     }
 
-    let session_id = std::env::var("SYNTHESIST_SESSION")
-        .ok()
+    let session_id = session
         .filter(|s| !s.is_empty())
+        .map(String::from)
         .unwrap_or_else(|| GLOBAL_SESSION_ID.to_string());
 
     let phase = current_phase_claim(store, &session_id)?

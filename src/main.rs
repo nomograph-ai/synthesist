@@ -113,7 +113,7 @@ fn run(cli: cli::Cli) -> anyhow::Result<()> {
         let (top, sub) = command_path(&cli.command);
         if !matches!(top, "session" | "phase" | "import") {
             let store = store::Store::discover()?;
-            cmd_phase::check_phase(&store, top, sub, cli.force)?;
+            cmd_phase::check_phase(&store, cli.session.as_deref(), top, sub, cli.force)?;
         }
     }
 
@@ -148,7 +148,7 @@ fn run(cli: cli::Cli) -> anyhow::Result<()> {
         cli::Command::Discovery { cmd } => cmd_discovery::run(cmd, &cli.session),
         cli::Command::Campaign { cmd } => cmd_campaign::run(cmd, &cli.session),
         cli::Command::Session { cmd } => cmd_session::run(cmd),
-        cli::Command::Phase { cmd } => cmd_phase::run(cmd, cli.force),
+        cli::Command::Phase { cmd } => cmd_phase::run(cmd, &cli.session, cli.force),
         cli::Command::Export => cmd_export::cmd_export(),
         cli::Command::Import { file } => cmd_import::cmd_import(file),
         cli::Command::Sql { query } => cmd_sql::cmd_sql(query),
