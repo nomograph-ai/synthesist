@@ -23,6 +23,9 @@ pub mod session;
 pub mod store;
 pub mod view;
 
+#[cfg(feature = "beacon")]
+pub mod beacon_client;
+
 pub use claim::{AsserterId, Claim, ClaimId, ClaimType};
 pub use error::{Error, Result};
 pub use session::{Session, SessionHandle};

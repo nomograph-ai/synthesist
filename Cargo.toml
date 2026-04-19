@@ -44,6 +44,38 @@ clap = { version = "4", features = ["derive"] }
 # serialize compact() against concurrent append() in the same repo.
 fs4 = { version = "0.13", default-features = false, features = ["sync"] }
 
+# Beacon client (optional). Enabled with --features beacon. When off,
+# claim stays async-free for single-host CLI workloads.
+tokio = { version = "1", default-features = false, features = [
+    "rt",
+    "macros",
+    "net",
+    "time",
+    "io-util",
+    "sync",
+], optional = true }
+tokio-tungstenite = { version = "0.23", default-features = false, features = [
+    "rustls-tls-webpki-roots",
+    "connect",
+], optional = true }
+futures-util = { version = "0.3", default-features = false, features = [
+    "sink",
+], optional = true }
+base64 = { version = "0.22", optional = true }
+url = { version = "2", optional = true }
+http = { version = "1", optional = true }
+
+[features]
+default = []
+beacon = [
+    "dep:tokio",
+    "dep:tokio-tungstenite",
+    "dep:futures-util",
+    "dep:base64",
+    "dep:url",
+    "dep:http",
+]
+
 [dev-dependencies]
 tempfile = "3"
 proptest = "1"
