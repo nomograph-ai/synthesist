@@ -12,12 +12,10 @@
 use std::collections::{HashMap, HashSet};
 
 use anyhow::{Context, Result};
-use nomograph_claim::{schema::validate_claim, Session};
-use serde_json::{json, Value};
+use nomograph_claim::{Session, schema::validate_claim};
+use serde_json::{Value, json};
 
-use crate::store::{
-    find_legacy_v1_db, json_out, legacy_migration_error, SynthStore, CLAIMS_DIR,
-};
+use crate::store::{CLAIMS_DIR, SynthStore, find_legacy_v1_db, json_out, legacy_migration_error};
 
 /// `synthesist init`: create `<cwd>/claims` if absent, else no-op.
 ///
@@ -189,7 +187,11 @@ pub fn cmd_check() -> Result<()> {
     )?;
     let superseded: HashSet<String> = tasks
         .iter()
-        .filter_map(|r| r.get("supersedes").and_then(|v| v.as_str()).map(String::from))
+        .filter_map(|r| {
+            r.get("supersedes")
+                .and_then(|v| v.as_str())
+                .map(String::from)
+        })
         .collect();
 
     // Per (tree, spec): live task ids = most recent non-superseded per task id.
@@ -271,7 +273,11 @@ fn query_tree_heads(store: &SynthStore) -> Result<Vec<Value>> {
     )?;
     let superseded: HashSet<String> = rows
         .iter()
-        .filter_map(|r| r.get("supersedes").and_then(|v| v.as_str()).map(String::from))
+        .filter_map(|r| {
+            r.get("supersedes")
+                .and_then(|v| v.as_str())
+                .map(String::from)
+        })
         .collect();
     let mut seen: HashSet<String> = HashSet::new();
     let mut out: Vec<Value> = Vec::new();
@@ -328,7 +334,11 @@ fn ready_tasks_all(store: &SynthStore) -> Result<Vec<Value>> {
     )?;
     let superseded: HashSet<String> = rows
         .iter()
-        .filter_map(|r| r.get("supersedes").and_then(|v| v.as_str()).map(String::from))
+        .filter_map(|r| {
+            r.get("supersedes")
+                .and_then(|v| v.as_str())
+                .map(String::from)
+        })
         .collect();
 
     // Live task props per (tree, spec, task_id), first seen (most recent) wins.

@@ -2,6 +2,7 @@
 name = "nomograph-synthesist"
 version = "2.0.0"
 edition = "2024"
+rust-version = "1.88"
 description = "Specification graph manager"
 authors = ["Andrew Dunn <andunn@gitlab.com>"]
 repository = "https://gitlab.com/nomograph/synthesist"
@@ -9,9 +10,23 @@ homepage = "https://gitlab.com/nomograph/synthesist"
 keywords = ["specification", "task", "dag", "agent"]
 categories = ["command-line-utilities"]
 readme = "README.md"
-exclude = ["*.png", "*.svg", "hero.*", "avatar.*"]
+exclude = [
+    "target/*",
+    "claims/*",
+    ".synth/*",
+    ".lock",
+    "*.swp",
+    "*.png",
+    "*.svg",
+    "hero.*",
+    "avatar.*",
+    "/synthesist",
+    "dist/*",
+    "tools/*",
+    "docs/*",
+    "MIGRATION.md",
+]
 license = "MIT"
-rust-version = "1.88"
 
 [[bin]]
 name = "synthesist"
@@ -26,8 +41,8 @@ anyhow = "1"
 time = { version = "0.3", features = ["local-offset", "formatting", "macros"] }
 chrono = { version = "0.4", features = ["serde"] }
 thiserror = "1"
-nomograph-claim = { path = "../claim" }
-nomograph-workflow = { path = "../workflow" }
+nomograph-claim = "0.1"
+nomograph-workflow = "0.1"
 
 [features]
 # Legacy SQL-backed commands not yet ported to the claim substrate.

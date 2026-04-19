@@ -51,14 +51,18 @@ fn discovery_add_then_list_returns_the_finding() {
         ])
         .assert()
         .success()
-        .stdout(predicate::str::contains("claim projection wins on concurrency"))
+        .stdout(predicate::str::contains(
+            "claim projection wins on concurrency",
+        ))
         .stdout(predicate::str::contains("2026-04-18"));
 
     synth(&dir)
         .args(["discovery", "list", "demo/wave4"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("claim projection wins on concurrency"))
+        .stdout(predicate::str::contains(
+            "claim projection wins on concurrency",
+        ))
         .stdout(predicate::str::contains("andunn"))
         .stdout(predicate::str::contains("port discovery to claims"));
 }

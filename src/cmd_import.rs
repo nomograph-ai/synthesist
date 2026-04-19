@@ -23,14 +23,15 @@ use std::io::Read;
 use anyhow::{Context, Result};
 use chrono::{DateTime, TimeZone, Utc};
 use nomograph_claim::{Claim, ClaimType};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
-use crate::store::{json_out, SynthStore};
+use crate::store::{SynthStore, json_out};
 
 pub fn cmd_import(file: &Option<String>) -> Result<()> {
     let json_str = match file {
-        Some(path) => std::fs::read_to_string(path)
-            .with_context(|| format!("read import file {path}"))?,
+        Some(path) => {
+            std::fs::read_to_string(path).with_context(|| format!("read import file {path}"))?
+        }
         None => {
             let mut buf = String::new();
             std::io::stdin()
@@ -41,9 +42,7 @@ pub fn cmd_import(file: &Option<String>) -> Result<()> {
     };
 
     let data: Value = serde_json::from_str(&json_str).context("parse import JSON")?;
-    let obj = data
-        .as_object()
-        .context("expected top-level JSON object")?;
+    let obj = data.as_object().context("expected top-level JSON object")?;
 
     let mut store = SynthStore::discover()?;
     let mut imported: usize = 0;
@@ -74,10 +73,7 @@ pub fn cmd_import(file: &Option<String>) -> Result<()> {
                 continue;
             };
             for row in rows {
-                if store
-                    .append(claim_type.clone(), row.clone(), None)
-                    .is_ok()
-                {
+                if store.append(claim_type.clone(), row.clone(), None).is_ok() {
                     imported += 1;
                 } else {
                     skipped += 1;

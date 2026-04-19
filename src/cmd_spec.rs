@@ -14,12 +14,12 @@
 
 use std::collections::HashSet;
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{Result, anyhow, bail};
 use nomograph_claim::ClaimType;
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 
 use crate::cli::SpecCmd;
-use crate::store::{json_out, SynthStore};
+use crate::store::{SynthStore, json_out};
 
 /// Dispatch a `synthesist spec <...>` subcommand.
 pub fn run(cmd: &SpecCmd, session: &Option<String>) -> Result<()> {
@@ -273,7 +273,11 @@ fn query_spec_heads(store: &SynthStore, tree: &str) -> Result<Vec<Value>> {
 
     let superseded: HashSet<String> = rows
         .iter()
-        .filter_map(|r| r.get("supersedes").and_then(|v| v.as_str()).map(String::from))
+        .filter_map(|r| {
+            r.get("supersedes")
+                .and_then(|v| v.as_str())
+                .map(String::from)
+        })
         .collect();
 
     let mut seen: HashSet<String> = HashSet::new();

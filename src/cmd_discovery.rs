@@ -9,10 +9,10 @@
 //! SQL table to the claim substrate per D9/BUILDING-wave4-synthesist.md §M3.
 
 use anyhow::Result;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::cli::DiscoveryCmd;
-use crate::store::{json_out, parse_tree_spec, today, SynthStore};
+use crate::store::{SynthStore, json_out, parse_tree_spec, today};
 
 /// Dispatch a `synthesist discovery <...>` subcommand.
 pub fn run(cmd: &DiscoveryCmd, session: &Option<String>) -> Result<()> {

@@ -14,8 +14,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use chrono::{DateTime, TimeZone, Utc};
 use nomograph_claim::{Claim, ClaimId, ClaimType, Store};
-use rusqlite::{params, Connection, OpenFlags, Row};
-use serde_json::{json, Value};
+use rusqlite::{Connection, OpenFlags, Row, params};
+use serde_json::{Value, json};
 use thiserror::Error;
 
 /// Asserter used for all migrated claims.
@@ -220,11 +220,7 @@ fn verify_counts(conn: &Connection, summary: &MigrationSummary) -> Result<()> {
             summary.dispositions,
             "SELECT COUNT(*) FROM dispositions",
         ),
-        (
-            "signals",
-            summary.signals,
-            "SELECT COUNT(*) FROM signals",
-        ),
+        ("signals", summary.signals, "SELECT COUNT(*) FROM signals"),
         (
             "phase",
             summary.phase,
@@ -311,7 +307,8 @@ fn migrate_trees(conn: &Connection, store: &mut Store, s: &mut MigrationSummary)
         Ok((
             row.get::<_, String>("name")?,
             row.get::<_, Option<String>>("status")?.unwrap_or_default(),
-            row.get::<_, Option<String>>("description")?.unwrap_or_default(),
+            row.get::<_, Option<String>>("description")?
+                .unwrap_or_default(),
         ))
     })?;
     for r in rows {
@@ -372,8 +369,7 @@ fn migrate_specs(conn: &Connection, store: &mut Store, s: &mut MigrationSummary)
 fn migrate_tasks(conn: &Connection, store: &mut Store, s: &mut MigrationSummary) -> Result<()> {
     // Gather deps and files per task first, then stitch into Task claim.
     let deps: std::collections::HashMap<(String, String, String), Vec<String>> = {
-        let mut stmt =
-            conn.prepare("SELECT tree, spec, task_id, depends_on FROM task_deps")?;
+        let mut stmt = conn.prepare("SELECT tree, spec, task_id, depends_on FROM task_deps")?;
         let rows = stmt.query_map([], |row| {
             Ok((
                 row.get::<_, String>("tree")?,
@@ -391,8 +387,7 @@ fn migrate_tasks(conn: &Connection, store: &mut Store, s: &mut MigrationSummary)
         m
     };
     let files: std::collections::HashMap<(String, String, String), Vec<String>> = {
-        let mut stmt =
-            conn.prepare("SELECT tree, spec, task_id, path FROM task_files")?;
+        let mut stmt = conn.prepare("SELECT tree, spec, task_id, path FROM task_files")?;
         let rows = stmt.query_map([], |row| {
             Ok((
                 row.get::<_, String>("tree")?,
@@ -413,8 +408,8 @@ fn migrate_tasks(conn: &Connection, store: &mut Store, s: &mut MigrationSummary)
         (String, String, String),
         Vec<(i64, String, String)>,
     > = {
-        let mut stmt = conn
-            .prepare("SELECT tree, spec, task_id, seq, criterion, verify_cmd FROM acceptance")?;
+        let mut stmt =
+            conn.prepare("SELECT tree, spec, task_id, seq, criterion, verify_cmd FROM acceptance")?;
         let rows = stmt.query_map([], |row| {
             Ok((
                 row.get::<_, String>("tree")?,
@@ -425,10 +420,8 @@ fn migrate_tasks(conn: &Connection, store: &mut Store, s: &mut MigrationSummary)
                 row.get::<_, String>("verify_cmd")?,
             ))
         })?;
-        let mut m: std::collections::HashMap<
-            (String, String, String),
-            Vec<(i64, String, String)>,
-        > = Default::default();
+        let mut m: std::collections::HashMap<(String, String, String), Vec<(i64, String, String)>> =
+            Default::default();
         for r in rows {
             let (t, sp, tid, seq, cr, vc) = r?;
             m.entry((t, sp, tid)).or_default().push((seq, cr, vc));
@@ -495,10 +488,13 @@ fn migrate_tasks(conn: &Connection, store: &mut Store, s: &mut MigrationSummary)
     Ok(())
 }
 
-fn migrate_discoveries(conn: &Connection, store: &mut Store, s: &mut MigrationSummary) -> Result<()> {
-    let mut stmt = conn.prepare(
-        "SELECT tree, spec, id, date, author, finding, impact, action FROM discoveries",
-    )?;
+fn migrate_discoveries(
+    conn: &Connection,
+    store: &mut Store,
+    s: &mut MigrationSummary,
+) -> Result<()> {
+    let mut stmt = conn
+        .prepare("SELECT tree, spec, id, date, author, finding, impact, action FROM discoveries")?;
     let rows = stmt.query_map([], |row| {
         Ok((
             row.get::<_, String>("tree")?,
@@ -537,8 +533,7 @@ fn migrate_discoveries(conn: &Connection, store: &mut Store, s: &mut MigrationSu
 
 fn migrate_campaigns(conn: &Connection, store: &mut Store, s: &mut MigrationSummary) -> Result<()> {
     let blocked: std::collections::HashMap<(String, String), Vec<String>> = {
-        let mut stmt =
-            conn.prepare("SELECT tree, spec_id, blocked_by FROM campaign_blocked_by")?;
+        let mut stmt = conn.prepare("SELECT tree, spec_id, blocked_by FROM campaign_blocked_by")?;
         let rows = stmt.query_map([], |row| {
             Ok((
                 row.get::<_, String>("tree")?,
@@ -612,9 +607,8 @@ fn migrate_campaigns(conn: &Connection, store: &mut Store, s: &mut MigrationSumm
 }
 
 fn migrate_sessions(conn: &Connection, store: &mut Store, s: &mut MigrationSummary) -> Result<()> {
-    let mut stmt = conn.prepare(
-        "SELECT id, started, owner, tree, spec, summary, status FROM session_meta",
-    )?;
+    let mut stmt =
+        conn.prepare("SELECT id, started, owner, tree, spec, summary, status FROM session_meta")?;
     let rows = stmt.query_map([], |row| {
         Ok((
             row.get::<_, String>("id")?,
@@ -649,8 +643,7 @@ fn migrate_stakeholders(
     s: &mut MigrationSummary,
 ) -> Result<()> {
     let orgs: std::collections::HashMap<(String, String), Vec<String>> = {
-        let mut stmt =
-            conn.prepare("SELECT tree, stakeholder_id, org FROM stakeholder_orgs")?;
+        let mut stmt = conn.prepare("SELECT tree, stakeholder_id, org FROM stakeholder_orgs")?;
         let rows = stmt.query_map([], |row| {
             Ok((
                 row.get::<_, String>("tree")?,
@@ -718,8 +711,20 @@ fn migrate_dispositions(
         ))
     })?;
     for r in rows {
-        let (_tree, _spec, _id, stakeholder_id, topic, stance, preferred, detail, confidence, vf, _vu, _sb) =
-            r?;
+        let (
+            _tree,
+            _spec,
+            _id,
+            stakeholder_id,
+            topic,
+            stance,
+            preferred,
+            detail,
+            confidence,
+            vf,
+            _vu,
+            _sb,
+        ) = r?;
         let props = json!({
             "stakeholder_id": stakeholder_id,
             "topic": topic,
@@ -757,8 +762,19 @@ fn migrate_signals(conn: &Connection, store: &mut Store, s: &mut MigrationSummar
         ))
     })?;
     for r in rows {
-        let (_tree, _spec, _id, stakeholder_id, date, recorded_date, source, source_type, content, interpretation, our_action) =
-            r?;
+        let (
+            _tree,
+            _spec,
+            _id,
+            stakeholder_id,
+            date,
+            recorded_date,
+            source,
+            source_type,
+            content,
+            interpretation,
+            our_action,
+        ) = r?;
         let ts = DateTime::parse_from_rfc3339(&date)
             .map(|d| d.with_timezone(&Utc))
             .unwrap_or_else(|_| Utc::now());
@@ -783,11 +799,9 @@ fn migrate_signals(conn: &Connection, store: &mut Store, s: &mut MigrationSummar
 
 fn migrate_phase(conn: &Connection, store: &mut Store, s: &mut MigrationSummary) -> Result<()> {
     let name: Option<String> = conn
-        .query_row(
-            "SELECT name FROM phase WHERE id = 1",
-            params![],
-            |row| row.get(0),
-        )
+        .query_row("SELECT name FROM phase WHERE id = 1", params![], |row| {
+            row.get(0)
+        })
         .ok();
     if let Some(name) = name {
         // Must match workflow::phase::GLOBAL_SESSION_ID. `synthesist
@@ -868,8 +882,7 @@ fn cmd_v1_to_v2(
                 .unwrap_or(serde_json::Value::Null);
             let mut next_actions: Vec<String> = vec![
                 "run `synthesist check` to verify claim integrity".to_string(),
-                "run `synthesist status` to confirm trees/tasks match your v1 counts"
-                    .to_string(),
+                "run `synthesist status` to confirm trees/tasks match your v1 counts".to_string(),
                 "commit the claims/ directory to git".to_string(),
             ];
             if dry_run {

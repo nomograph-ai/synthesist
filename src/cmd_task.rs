@@ -6,12 +6,12 @@
 
 use std::process::Command as ShellCommand;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use nomograph_claim::{ClaimId, ClaimType};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::cli::TaskCmd;
-use crate::store::{json_out, parse_tree_spec, SynthStore};
+use crate::store::{SynthStore, json_out, parse_tree_spec};
 
 pub fn run(cmd: &TaskCmd, session: &Option<String>) -> Result<()> {
     match cmd {
@@ -94,9 +94,7 @@ pub fn run(cmd: &TaskCmd, session: &Option<String>) -> Result<()> {
         }
         TaskCmd::Block { tree_spec, task_id } => {
             let (tree, spec) = parse_tree_spec(tree_spec)?;
-            cmd_task_status_transition(
-                &tree, &spec, task_id, "blocked", None, None, session,
-            )
+            cmd_task_status_transition(&tree, &spec, task_id, "blocked", None, None, session)
         }
         TaskCmd::Wait {
             tree_spec,
@@ -122,7 +120,13 @@ pub fn run(cmd: &TaskCmd, session: &Option<String>) -> Result<()> {
             let (tree, spec) = parse_tree_spec(tree_spec)?;
             let reason_pair = reason.as_deref().map(|r| ("failure_note", r));
             cmd_task_status_transition(
-                &tree, &spec, task_id, "cancelled", reason_pair, None, session,
+                &tree,
+                &spec,
+                task_id,
+                "cancelled",
+                reason_pair,
+                None,
+                session,
             )
         }
         TaskCmd::Ready { tree_spec } => {
@@ -269,12 +273,7 @@ fn cmd_task_add(
     json_out(&props)
 }
 
-fn cmd_task_list(
-    tree: &str,
-    spec: &str,
-    active: bool,
-    session: &Option<String>,
-) -> Result<()> {
+fn cmd_task_list(tree: &str, spec: &str, active: bool, session: &Option<String>) -> Result<()> {
     let store = SynthStore::discover_for(session)?;
     let tasks = list_current_tasks(&store, tree, spec)?;
     let filtered: Vec<Value> = if active {
@@ -291,12 +290,7 @@ fn cmd_task_list(
     json_out(&json!({ "tasks": filtered }))
 }
 
-fn cmd_task_show(
-    tree: &str,
-    spec: &str,
-    task_id: &str,
-    session: &Option<String>,
-) -> Result<()> {
+fn cmd_task_show(tree: &str, spec: &str, task_id: &str, session: &Option<String>) -> Result<()> {
     let store = SynthStore::discover_for(session)?;
     match current_task(&store, tree, spec, task_id)? {
         Some((_id, props)) => json_out(&props),
@@ -329,12 +323,7 @@ fn cmd_task_update(
     json_out(&props)
 }
 
-fn cmd_task_claim(
-    tree: &str,
-    spec: &str,
-    task_id: &str,
-    session: &Option<String>,
-) -> Result<()> {
+fn cmd_task_claim(tree: &str, spec: &str, task_id: &str, session: &Option<String>) -> Result<()> {
     let mut store = SynthStore::discover_for(session)?;
     let (prior_id, mut props) = current_task(&store, tree, spec, task_id)?
         .with_context(|| format!("task {tree}/{spec}/{task_id} not found"))?;

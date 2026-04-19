@@ -11,12 +11,12 @@
 //! bail with a prescriptive message telling the caller what to do
 //! instead.
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{Result, anyhow, bail};
 use nomograph_claim::{ClaimType, Session};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::cli::SessionCmd;
-use crate::store::{json_out, SynthStore};
+use crate::store::{SynthStore, json_out};
 
 pub fn run(cmd: &SessionCmd) -> Result<()> {
     match cmd {
@@ -93,8 +93,8 @@ fn cmd_session_start(
 /// `session list` — every live session opener.
 fn cmd_session_list() -> Result<()> {
     let mut store = SynthStore::discover()?;
-    let sessions = Session::list_live(store.inner())
-        .map_err(|e| anyhow!("session list failed: {e}"))?;
+    let sessions =
+        Session::list_live(store.inner()).map_err(|e| anyhow!("session list failed: {e}"))?;
     let out: Vec<Value> = sessions
         .into_iter()
         .map(|s| {
@@ -124,13 +124,10 @@ fn cmd_session_status(id: &str) -> Result<()> {
     )?;
 
     // Find the most recent opener (claim with no `supersedes`) for this id.
-    let opener = rows.iter().find(|r| {
-        r.get("supersedes")
-            .map(|v| v.is_null())
-            .unwrap_or(true)
-    });
-    let opener = opener
-        .ok_or_else(|| anyhow!("session '{id}' not found"))?;
+    let opener = rows
+        .iter()
+        .find(|r| r.get("supersedes").map(|v| v.is_null()).unwrap_or(true));
+    let opener = opener.ok_or_else(|| anyhow!("session '{id}' not found"))?;
 
     let props_str = opener
         .get("props")
@@ -142,17 +139,12 @@ fn cmd_session_status(id: &str) -> Result<()> {
     // `supersedes` set to the opener's id. Because the opener query
     // already limits to id=?1, presence of any closer in `rows` means
     // closed.
-    let closed = rows.iter().any(|r| {
-        r.get("supersedes")
-            .and_then(|v| v.as_str())
-            .is_some()
-    });
+    let closed = rows
+        .iter()
+        .any(|r| r.get("supersedes").and_then(|v| v.as_str()).is_some());
     let status = if closed { "closed" } else { "active" };
 
-    let started_at = opener
-        .get("asserted_at")
-        .cloned()
-        .unwrap_or(Value::Null);
+    let started_at = opener.get("asserted_at").cloned().unwrap_or(Value::Null);
 
     json_out(&json!({
         "id": id,

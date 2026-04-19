@@ -11,8 +11,8 @@
 //! through one upstream file rather than two parallel copies.
 
 pub use nomograph_workflow::{
-    find_legacy_v1_db, json_out, legacy_migration_error, parse_tree_spec, today,
-    Store as SynthStore, CLAIMS_DIR,
+    CLAIMS_DIR, Store as SynthStore, find_legacy_v1_db, json_out, legacy_migration_error,
+    parse_tree_spec, today,
 };
 
 /// Back-compat alias retained from the v2 rewrite. Prefer `SynthStore`

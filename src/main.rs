@@ -94,9 +94,7 @@ fn run(cli: cli::Cli) -> anyhow::Result<()> {
         } | cli::Command::Spec {
             cmd: cli::SpecCmd::Show { .. } | cli::SpecCmd::List { .. },
         } | cli::Command::Task {
-            cmd: cli::TaskCmd::List { .. }
-                | cli::TaskCmd::Show { .. }
-                | cli::TaskCmd::Ready { .. },
+            cmd: cli::TaskCmd::List { .. } | cli::TaskCmd::Show { .. } | cli::TaskCmd::Ready { .. },
         } | cli::Command::Discovery {
             cmd: cli::DiscoveryCmd::List { .. },
         } | cli::Command::Campaign {
@@ -218,7 +216,10 @@ fn cmd_version(offline: bool) -> anyhow::Result<()> {
         let latest = tag.strip_prefix('v').unwrap_or(&tag);
         let latest = latest.split('-').next().unwrap_or(latest);
         result.insert("latest".into(), serde_json::json!(tag));
-        result.insert("update_available".into(), serde_json::json!(latest > current));
+        result.insert(
+            "update_available".into(),
+            serde_json::json!(latest > current),
+        );
         result.insert("update_url".into(), serde_json::json!(url));
     }
 
@@ -230,7 +231,8 @@ fn check_latest_version() -> Option<(String, String)> {
     let output = std::process::Command::new("curl")
         .args([
             "-sf",
-            "--max-time", "3",
+            "--max-time",
+            "3",
             "https://gitlab.com/api/v4/projects/nomograph%2Fsynthesist/releases?per_page=1",
         ])
         .output()
@@ -247,9 +249,7 @@ fn check_latest_version() -> Option<(String, String)> {
         .pointer("/_links/self")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
-        .unwrap_or_else(|| {
-            format!("https://gitlab.com/nomograph/synthesist/-/releases/{tag}")
-        });
+        .unwrap_or_else(|| format!("https://gitlab.com/nomograph/synthesist/-/releases/{tag}"));
     Some((tag, url))
 }
 

@@ -5,14 +5,14 @@
 //! the CLI-facing `phase set` / `phase show` handlers; cross-tool
 //! consumers (future `seer`) share the state machine automatically.
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{Result, anyhow, bail};
 use nomograph_claim::ClaimType;
-use nomograph_workflow::phase::{current_phase_claim, GLOBAL_SESSION_ID};
 use nomograph_workflow::Phase;
+use nomograph_workflow::phase::{GLOBAL_SESSION_ID, current_phase_claim};
 use serde_json::json;
 
 use crate::cli::PhaseCmd;
-use crate::store::{json_out, SynthStore};
+use crate::store::{SynthStore, json_out};
 
 /// Re-exported for `main.rs` so command dispatch can keep calling
 /// `cmd_phase::check_phase(..)` without every caller learning the
@@ -41,7 +41,9 @@ fn resolve_session(explicit: Option<&str>) -> String {
 
 fn cmd_phase_set(name: &str, session: Option<&str>, force: bool) -> Result<()> {
     let target = Phase::from_str(name).ok_or_else(|| {
-        anyhow!("unknown phase: {name} (valid: orient, plan, agree, execute, reflect, replan, report)")
+        anyhow!(
+            "unknown phase: {name} (valid: orient, plan, agree, execute, reflect, replan, report)"
+        )
     })?;
 
     let session_id = resolve_session(session);

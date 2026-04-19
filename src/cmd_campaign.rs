@@ -9,10 +9,10 @@
 //! CLI surface is unchanged from v1.2.x.
 
 use anyhow::Result;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::cli::CampaignCmd;
-use crate::store::{json_out, SynthStore};
+use crate::store::{SynthStore, json_out};
 
 /// Dispatch a `synthesist campaign <...>` subcommand.
 pub fn run(cmd: &CampaignCmd, session: &Option<String>) -> Result<()> {

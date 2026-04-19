@@ -6,10 +6,10 @@
 //! error; we catch the error and re-emit a synthesist-branded message
 //! so the CLI experience doesn't leak `View::query` internals.
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use serde_json::json;
 
-use crate::store::{json_out, SynthStore};
+use crate::store::{SynthStore, json_out};
 
 /// SQL keywords we reject up front — the underlying view does the
 /// same, but a pre-check produces a clearer error (and short-circuits

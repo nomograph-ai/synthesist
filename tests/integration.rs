@@ -39,10 +39,7 @@ fn test_version() {
 #[test]
 fn test_skill_output() {
     let tmp = tempfile::tempdir().unwrap();
-    synth(&tmp)
-        .args(["skill"])
-        .assert()
-        .success();
+    synth(&tmp).args(["skill"]).assert().success();
 }
 
 // -----------------------------------------------------------------------------
@@ -95,15 +92,40 @@ fn test_tree_spec_task_flow() {
         .assert()
         .success();
     synth(&tmp)
-        .args(["--session", "s1", "tree", "add", "keaton", "--description", "k"])
+        .args([
+            "--session",
+            "s1",
+            "tree",
+            "add",
+            "keaton",
+            "--description",
+            "k",
+        ])
         .assert()
         .success();
     synth(&tmp)
-        .args(["--session", "s1", "spec", "add", "keaton/graphs", "--goal", "g"])
+        .args([
+            "--session",
+            "s1",
+            "spec",
+            "add",
+            "keaton/graphs",
+            "--goal",
+            "g",
+        ])
         .assert()
         .success();
     synth(&tmp)
-        .args(["--session", "s1", "task", "add", "keaton/graphs", "first", "--id", "t1"])
+        .args([
+            "--session",
+            "s1",
+            "task",
+            "add",
+            "keaton/graphs",
+            "first",
+            "--id",
+            "t1",
+        ])
         .assert()
         .success();
     let listed = synth(&tmp)

@@ -48,8 +48,7 @@ const SPEC_CREATED_KEATON_ALPHA: &str = "2026-02-01T12:00:00+00:00";
 // -----------------------------------------------------------------------------
 
 fn v1_schema() -> String {
-    let schema_path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("src/migrations/0001_initial.sql");
+    let schema_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/migrations/0001_initial.sql");
     std::fs::read_to_string(schema_path).expect("read v1 schema")
 }
 
@@ -107,11 +106,46 @@ fn build_v1_fixture(db_path: &Path) {
 
     // tasks — 5 total, every status once
     for (tree, spec, id, summary, status, created) in [
-        ("keaton", "alpha", "t1", "pending task", "pending", "2026-02-01T13:00:00+00:00"),
-        ("keaton", "alpha", "t2", "in flight", "in_progress", "2026-02-01T13:05:00+00:00"),
-        ("keaton", "alpha", "t3", "done task", "done", "2026-02-01T13:10:00+00:00"),
-        ("keaton", "bare", "t4", "blocked task", "blocked", "2026-02-02T13:00:00+00:00"),
-        ("upstream", "done-one", "t5", "cancelled task", "cancelled", "2026-01-15T13:00:00+00:00"),
+        (
+            "keaton",
+            "alpha",
+            "t1",
+            "pending task",
+            "pending",
+            "2026-02-01T13:00:00+00:00",
+        ),
+        (
+            "keaton",
+            "alpha",
+            "t2",
+            "in flight",
+            "in_progress",
+            "2026-02-01T13:05:00+00:00",
+        ),
+        (
+            "keaton",
+            "alpha",
+            "t3",
+            "done task",
+            "done",
+            "2026-02-01T13:10:00+00:00",
+        ),
+        (
+            "keaton",
+            "bare",
+            "t4",
+            "blocked task",
+            "blocked",
+            "2026-02-02T13:00:00+00:00",
+        ),
+        (
+            "upstream",
+            "done-one",
+            "t5",
+            "cancelled task",
+            "cancelled",
+            "2026-01-15T13:00:00+00:00",
+        ),
     ] {
         conn.execute(
             "INSERT INTO tasks (tree, spec, id, summary, description, status, created) \
@@ -356,7 +390,10 @@ fn real_run_writes_claims_and_counts_match() {
                 .unwrap_or(false)
         })
         .count();
-    assert!(n_change_files > 0, "expected change files in {changes_dir:?}");
+    assert!(
+        n_change_files > 0,
+        "expected change files in {changes_dir:?}"
+    );
 }
 
 #[test]
@@ -475,9 +512,9 @@ fn claim_level_spot_checks() {
     );
 
     // Idempotence marker: a Discovery claim with tree=__migration__.
-    let has_marker = by_type[&ClaimType::Discovery].iter().any(|c| {
-        c.props.get("tree").and_then(|v| v.as_str()) == Some("__migration__")
-    });
+    let has_marker = by_type[&ClaimType::Discovery]
+        .iter()
+        .any(|c| c.props.get("tree").and_then(|v| v.as_str()) == Some("__migration__"));
     assert!(has_marker, "migration marker Discovery missing");
 }
 

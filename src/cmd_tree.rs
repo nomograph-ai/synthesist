@@ -5,7 +5,7 @@ use nomograph_claim::ClaimType;
 use serde_json::json;
 
 use crate::cli::TreeCmd;
-use crate::store::{json_out, SynthStore};
+use crate::store::{SynthStore, json_out};
 
 pub fn run(cmd: &TreeCmd, session: &Option<String>) -> Result<()> {
     match cmd {

@@ -16,13 +16,13 @@
 //! The envelope also has `version` and `exported` (today's date).
 
 use anyhow::{Context, Result};
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 
 // Note: `result` below uses `serde_json::Map<String, Value>` for the
 // outer envelope (fixed schema). Typed groupings are held in a plain
 // `BTreeMap<String, Vec<Value>>` so we can push into the Vecs.
 
-use crate::store::{json_out, today, SynthStore};
+use crate::store::{SynthStore, json_out, today};
 
 pub fn cmd_export() -> Result<()> {
     let store = SynthStore::discover()?;
