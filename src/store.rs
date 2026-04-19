@@ -1,243 +1,178 @@
-//! Database access layer for synthesist.
+//! Synthesist store — thin adapter over `nomograph-claim`.
 //!
-//! Owns the SQLite connection, schema initialization, and session management.
-//! All database access goes through Store. No raw SQL elsewhere.
+//! v2: every workflow write becomes a typed claim via
+//! [`SynthStore::append`]; every read runs SQL over the SQLite view
+//! materialized by [`nomograph_claim::View`]. The old SQLite schema
+//! and file-copy session machinery are gone.
 
-use std::fs;
 use std::path::{Path, PathBuf};
 
-use anyhow::{bail, Context, Result};
-use rusqlite::Connection;
+use anyhow::{Context, Result};
+use nomograph_claim::{Claim, ClaimId, ClaimType, Store as ClaimStore, View};
+use serde_json::Value;
 
-use crate::schema;
+/// Directory inside the repo that owns the claim substrate. Visible,
+/// full name, no nicknames (per D3).
+pub const CLAIMS_DIR: &str = "claims";
 
-/// Data directory name. Visible, full name, no dot prefix.
-pub const DATA_DIR: &str = "synthesist";
-/// Database file within the data directory.
-const DB_FILE: &str = "main.db";
-/// Sessions subdirectory (gitignored).
-const SESSIONS_DIR: &str = "sessions";
-
-/// Store wraps a SQLite connection with synthesist-specific operations.
-pub struct Store {
-    pub conn: Connection,
-    /// Root of the project (parent of the data directory).
-    pub root: PathBuf,
-    /// Path to the data directory.
-    pub data_dir: PathBuf,
+fn local_asserter() -> String {
+    let user = std::env::var("USER").unwrap_or_else(|_| "unknown".into());
+    format!("user:local:{user}")
 }
 
-impl Store {
-    /// Open the database at the given path. Sets PRAGMAs and creates schema.
-    fn open(db_path: &Path, root: PathBuf, data_dir: PathBuf) -> Result<Self> {
-        let mut conn = Connection::open(db_path)
-            .with_context(|| format!("opening database at {}", db_path.display()))?;
+/// Synthesist's handle over a project's `claims/` directory.
+///
+/// Writes go through [`SynthStore::append`]; reads go through
+/// [`SynthStore::query`]. Every append syncs the view before returning.
+pub struct SynthStore {
+    inner: ClaimStore,
+    view: View,
+    asserted_by: String,
+    root: PathBuf,
+}
 
-        // PRAGMAs: journal_mode=DELETE (not WAL), foreign keys on, busy timeout 5s.
-        conn.execute_batch(
-            "PRAGMA journal_mode = DELETE;
-             PRAGMA foreign_keys = ON;
-             PRAGMA busy_timeout = 5000;",
-        )?;
+impl SynthStore {
+    /// Open (or initialize) a SynthStore at `<repo_root>/claims/`.
+    /// Walks upward from cwd; initializes in cwd if none found.
+    pub fn discover() -> Result<Self> {
+        let cwd = std::env::current_dir().context("cwd")?;
+        Self::discover_from(&cwd)
+    }
 
-        // Run schema migrations (creates tables on first open, upgrades on later opens).
-        let migrations = schema::migrations();
-        migrations
-            .to_latest(&mut conn)
-            .with_context(|| "schema migration failed")?;
+    /// Like [`discover`] but starts from a given path.
+    pub fn discover_from(start: &Path) -> Result<Self> {
+        let mut cur = start.to_path_buf();
+        loop {
+            let candidate = cur.join(CLAIMS_DIR);
+            if candidate.join("genesis.amc").is_file() {
+                return Self::open_at(&candidate);
+            }
+            if !cur.pop() {
+                break;
+            }
+        }
+        Self::init_at(&start.join(CLAIMS_DIR))
+    }
 
-        Ok(Store {
-            conn,
-            root,
-            data_dir,
+    /// Open at an explicit `claims/` directory.
+    pub fn open_at(claims_dir: &Path) -> Result<Self> {
+        let mut inner = ClaimStore::open(claims_dir)
+            .with_context(|| format!("open claim store at {}", claims_dir.display()))?;
+        let mut view = View::open(claims_dir)
+            .with_context(|| format!("open view at {}", claims_dir.display()))?;
+        view.sync(&mut inner).context("sync view on open")?;
+        Ok(Self {
+            inner,
+            view,
+            asserted_by: local_asserter(),
+            root: claims_dir.to_path_buf(),
         })
     }
 
-    /// Initialize a new synthesist data directory in the current directory.
-    pub fn init(root: &Path) -> Result<Self> {
-        let data_dir = root.join(DATA_DIR);
-        if data_dir.join(DB_FILE).exists() {
-            bail!(
-                "already initialized: {} exists",
-                data_dir.join(DB_FILE).display()
-            );
-        }
-        fs::create_dir_all(&data_dir)?;
-
-        // Create .gitignore for sessions directory.
-        let sessions_dir = data_dir.join(SESSIONS_DIR);
-        fs::create_dir_all(&sessions_dir)?;
-        fs::write(
-            sessions_dir.join(".gitignore"),
-            "# Session databases are ephemeral; only main.db is tracked.\n*.db\n",
-        )?;
-
-        let db_path = data_dir.join(DB_FILE);
-        Self::open(&db_path, root.to_path_buf(), data_dir)
+    /// Initialize a fresh SynthStore at `claims_dir`.
+    pub fn init_at(claims_dir: &Path) -> Result<Self> {
+        let inner = ClaimStore::init(claims_dir)
+            .with_context(|| format!("init claim store at {}", claims_dir.display()))?;
+        let view = View::open(claims_dir)
+            .with_context(|| format!("open view at {}", claims_dir.display()))?;
+        Ok(Self {
+            inner,
+            view,
+            asserted_by: local_asserter(),
+            root: claims_dir.to_path_buf(),
+        })
     }
 
-    /// Discover an existing synthesist database by walking parent directories.
-    /// Opens main.db.
-    pub fn discover() -> Result<Self> {
-        let (root, data_dir) = Self::find_data_dir()?;
-        let db_path = data_dir.join(DB_FILE);
-        Self::open(&db_path, root, data_dir)
-    }
-
-    /// Discover and open the appropriate database for the given session.
-    /// If a session .db file exists, opens it (isolated writes).
-    /// If no session file exists, falls back to main.db (the session name
-    /// is still used for ownership tracking via the owner field on tasks).
+    /// v1 compatibility shim: discover, honoring an optional session id.
     pub fn discover_for(session: &Option<String>) -> Result<Self> {
-        match session {
-            Some(id) => {
-                // Validate session ID against path traversal.
-                if id.contains('/') || id.contains('\\') || id.contains("..") || id.is_empty() {
-                    bail!("invalid session ID '{id}': must not contain path separators or '..'");
-                }
-                let (root, data_dir) = Self::find_data_dir()?;
-                let session_path = data_dir.join(SESSIONS_DIR).join(format!("{id}.db"));
-                if session_path.exists() {
-                    Self::open(&session_path, root, data_dir)
-                } else {
-                    // No session file -- write to main.db. The session name
-                    // is still used for logical ownership (task claim).
-                    let db_path = data_dir.join(DB_FILE);
-                    Self::open(&db_path, root, data_dir)
-                }
-            }
-            None => Self::discover(),
+        let mut s = Self::discover()?;
+        if let Some(id) = session {
+            s.asserted_by = format!("{}:{}", s.asserted_by, id);
         }
+        Ok(s)
     }
 
-    /// Locate the synthesist data directory.
-    ///
-    /// Resolution order:
-    /// 1. `SYNTHESIST_DIR` env var (also set by the `--data-dir` CLI flag).
-    ///    Must point at an existing data directory containing `main.db`.
-    /// 2. Walk parent directories from the current working directory looking
-    ///    for a `synthesist/main.db`.
-    ///
-    /// The explicit override exists so that git worktrees (and other detached
-    /// working trees) can reach the main checkout's data directory without
-    /// filesystem symlinks. Set `SYNTHESIST_DIR=/path/to/main/synthesist`.
-    fn find_data_dir() -> Result<(PathBuf, PathBuf)> {
-        if let Ok(explicit) = std::env::var("SYNTHESIST_DIR") {
-            return Self::resolve_explicit_data_dir(&explicit);
+    /// Override the asserter used for subsequent writes.
+    pub fn with_asserter(mut self, asserted_by: impl Into<String>) -> Self {
+        self.asserted_by = asserted_by.into();
+        self
+    }
+
+    /// Append a typed claim; syncs view before returning.
+    pub fn append(
+        &mut self,
+        claim_type: ClaimType,
+        props: Value,
+        supersedes: Option<ClaimId>,
+    ) -> Result<ClaimId> {
+        let mut claim = Claim::new(claim_type, props, self.asserted_by.clone());
+        if let Some(prior) = supersedes {
+            claim = claim.with_supersedes(prior);
         }
-
-        let mut dir = std::env::current_dir()?;
-        loop {
-            let data_dir = dir.join(DATA_DIR);
-            let db_path = data_dir.join(DB_FILE);
-            if db_path.exists() {
-                return Ok((dir, data_dir));
-            }
-            if !dir.pop() {
-                bail!(
-                    "no synthesist database found in any parent directory -- run 'synthesist init', or set SYNTHESIST_DIR (or pass --data-dir) to point at an existing data directory"
-                );
-            }
-        }
+        self.inner.append(&claim).context("append claim")?;
+        self.view
+            .sync(&mut self.inner)
+            .context("sync view after append")?;
+        Ok(claim.id)
     }
 
-    /// Validate an explicit data directory path and derive its project root.
-    fn resolve_explicit_data_dir(value: &str) -> Result<(PathBuf, PathBuf)> {
-        if value.is_empty() {
-            bail!("SYNTHESIST_DIR is set but empty");
-        }
-        let data_dir = PathBuf::from(value);
-        let db_path = data_dir.join(DB_FILE);
-        if !db_path.exists() {
-            bail!(
-                "SYNTHESIST_DIR points at '{}' but no {} exists there -- expected an initialized synthesist data directory",
-                data_dir.display(),
-                DB_FILE
-            );
-        }
-        // Root is the parent of the data dir (conventional layout: <root>/synthesist/main.db).
-        // If the data dir has no parent (filesystem root), fall back to the data dir itself.
-        let root = data_dir
-            .parent()
-            .map(|p| p.to_path_buf())
-            .unwrap_or_else(|| data_dir.clone());
-        Ok((root, data_dir))
+    /// Run a read-only SQL query over the view. Rows are JSON objects.
+    pub fn query(&self, sql: &str, params: &[&dyn rusqlite::ToSql]) -> Result<Vec<Value>> {
+        self.view.query(sql, params).context("view query")
     }
 
-    /// Check current schema version and report migration status.
-    pub fn migration_status(&self) -> Result<serde_json::Value> {
-        let migrations = schema::migrations();
-        let current = migrations
-            .current_version(&self.conn)
-            .map_err(|e| anyhow::anyhow!("failed to read schema version: {e}"))?;
-        Ok(serde_json::json!({
-            "schema_version": format!("{current:?}"),
-            "status": "up to date",
-        }))
+    /// The `claims/` directory backing this store.
+    pub fn root(&self) -> &Path {
+        &self.root
     }
 
-    /// Path to the sessions directory.
-    pub fn sessions_dir(&self) -> PathBuf {
-        self.data_dir.join(SESSIONS_DIR)
+    /// Force a view rebuild.
+    pub fn sync_view(&mut self) -> Result<()> {
+        self.view.sync(&mut self.inner).context("sync view")?;
+        Ok(())
     }
 
-    /// Path to the main database.
-    pub fn main_db_path(&self) -> PathBuf {
-        self.data_dir.join(DB_FILE)
-    }
-
-    /// Path to a session database.
-    pub fn session_db_path(&self, session_id: &str) -> PathBuf {
-        self.sessions_dir().join(format!("{session_id}.db"))
-    }
-
-    /// Today's date as YYYY-MM-DD.
-    pub fn today() -> String {
-        let now = time::OffsetDateTime::now_utc();
-        format!("{:04}-{:02}-{:02}", now.year(), now.month() as u8, now.day())
-    }
-
-    /// Generate the next sequential ID with a given prefix.
-    /// Scans existing IDs matching the prefix and increments.
-    pub fn next_id(&self, table: &str, tree: &str, spec: &str, prefix: &str) -> Result<String> {
-        let query = format!(
-            "SELECT id FROM [{}] WHERE tree = ?1 AND spec = ?2 AND id LIKE ?3 ORDER BY id",
-            table
-        );
-        let pattern = format!("{prefix}%");
-        let mut stmt = self.conn.prepare(&query)?;
-        let ids: Vec<String> = stmt
-            .query_map(rusqlite::params![tree, spec, pattern], |row| {
-                row.get::<_, String>(0)
-            })?
-            .collect::<std::result::Result<Vec<_>, rusqlite::Error>>()?;
-
-        let max_num: u32 = ids
-            .iter()
-            .filter_map(|id| id.strip_prefix(prefix)?.parse::<u32>().ok())
-            .max()
-            .unwrap_or(0);
-
-        Ok(format!("{prefix}{}", max_num + 1))
+    /// Access the underlying claim store (session handles, compact, merge).
+    pub fn inner(&mut self) -> &mut ClaimStore {
+        &mut self.inner
     }
 }
 
-/// Output JSON to stdout with 2-space indentation.
-pub fn json_out(value: &impl serde::Serialize) -> Result<()> {
-    let stdout = std::io::stdout();
-    let writer = stdout.lock();
-    serde_json::to_writer_pretty(writer, value)?;
-    println!();
-    Ok(())
-}
+/// Retain the old `Store` alias so any still-unported M2/M3 call sites
+/// compile against the new backing type without rewriting every import.
+/// Remove after M2 + M3 land and all call sites use `SynthStore` directly.
+pub type Store = SynthStore;
 
-/// Parse "tree/spec" format into (tree, spec).
-pub fn parse_tree_spec(s: &str) -> Result<(&str, &str)> {
-    let (tree, spec) = s
+/// Split a `tree/spec` identifier into its two parts. Returns a
+/// prescriptive error if the input is missing the `/`.
+pub fn parse_tree_spec(input: &str) -> Result<(String, String)> {
+    let (tree, spec) = input
         .split_once('/')
-        .with_context(|| format!("expected tree/spec format, got '{s}'"))?;
+        .context("identifier must be <tree>/<spec>, e.g. keaton/graphs")?;
     if tree.is_empty() || spec.is_empty() {
-        bail!("expected tree/spec format with non-empty components, got '{s}'");
+        anyhow::bail!("identifier must be <tree>/<spec>, e.g. keaton/graphs");
     }
-    Ok((tree, spec))
+    Ok((tree.to_string(), spec.to_string()))
+}
+
+impl SynthStore {
+    /// Today's date as `YYYY-MM-DD` in local time. Used by commands
+    /// that default a `date` prop to "today".
+    pub fn today() -> String {
+        use time::macros::format_description;
+        let fmt = format_description!("[year]-[month]-[day]");
+        time::OffsetDateTime::now_local()
+            .unwrap_or_else(|_| time::OffsetDateTime::now_utc())
+            .format(&fmt)
+            .unwrap_or_else(|_| "1970-01-01".into())
+    }
+}
+
+/// Render a JSON value as a single line on stdout. Kept for v1 parity.
+pub fn json_out(v: &Value) -> Result<()> {
+    println!(
+        "{}",
+        serde_json::to_string(v).context("serialize output")?
+    );
+    Ok(())
 }

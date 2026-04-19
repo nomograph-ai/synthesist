@@ -1,8 +1,9 @@
 .DS_Store
 *.log
 
-# Rust build artifacts
+# Rust build artifacts (root + nested tool crates)
 /target
+tools/*/target/
 
 # Binary (release builds)
 /synthesist

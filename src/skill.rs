@@ -10,7 +10,7 @@ pub fn cmd_skill() -> Result<()> {
     Ok(())
 }
 
-const SKILL_CONTENT: &str = r#"# Synthesist -- Specification Graph Manager
+const SKILL_CONTENT: &str = r#"# Synthesist -- Specification Graph Manager (v2)
 
 ## Data Model
 
@@ -20,21 +20,28 @@ Estate > Trees > Specs > Tasks.
 - **Spec**: a unit of work within a tree (e.g. "auth-migration", "gkg-bench")
 - **Task**: an atomic work item in a dependency DAG within a spec
 - **Discovery**: a timestamped finding recorded during work
-- **Stakeholder**: a person relevant to the work (scoped to a tree)
-- **Disposition**: an assessed stance a stakeholder holds on a specific topic
-- **Signal**: observable evidence supporting a disposition (immutable, bi-temporal)
+- **Campaign**: an umbrella grouping of specs pursuing a shared outcome
+- **Session**: a tag applied to writes, identifying who and when
+- **Phase**: the current point in the workflow state machine (per session)
 
 Path format: `tree/spec` (e.g. "upstream/auth", "lever/ci-containers").
-Stakeholders are scoped to trees, not specs: `stakeholder add <tree> <id>`.
+
+Every entity is a **claim** in an append-only, content-addressed log
+stored in `claims/`. Updates are recorded as *supersessions* -- the
+previous claim is not overwritten, the full history is preserved.
+Multi-user writes merge automatically via CRDT.
+
+Observation-layer data -- stakeholders, dispositions, signals,
+topics -- has moved to the `lattice` tool. It is no longer part of
+synthesist.
 
 ## Worked Example: Full Session Lifecycle
 
-This shows a complete workflow from init to reporting.
-
 ```bash
 # 1. Initialize and start a session
-synthesist init
-synthesist session start research --tree upstream --spec auth --summary "Auth migration research"
+synthesist init                                      # writes claims/genesis.amc
+synthesist session start research --tree upstream --spec auth \
+  --summary "Auth migration research"
 
 # 2. Set phase and create the work plan
 export SYNTHESIST_SESSION=research
@@ -45,35 +52,18 @@ synthesist task add upstream/auth "Research API versioning strategy"
 synthesist task add upstream/auth "Implement token refresh migration" --depends-on t1
 synthesist task add upstream/auth "Write integration tests" --depends-on t2 --gate human
 
-# 3. Record stakeholder intelligence
-synthesist stakeholder add upstream mwilson --context "lead maintainer, auth team" --name "M. Wilson"
-synthesist signal add upstream/auth mwilson \
-  --source "https://gitlab.com/upstream/auth/-/merge_requests/412#note_1234" \
-  --source-type pr_comment \
-  --content "Prefers incremental migration over breaking rewrite. Wants backward compat."
-synthesist disposition add upstream/auth mwilson \
-  --topic "migration strategy" \
-  --stance opposed \
-  --confidence documented \
-  --preferred "incremental migration with feature flags" \
-  --detail "Based on MR !412 review: explicitly rejected breaking-change approach"
-
-# 4. Check stance before proceeding
-synthesist stance mwilson
-# Returns: {"dispositions": [{"stance": "opposed", "topic": "migration strategy", ...}]}
-
-# 5. Present plan to human (AGREE phase)
+# 3. Present plan to human (AGREE phase)
 synthesist phase set agree
-# Present: 3 tasks, t3 has human gate, mwilson opposed to breaking changes.
-# Human approves incremental approach. Human says: "proceed"
+# Present: 3 tasks, t3 has human gate.
+# Human approves. Human says: "proceed"
 
-# 6. Execute
+# 4. Execute
 synthesist phase set execute
 synthesist task claim upstream/auth t1
 # ... do the research work ...
 synthesist task done upstream/auth t1
 
-# 7. Reflect -- check what's ready
+# 5. Reflect -- check what's ready
 synthesist phase set reflect
 synthesist task ready upstream/auth
 # Returns: [{"id": "t2", "summary": "Implement token refresh migration"}]
@@ -81,17 +71,17 @@ synthesist discovery add upstream/auth \
   --finding "v3 API supports token refresh natively, no custom implementation needed" \
   --impact "high -- simplifies t2 significantly"
 
-# 8. Continue executing
+# 6. Continue executing
 synthesist phase set execute
 synthesist task claim upstream/auth t2
 synthesist task done upstream/auth t2
 # t3 has gate=human, so present to human before claiming
 
-# 9. Report and merge
+# 7. Report and close
 synthesist phase set report
 synthesist discovery add upstream/auth \
-  --finding "Migration completed using incremental approach aligned with mwilson stance"
-synthesist session merge research
+  --finding "Migration completed using incremental approach"
+synthesist session close research
 ```
 
 ## Behavioral Contract
@@ -103,7 +93,7 @@ operations that violate the current phase. Transitions are validated.
 
 | Phase | Allowed | Transitions to |
 |-------|---------|---------------|
-| ORIENT | Read status, query dispositions, read discoveries. No writes. | plan |
+| ORIENT | Read status, read discoveries. No writes. | plan |
 | PLAN | Add tasks/specs, add dependencies. No task claims. | agree |
 | AGREE | Present plan. No writes. Block until human approves. | execute |
 | EXECUTE | Claim tasks, complete tasks. No task creation/cancellation. | reflect, report |
@@ -115,33 +105,39 @@ Use `--force` to override phase enforcement when necessary.
 The system starts in ORIENT after init. Use `--force phase set plan`
 before your first write.
 
-Phase is global state (stored in main.db). After a session merge that
-advanced the phase to EXECUTE or REPORT, starting new work requires
-resetting: `synthesist --force phase set orient` to begin a fresh cycle.
+**Phase is per-session** (stored as a Phase claim scoped to the
+active session). Concurrent sessions can be in different phases
+without interfering. After closing a session, start a fresh one
+to begin a new cycle.
 
 ### Session Protocol
 
-All write operations require a session. Reads within a session see the
-session's data (not main.db).
+All write operations require a session. Writes are tagged with the
+session identifier so the origin of every claim is recoverable.
 
 ```bash
-synthesist session start my-session           # creates isolated .db copy
+synthesist session start my-session           # appends a Session claim
 export SYNTHESIST_SESSION=my-session          # or use --session=my-session
-synthesist --force task add tree/spec "task"  # writes to session .db
-synthesist task list tree/spec                # reads from session .db
-synthesist session merge my-session           # three-way merge to main
+synthesist --force task add tree/spec "task"  # writes tagged with the session
+synthesist task list tree/spec                # reads current view
+synthesist session close my-session           # appends a closing supersession
 ```
 
-After merge, the session is closed. Start a new session for more work.
+Sessions are *not* separate database files. There is no
+`session merge` and no `session discard`.
+
+Multi-user writes merge automatically via CRDT. Run
+`synthesist conflicts` to surface unresolved supersessions when
+concurrent writers have disagreed; resolve them by appending a new
+claim that supersedes the contested chain.
 
 ### AGREE Gate
 
 The AGREE phase is a hard gate. The agent presents:
 1. The task tree (what will be done, in dependency order)
 2. Assumptions and risks
-3. Stakeholder dispositions that constrain approach
-4. Which tasks need human gates
-5. What "done" looks like
+3. Which tasks need human gates
+4. What "done" looks like
 
 The agent halts and waits for explicit human approval.
 
@@ -149,9 +145,12 @@ The agent halts and waits for explicit human approval.
 
 ### Estate
 ```
-synthesist init                                  # Creates synthesist/main.db
-synthesist status                                # Trees, task counts, ready tasks, sessions
-synthesist check                                 # Referential integrity validation
+synthesist init                                  # creates claims/genesis.amc
+synthesist status                                # trees, task counts, ready tasks, sessions
+synthesist check                                 # referential integrity validation
+synthesist conflicts                             # list unresolved supersessions
+synthesist version                               # version + update check
+synthesist skill                                 # this file
 ```
 
 ### Trees
@@ -176,7 +175,7 @@ synthesist task add <tree/spec> "summary" --depends-on t1,t2 --gate human --file
 synthesist task list <tree/spec> --active          # hide cancelled tasks
 synthesist task show <tree/spec> <id>              # full detail with deps, files, criteria
 synthesist task update <tree/spec> <id> --summary "revised summary"
-synthesist task claim <tree/spec> <id>             # pending -> in_progress (atomic, sets owner)
+synthesist task claim <tree/spec> <id>             # pending -> in_progress (sets owner)
 synthesist task done <tree/spec> <id>              # in_progress -> done (runs acceptance criteria)
 synthesist task reset <tree/spec> <id>             # in_progress -> pending (crash recovery)
 synthesist task reset --session <dead-session>     # bulk reset all tasks owned by dead session
@@ -193,34 +192,6 @@ synthesist discovery add <tree/spec> --finding "SQLite outperforms DuckDB for th
 synthesist discovery list <tree/spec>
 ```
 
-### Disposition Graph
-```
-# Stakeholders are per-tree (not per-spec)
-synthesist stakeholder add <tree> <id> --context "lead maintainer" --name "M. Wilson"
-synthesist stakeholder list <tree>
-
-# Dispositions are per-spec, scoped to a topic
-synthesist disposition add <tree/spec> <stakeholder> \
-  --topic "API versioning" --stance opposed --confidence documented \
-  --preferred "incremental migration" --detail "Based on MR !412 review"
-synthesist disposition list <tree/spec>
-synthesist disposition supersede <tree/spec> <old-id> --stance cautious --confidence verified
-
-# Signals are immutable evidence records
-synthesist signal add <tree/spec> <stakeholder> \
-  --source "https://gitlab.com/project/-/issues/123#note_456" \
-  --source-type pr_comment --content "Prefers composition over inheritance"
-synthesist signal list <tree/spec>
-
-# Query current stance (dispositions with no valid_until)
-synthesist stance <stakeholder>                    # all current dispositions
-synthesist stance <stakeholder> "API"              # filter by topic substring
-```
-
-Stances: supportive, cautious, opposed, neutral, unknown.
-Confidence: documented, verified, inferred, speculative.
-Signal types: pr_comment, issue_comment, review, commit_message, chat, meeting, email, other.
-
 ### Campaigns
 ```
 synthesist campaign add <tree> <spec-id> --summary "Auth migration" --phase execute
@@ -231,17 +202,17 @@ synthesist campaign list <tree>
 ### Sessions
 ```
 synthesist session start <id> --tree upstream --spec auth --summary "Auth work"
-synthesist session merge <id>                      # three-way merge to main
-synthesist session merge <id> --dry-run            # preview changes without applying
-synthesist session merge <id> --theirs             # on conflict, keep session values
-synthesist session list                            # show all sessions
-synthesist session status <id>                     # per-table diff summary
-synthesist session discard <id>                    # delete session, lose changes
+synthesist session close <id>                     # append a closing supersession
+synthesist session list                           # show all sessions
+synthesist session status <id>                    # claims written in this session
 ```
+
+Multi-user writes merge automatically via CRDT. Run
+`synthesist conflicts` to surface unresolved supersessions.
 
 ### Phase
 ```
-synthesist phase show                              # current phase
+synthesist phase show                              # current phase (for active session)
 synthesist phase set plan                          # orient -> plan (validated)
 synthesist phase set execute                       # fails if not in agree
 synthesist --force phase set execute               # override transition validation
@@ -249,12 +220,18 @@ synthesist --force phase set execute               # override transition validat
 
 ### Data Management
 ```
-synthesist export                                  # full JSON backup
+synthesist export                                  # full JSON backup (claim log export)
 synthesist import backup.json                      # restore from backup
 synthesist sql "SELECT id, summary, status FROM tasks WHERE tree = 'upstream'"
-synthesist skill                                   # this file
-synthesist version                                 # version + update check
+synthesist migrate v1-to-v2                        # port existing .synth/main.db to claims/
 ```
+
+The standalone binary `migrate-v1-to-v2` has the same effect as the
+`migrate v1-to-v2` subcommand; use whichever your install ships.
+
+Observation commands (`stakeholder`, `disposition`, `signal`,
+`topic`, `stance`, `landscape`) have moved to the `lattice` tool.
+Running them here prints a pointer to the replacement.
 
 ## Display Conventions
 
@@ -281,7 +258,21 @@ Do not retry the identical command blindly.
 
 ## Storage
 
-Data: `synthesist/main.db` (SQLite, git-tracked).
-Sessions: `synthesist/sessions/*.db` (gitignored, ephemeral).
-Never read or write these files directly. Use synthesist commands.
+All state lives in `claims/` at the repo root.
+
+- `claims/genesis.amc` -- git-tracked bootstrap
+- `claims/changes/<hash>.amc` -- git-tracked, content-addressed, append-only
+- `claims/config.toml` -- git-tracked, schema version
+- `claims/snapshot.amc` -- gitignored local compaction cache
+- `claims/view.sqlite` -- gitignored local SQL cache of current state
+- `claims/view.heads` -- gitignored heads-stale check
+
+The claim log is the source of truth. `view.sqlite` is a rebuildable
+local cache. Never read or write these files directly; always use
+synthesist subcommands.
+
+Conflict resolution is via **supersession**: concurrent writers that
+disagree produce competing supersession chains, and resolution means
+appending a new claim that supersedes the contested chain. See the
+`nomograph-claim` documentation for the substrate contract.
 "#;

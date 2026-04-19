@@ -1,5 +1,51 @@
 # Changelog
 
+## [2.0.0] (2026-04-19)
+
+### Breaking
+
+- Storage moved from `.synth/main.db` (SQLite) to `claims/` (claim-core
+  + Automerge). The v1 database is no longer read at runtime; use the
+  migration tool to port existing data.
+- `session merge` / `session discard` removed. CRDT merges are
+  automatic via claim-core; there is no per-session database copy to
+  merge or discard.
+- Stakeholder / disposition / signal / topic commands removed. These
+  observation-layer concerns are now owned by
+  [`lattice`](https://gitlab.com/nomograph/lattice).
+- Phase is now per-session, not a global singleton. Each session
+  tracks its own phase via a Phase claim.
+
+### Added
+
+- Multi-user workflow via the
+  [`nomograph-claim`](https://gitlab.com/nomograph/claim) substrate,
+  with optional end-to-end encrypted relay through
+  [`beacon`](https://gitlab.com/nomograph/beacon).
+- Full supersession history per field. Previous values are retained
+  in the claim log; in v1 they were overwritten in place.
+- `synthesist migrate v1-to-v2` (equivalently, the standalone
+  `migrate-v1-to-v2` binary) to port an existing `.synth/main.db`
+  to the new `claims/` layout, preserving original `created_at`
+  timestamps as `asserted_at`.
+- `synthesist conflicts` surfaces unresolved supersession conflicts
+  when concurrent writers disagree.
+
+### Changed
+
+- CLI surface preserved where possible. Minor output formatting
+  differences may appear where underlying fields moved to claims
+  (e.g. timestamps now render as `asserted_at`).
+
+### Removed
+
+- Commands: `synthesist stakeholder`, `synthesist disposition`,
+  `synthesist signal`, `synthesist topic`, `synthesist stance`,
+  `synthesist landscape` (replaced by equivalents in `lattice`).
+- Commands: `session merge`, `session discard` (automatic in the
+  CRDT model).
+- The `.synth/` directory (now `claims/`).
+
 ## v1.3.0 (2026-04-18)
 
 ### Added

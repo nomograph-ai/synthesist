@@ -1,0 +1,27 @@
+[package]
+name = "synthesist-migrate-v1-to-v2"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "One-shot migration: synthesist v1 SQLite -> v2 nomograph-claim substrate (D15)."
+publish = false
+
+[[bin]]
+name = "synthesist-migrate-v1-to-v2"
+path = "src/main.rs"
+
+[lib]
+name = "synthesist_migrate_v1_to_v2"
+path = "src/lib.rs"
+
+[dependencies]
+nomograph-claim = { path = "../../../claim" }
+rusqlite = { version = "0.39", features = ["bundled"] }
+serde_json = "1"
+chrono = { version = "0.4", features = ["serde"] }
+clap = { version = "4", features = ["derive"] }
+anyhow = "1"
+thiserror = "1"
+
+[dev-dependencies]
+tempfile = "3"

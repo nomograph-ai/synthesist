@@ -7,6 +7,7 @@
 [![built with GitLab](https://img.shields.io/badge/built_with-GitLab-FC6D26?logo=gitlab)](https://gitlab.com/nomograph/synthesist)
 
 Specification graph manager for AI-augmented collaborative development.
+Claim-based storage over an append-only CRDT log.
 
 AI coding agents produce technically correct contributions that get
 rejected. Studies of agent-authored pull requests find that a third of
@@ -14,19 +15,17 @@ rejections are driven by workflow constraints -- scope violations,
 architectural misalignment, process expectations -- not code quality.
 The agent wrote correct code for the wrong context.
 
-The missing context is not about code. It is about the humans who
-govern the code: what they will accept, what direction they are
-committed to, and what approaches they have already considered and
-rejected. Current tools give agents more information about code
-(syntax trees, type systems, call graphs) when the gap is about
-people.
+The missing context is not about code. It is about the process that
+governs the code: what has been planned, what has been agreed, what
+has already been tried. Synthesist records this process as a graph of
+specifications and tasks, annotated by phase, session, and discovery.
 
-Synthesist makes stakeholder preferences explicit, queryable, and
-temporal. An agent asks "what does this maintainer think about API
-versioning?" and receives a structured, evidence-grounded answer
-before writing a line of code. This shifts context acquisition from
-the review phase (where rejection is expensive) to the orient phase
-(where a query is cheap).
+In v2, every piece of workflow state is a **claim** in a shared,
+bi-temporal, append-only log. Multi-user collaboration merges
+automatically via CRDT. Full supersession history is preserved per
+field. Observation-layer data (stakeholders, dispositions, signals,
+topics) has moved to the companion tool
+[`lattice`](https://gitlab.com/nomograph/lattice).
 
 Named for the role aboard the *Theseus* in Peter Watts' *Blindsight* --
 the crew member whose job is not expertise, but coherence.
@@ -37,7 +36,7 @@ the crew member whose job is not expertise, but coherence.
 
 ```toml
 [tools."http:synthesist"]
-version = "1.1.0"
+version = "2.0.0"
 
 [tools."http:synthesist".platforms]
 macos-arm64 = { url = "https://gitlab.com/api/v4/projects/80084971/packages/generic/synthesist/v{{version}}/synthesist-darwin-arm64", bin = "synthesist" }
@@ -57,7 +56,7 @@ Requires Rust 1.88+. No system dependencies beyond a C compiler.
 
 ![spec tree](spec-tree.svg)
 
-## How It Works
+## Quickstart
 
 Synthesist is an LLM-mediated tool. The human interacts with an LLM
 agent; the agent interacts with synthesist. The human never calls
@@ -66,14 +65,13 @@ model, presents plans, obtains approval, executes work, and reports
 results. The binary enforces structure on this process.
 
 ```bash
-synthesist init
-synthesist session start work
+synthesist init                           # writes claims/genesis.amc
+synthesist session start work             # appends a Session claim
 export SYNTHESIST_SESSION=work
 
 # Orient: read the landscape
 synthesist --force phase set plan
 synthesist status
-synthesist stance mwilson
 
 # Plan: model the work
 synthesist spec add upstream/auth --goal "Migrate auth API v2 to v3"
@@ -90,56 +88,61 @@ synthesist task claim upstream/auth t1
 synthesist task done upstream/auth t1
 synthesist task ready upstream/auth    # shows t2 is now unblocked
 
-# Report and merge
+# Report and close
 synthesist phase set report
-synthesist session merge work
+synthesist session close work
 ```
 
-## Disposition Graphs
+## Storage model
 
-The core abstraction is the disposition: a structured representation
-of what implementation choices a specific stakeholder will accept on a
-specific technical topic. A disposition is not sentiment. It is a
-concrete claim grounded in observable evidence:
+Synthesist v2 stores all workflow state as **claims** -- typed,
+timestamped, content-addressed assertions -- inside a `claims/`
+directory at the repo root:
 
-> On the topic of API versioning, this maintainer prefers incremental
-> migration over breaking rewrites, based on evidence from PR #412
-> review, assessed with documented confidence.
+```
+claims/
+  genesis.amc           # git-tracked, bootstrap
+  changes/<hash>.amc    # git-tracked, content-addressed, append-only
+  config.toml           # git-tracked, schema version
+  snapshot.amc          # gitignored, local compaction cache
+  view.sqlite           # gitignored, local SQL cache of current state
+  view.heads            # gitignored, heads-stale check
+```
 
-Dispositions are scoped to topics (not globally applied), grounded in
-signals (PR comments, review decisions, design documents), carry
-confidence tiers (documented, verified, inferred, speculative), and
-form temporal supersession chains. When new evidence changes an
-assessment, the old disposition is superseded -- never deleted. The
-full history is preserved and queryable.
+The claim log is the source of truth. `view.sqlite` is a local cache
+rebuilt from the log on demand; delete it freely. Every update is
+recorded as a new claim that *supersedes* a previous one -- nothing is
+overwritten, the full history is preserved per field.
+
+Multi-user writes merge automatically via CRDT (Automerge under the
+hood). There is no `session merge` step anymore.
+
+See the [`nomograph-claim`](https://gitlab.com/nomograph/claim) crate
+for substrate details: storage API, E2EE, view rebuild, session
+semantics, and the 16-claim-type schema.
+
+## Migration from v1
+
+Existing v1 repositories store state in `.synth/main.db` (SQLite). A
+one-shot migration tool reads that database and writes equivalent
+claims to `claims/`, preserving original `created_at` timestamps as
+`asserted_at`:
 
 ```bash
-# Record evidence
-synthesist signal add upstream/auth mwilson \
-  --source "https://gitlab.com/project/-/merge_requests/412" \
-  --source-type review \
-  --content "Rejected breaking-change approach. Wants backward compat."
+# Either the subcommand form ...
+synthesist migrate v1-to-v2
 
-# Assess the stance
-synthesist disposition add upstream/auth mwilson \
-  --topic "migration strategy" --stance opposed --confidence documented \
-  --preferred "incremental migration with feature flags"
-
-# Query before contributing
-synthesist stance mwilson
-# Returns structured JSON: stance, topic, confidence, evidence chain
+# ... or the standalone binary
+migrate-v1-to-v2
 ```
 
-The separation of signal from disposition mirrors the structure of
-implicit feedback systems: signals are the objective record (what
-someone said), dispositions are the interpretive assessment (what we
-believe they will accept). The confidence tier makes the epistemic
-status explicit -- an inferred disposition from three signals is
-different from a documented position stated in a design review.
+Migration is idempotent; re-running on an already-migrated repo is a
+no-op. After migration completes and you have verified the new
+`claims/` directory, the old `.synth/main.db` can be deleted.
 
-See the companion paper: "Context Asymmetry Is a Representation
-Problem: Disposition Graphs for AI-Augmented Collaborative
-Development" (Dunn, 2026, in preparation).
+Observation data (stakeholders, dispositions, signals, topics) is
+*not* migrated by this tool -- those claim types live in `lattice`
+now, which has its own import path.
 
 ## Workflow State Machine
 
@@ -152,18 +155,17 @@ that violate the current phase.
 
 | Phase | What happens | What is forbidden |
 |-------|-------------|-------------------|
-| ORIENT | Read status, query dispositions, read discoveries. Build a shared mental model from the disposition landscape. | All writes. |
+| ORIENT | Read status, read discoveries. Build a shared mental model. | All writes. |
 | PLAN | Create specs and tasks, define dependencies, research. | Task claims. No executing before agreeing. |
-| AGREE | Present the plan. State assumptions. Surface stakeholder constraints. Halt and wait for human approval. | All writes. The agent stops. |
+| AGREE | Present the plan. State assumptions. Halt and wait for human approval. | All writes. The agent stops. |
 | EXECUTE | Claim and complete tasks in dependency order. | Task creation or cancellation. The plan is fixed. |
 | REFLECT | After each task, assess: does the plan still hold? Record discoveries. | Task claims. Step back before stepping forward. |
 | REPLAN | Modify the task tree. Returns to AGREE -- the human must re-approve. | Task claims. Changed plans need fresh consent. |
 | REPORT | Summarize outcomes, record institutional memory, close the session. | -- |
 
 The critical property is AGREE. The agent presents its full plan,
-identifies which tasks need human gates, surfaces relevant stakeholder
-dispositions, and waits. The human may approve, reject, or reshape.
-The human's modifications are themselves signals about preference.
+identifies which tasks need human gates, and waits. The human may
+approve, reject, or reshape.
 
 Phase transitions are validated:
 
@@ -172,56 +174,47 @@ synthesist phase set execute
 # error: invalid phase transition: plan -> execute (valid: agree)
 ```
 
-## Temporal Model
-
-Dispositions and signals carry validity windows. When a stakeholder
-changes position, the old disposition is superseded with a new one:
-
-```
-d1 (cautious, Mar 1) --superseded_by--> d2 (supportive, Mar 20)
-
-"stance on Mar 10?" -> d1 (cautious)
-"current stance?"   -> d2 (valid_until is null)
-```
-
-Signals are bi-temporal: `date` is when the event happened, `recorded_date`
-is when it was captured. A PR comment from two weeks ago discovered today
-has both dates -- this matters for reconstructing the order of evidence
-acquisition vs the order of stakeholder action.
+In v2, **phase is per-session**, recorded as a Phase claim scoped to
+the active session. Concurrent sessions can be in different phases
+without interfering.
 
 ## Sessions
 
-Sessions provide isolation for concurrent work. Each session operates
-on its own copy of the database. Changes are invisible to other sessions
-until merge.
+Sessions tag writes so the origin of every claim is recoverable.
+Unlike v1, sessions are *not* separate database files -- they are a
+lightweight claim-tagging convention layered on top of the single
+shared claim log.
 
 ```bash
-synthesist session start research
-# writes go to sessions/research.db, reads see session data
-synthesist session merge research          # three-way merge to main
-synthesist session merge research --dry-run  # preview
-synthesist session discard research        # abandon
+synthesist session start research         # appends a Session claim
+export SYNTHESIST_SESSION=research        # or --session=research on each command
+# ... work ...
+synthesist session close research         # appends a supersession closing the session
+synthesist session list                   # show active sessions
 ```
 
-Merge is PK-aware: two sessions modifying different rows merge cleanly.
-Conflicts (same row, same column, different values) are reported with
-`--ours` / `--theirs` resolution.
+There is no `session merge` or `session discard`. CRDT merges happen
+automatically when claims land in the shared log; unresolved
+supersession conflicts surface via `synthesist conflicts`.
 
-## Architecture
+## Command Reference
 
-Rust binary with embedded SQLite. Single static binary, no runtime
-dependencies. Data directory is `synthesist/` (visible, not hidden).
+| Area | Commands |
+|------|----------|
+| Estate | `init`, `status`, `check`, `version`, `skill` |
+| Trees | `tree add`, `tree list` |
+| Specs | `spec add`, `spec show`, `spec update`, `spec list` |
+| Tasks | `task add`, `task list`, `task show`, `task update`, `task claim`, `task done`, `task reset`, `task block`, `task wait`, `task cancel`, `task ready`, `task acceptance` |
+| Discoveries | `discovery add`, `discovery list` |
+| Campaigns | `campaign add`, `campaign list` |
+| Sessions | `session start`, `session close`, `session list`, `session status` |
+| Phase | `phase show`, `phase set` |
+| Data | `export`, `import`, `sql`, `conflicts`, `migrate v1-to-v2` |
 
-The binary owns all writes. State transitions are enforced (a task
-cannot be marked done unless it is in_progress), referential integrity
-is maintained (a disposition must reference an existing stakeholder),
-and temporal consistency is guaranteed (superseding a disposition
-atomically closes the old and creates the new). LLMs produce better
-results when constrained to well-formed operations.
-
-The schema is documented in [docs/architecture-v1.md](docs/architecture-v1.md),
-including the literature-informed cutline that separates validated
-features from deferred ones, with re-entry criteria for each.
+Observation-layer commands (`stakeholder`, `disposition`, `signal`,
+`topic`, `stance`, `landscape`) have moved to
+[`lattice`](https://gitlab.com/nomograph/lattice). Running them on
+v2 synthesist prints a pointer to the replacement.
 
 ## The Skill File
 

@@ -1,25 +1,19 @@
-//! Schema creation and migration via rusqlite_migration.
+//! Synthesist schema layer — thin delegate to `nomograph-claim::schema`.
 //!
-//! Migrations are SQL files in src/migrations/, embedded at compile time.
-//! The framework uses SQLite's user_version pragma to track schema version
-//! (no metadata table). On every database open, `to_latest()` runs any
-//! pending migrations forward.
-//!
-//! To add a migration:
-//! 1. Create src/migrations/NNNN_description.sql
-//! 2. Add M::up(include_str!("migrations/NNNN_description.sql")) to MIGRATIONS
-//! 3. Optionally add .down("...") for rollback support
+//! v1 held SQLite DDL here; v2 has none because `view.sqlite` is a
+//! cache rebuilt from the claim log. This module exposes just the
+//! validation entry point so command handlers can early-reject
+//! invalid props before calling [`SynthStore::append`](crate::store::SynthStore::append).
 
-use rusqlite_migration::{M, Migrations};
+use anyhow::{Context, Result};
+use nomograph_claim::{schema as claim_schema, Claim, ClaimType};
+use serde_json::Value;
 
-/// All schema migrations, in order. The framework tracks which have been
-/// applied via SQLite's user_version pragma.
-pub fn migrations() -> Migrations<'static> {
-    Migrations::new(vec![
-        // v1.0.0: initial 16-table schema
-        M::up(include_str!("migrations/0001_initial.sql")),
-        // Future migrations go here:
-        // M::up(include_str!("migrations/0002_holdout_scenarios.sql"))
-        //  .down("DROP TABLE IF EXISTS holdout_scenarios; ..."),
-    ])
+/// Validate `props` for the given claim type. Delegates to
+/// [`nomograph_claim::schema::validate_claim`] with a transient
+/// asserter. Errors are prescriptive.
+pub fn validate(claim_type: ClaimType, props: &Value) -> Result<()> {
+    let probe = Claim::new(claim_type, props.clone(), "user:validate");
+    claim_schema::validate_claim(&probe).context("validate props")?;
+    Ok(())
 }
