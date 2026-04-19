@@ -1,50 +1,30 @@
-# Shared nomograph Rust crate pipeline.
-# Stages: check → fmt → clippy → test.
-# Crates.io publish is intentionally manual (run `cargo publish` locally).
+# gitlab.com/nomograph/claim .gitlab-ci.yml
+#
+# Uses the shared nomograph rust-cli pipeline component. Consistency
+# across the estate comes from pinning the component version, NOT from
+# copying YAML. To upgrade CI conventions, bump the component version
+# here and in sibling repos.
+
+include:
+  - template: Jobs/Secret-Detection.gitlab-ci.yml
+  - component: gitlab.com/nomograph/pipeline/rust-cli@v2.4.6
+    inputs:
+      binary_name: claim
+      project_description: "Bi-temporal CRDT claim substrate with asserter attribution."
+      audit_allow_failure: false
+      crates_publish: true
+      crates_workspace_packages: "nomograph-claim"
+
+stages: [test, build, sign, publish, release]
 
 default:
-  image: rust:1.88-bookworm
   tags: [storr]
   interruptible: true
-  cache:
-    key:
-      files:
-        - Cargo.lock
-    paths:
-      - .cargo/
-      - target/
+  retry:
+    max: 2
+    when:
+      - runner_system_failure
+      - stuck_or_timeout_failure
 
 variables:
   CARGO_HOME: ${CI_PROJECT_DIR}/.cargo
-  CARGO_TERM_COLOR: always
-  RUSTFLAGS: "-D warnings"
-
-stages:
-  - check
-  - fmt
-  - clippy
-  - test
-
-check:
-  stage: check
-  script:
-    - cargo check --all-targets --all-features
-
-fmt:
-  stage: fmt
-  before_script:
-    - rustup component add rustfmt
-  script:
-    - cargo fmt --all --check
-
-clippy:
-  stage: clippy
-  before_script:
-    - rustup component add clippy
-  script:
-    - cargo clippy --all-targets --all-features -- -D warnings
-
-test:
-  stage: test
-  script:
-    - cargo test --all-features
