@@ -3,7 +3,7 @@
 # Crates.io publish is intentionally manual (run `cargo publish` locally).
 
 default:
-  image: rust:1.82-bookworm
+  image: rust:1.88-bookworm
   tags: [storr]
   interruptible: true
   cache:
