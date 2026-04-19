@@ -266,6 +266,12 @@ fn validate_phase(props: &Value) -> Result<()> {
     Ok(())
 }
 
+// --- coordination family (reserved) -----------------------------
+// These validators are exercised only by unit tests today. First
+// real writer lands with multi-agent coordination (the Wednesday
+// Josh-sync scenario). See
+// keaton/research/graph-primitive/COORDINATION-TYPES-DECISION.md.
+
 fn validate_intent(props: &Value) -> Result<()> {
     let map = obj(props, "Intent")?;
     req_str(map, "target", "Intent")?;

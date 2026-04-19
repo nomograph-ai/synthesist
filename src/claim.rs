@@ -31,7 +31,13 @@ pub enum ClaimType {
     Campaign,
     Session,
     Phase,
-    // Coordination
+    // Coordination family. Reserved per BUILDING.md D8 and
+    // overnight-2026-04-18/09-decision-document.md Decision 6.
+    // No writer yet; first use is multi-agent coordination when a
+    // second agent joins a shared substrate (the Wednesday Josh-sync
+    // scenario). Schema is stable; do not edit the variants or
+    // validators without updating the decision doc at
+    // keaton/research/graph-primitive/COORDINATION-TYPES-DECISION.md.
     Intent,
     Heartbeat,
     Outcome,
