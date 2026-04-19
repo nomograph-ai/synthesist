@@ -12,7 +12,7 @@ use anyhow::Result;
 use serde_json::{json, Value};
 
 use crate::cli::DiscoveryCmd;
-use crate::store::{json_out, parse_tree_spec, SynthStore};
+use crate::store::{json_out, parse_tree_spec, today, SynthStore};
 
 /// Dispatch a `synthesist discovery <...>` subcommand.
 pub fn run(cmd: &DiscoveryCmd, session: &Option<String>) -> Result<()> {
@@ -64,7 +64,7 @@ fn cmd_add(
         anyhow::bail!("Discovery requires non-empty 'finding' field");
     }
 
-    let today = SynthStore::today();
+    let today = today();
     let date = date.unwrap_or(&today).to_string();
     let id = discovery_id(finding, &date);
 

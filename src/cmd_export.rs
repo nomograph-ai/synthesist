@@ -22,7 +22,7 @@ use serde_json::{json, Map, Value};
 // outer envelope (fixed schema). Typed groupings are held in a plain
 // `BTreeMap<String, Vec<Value>>` so we can push into the Vecs.
 
-use crate::store::{json_out, SynthStore};
+use crate::store::{json_out, today, SynthStore};
 
 pub fn cmd_export() -> Result<()> {
     let store = SynthStore::discover()?;
@@ -36,7 +36,7 @@ pub fn cmd_export() -> Result<()> {
 
     let mut result: Map<String, Value> = Map::new();
     result.insert("version".into(), json!("2"));
-    result.insert("exported".into(), json!(SynthStore::today()));
+    result.insert("exported".into(), json!(today()));
 
     // Typed groupings (props only, for human readability). Plain
     // HashMap rather than serde_json::Map so we can push into Vecs —

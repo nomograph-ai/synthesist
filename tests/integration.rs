@@ -254,6 +254,81 @@ fn test_synthesist_dir_env_resolves_remote() {
 // Session close — non-destructive supersession
 // -----------------------------------------------------------------------------
 
+// -----------------------------------------------------------------------------
+// v1 → v2 migration helpers
+// -----------------------------------------------------------------------------
+
+#[test]
+fn test_legacy_v1_db_blocks_init() {
+    let tmp = tempfile::tempdir().unwrap();
+    // Simulate a legacy v1 estate: `.synth/main.db` exists, no `claims/`.
+    std::fs::create_dir_all(tmp.path().join(".synth")).unwrap();
+    std::fs::write(tmp.path().join(".synth/main.db"), b"fake").unwrap();
+
+    synth(&tmp)
+        .args(["init"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("v1 database"))
+        .stderr(predicate::str::contains("synthesist migrate v1-to-v2"))
+        .stderr(predicate::str::contains("MIGRATION.md"));
+    // Refused init means no claims/ should have been materialized.
+    assert!(!tmp.path().join("claims").exists());
+}
+
+#[test]
+fn test_legacy_v1_db_blocks_writes() {
+    let tmp = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(tmp.path().join(".synth")).unwrap();
+    std::fs::write(tmp.path().join(".synth/main.db"), b"fake").unwrap();
+
+    // session start is a write that goes through discover_from; should
+    // bail the same way.
+    synth(&tmp)
+        .args(["session", "start", "s1"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("v1 database"));
+}
+
+#[test]
+fn test_legacy_detection_skipped_when_claims_already_present() {
+    // If claims/ exists, legacy detection must not trigger — the user
+    // has already migrated and left .synth/main.db around as a backup.
+    let tmp = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(tmp.path().join(".synth")).unwrap();
+    std::fs::write(tmp.path().join(".synth/main.db"), b"old backup").unwrap();
+
+    synth(&tmp).args(["init"]).assert().failure();
+    // Remove the legacy db to unblock, then initialize.
+    std::fs::remove_dir_all(tmp.path().join(".synth")).unwrap();
+    synth(&tmp).args(["init"]).assert().success();
+    // Put the backup back — now init should succeed (it's idempotent-
+    // no-op on an already-initialized estate).
+    std::fs::create_dir_all(tmp.path().join(".synth")).unwrap();
+    std::fs::write(tmp.path().join(".synth/main.db"), b"old backup").unwrap();
+    synth(&tmp).args(["init"]).assert().success();
+}
+
+#[test]
+fn test_session_merge_removed_message() {
+    let tmp = tempfile::tempdir().unwrap();
+    synth(&tmp).args(["init"]).assert().success();
+    // `session merge` was removed in v2; should exit 3 with a specific
+    // migration message, not the generic "session required" bounce.
+    synth(&tmp)
+        .args(["session", "merge", "some-id"])
+        .assert()
+        .failure()
+        .code(3)
+        .stderr(predicate::str::contains("removed in v2"))
+        .stderr(predicate::str::contains("session close"));
+}
+
+// -----------------------------------------------------------------------------
+// session close (existing)
+// -----------------------------------------------------------------------------
+
 #[test]
 fn test_session_close_hides_from_list() {
     let tmp = tempfile::tempdir().unwrap();

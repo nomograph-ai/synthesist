@@ -15,9 +15,17 @@ use anyhow::{Context, Result};
 use nomograph_claim::{schema::validate_claim, Session};
 use serde_json::{json, Value};
 
-use crate::store::{json_out, SynthStore, CLAIMS_DIR};
+use crate::store::{
+    find_legacy_v1_db, json_out, legacy_migration_error, SynthStore, CLAIMS_DIR,
+};
 
 /// `synthesist init`: create `<cwd>/claims` if absent, else no-op.
+///
+/// Refuses to create an empty v2 estate if a v1 `.synth/main.db` is
+/// present in cwd or any ancestor AND no `claims/` exists yet. The
+/// user almost certainly wants to migrate, not fork. The error names
+/// the exact migrator command to run; users who really want a fresh
+/// v2 estate can remove `.synth/` first.
 pub fn cmd_init() -> Result<()> {
     let cwd = std::env::current_dir().context("cwd")?;
     let claims_dir = cwd.join(CLAIMS_DIR);
@@ -30,6 +38,9 @@ pub fn cmd_init() -> Result<()> {
             "already_initialized": true,
             "root": claims_dir.display().to_string(),
         }));
+    }
+    if let Some(legacy) = find_legacy_v1_db(&cwd) {
+        return Err(legacy_migration_error(&legacy));
     }
     let store = SynthStore::init_at(&claims_dir)?;
     json_out(&json!({

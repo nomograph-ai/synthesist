@@ -13,7 +13,6 @@ mod cmd_tree;
 mod schema;
 mod skill;
 mod store;
-mod types;
 
 use clap::Parser;
 
@@ -54,6 +53,18 @@ fn run(cli: cli::Cli) -> anyhow::Result<()> {
         cli::Command::Disposition { .. } => moved_to_lattice("disposition"),
         cli::Command::Signal { .. } => moved_to_lattice("signal"),
         cli::Command::Stance { .. } => moved_to_lattice("stance"),
+        // `session merge` and `session discard` are v1-only concepts
+        // (file-copy session model). Intercept here so muscle-memory
+        // calls get the "removed in v2" message instead of bouncing off
+        // the generic "session required for write operations" error —
+        // which used to happen because Session is a write-family command
+        // and hit session enforcement first.
+        cli::Command::Session {
+            cmd: cli::SessionCmd::Merge { .. },
+        } => session_removed_in_v2("merge"),
+        cli::Command::Session {
+            cmd: cli::SessionCmd::Discard { .. },
+        } => session_removed_in_v2("discard"),
         _ => {}
     }
 
@@ -166,12 +177,48 @@ fn run(cli: cli::Cli) -> anyhow::Result<()> {
 }
 
 /// Tell the user the landscape-family command moved to the `lattice` binary
-/// and exit non-zero. `lattice` ships Tuesday 2026-04-21 per D9/M3. The
-/// message names the next action: install + run the equivalent on `lattice`.
+/// and exit non-zero. `lattice` reads/writes the same `claims/` directory
+/// synthesist does, so data is shared — only the binary changes.
 fn moved_to_lattice(subcommand_name: &str) -> ! {
     eprintln!(
-        "synthesist: the `{name}` command moved to `lattice` in v2. \
-         Install `lattice` and use `lattice {name}` instead.",
+        "synthesist: the `{name}` command moved to `lattice` in v2.\n\
+         \n\
+         Install `lattice`:\n\
+         \n\
+           cargo install --git https://gitlab.com/nomograph/lattice.git --locked\n\
+         \n\
+         Then run the equivalent:\n\
+         \n\
+           lattice {name} <args>           # (session is carried via --session=<id>)\n\
+         \n\
+         lattice and synthesist share the same `claims/` directory, so the\n\
+         command above writes back into this same project. See\n\
+         https://gitlab.com/nomograph/lattice for command reference.",
+        name = subcommand_name,
+    );
+    std::process::exit(3);
+}
+
+/// `session merge` and `session discard` were v1-only. v2 uses CRDT
+/// semantics: merges happen automatically on `git pull`, discards are
+/// supersession (see `session close`). Intercepting here — before
+/// session-required enforcement — gives users a specific message
+/// instead of a generic "session required" bounce.
+fn session_removed_in_v2(subcommand_name: &str) -> ! {
+    eprintln!(
+        "synthesist: `session {name}` was removed in v2.\n\
+         \n\
+         v1 copied main.db into a per-session file and required an explicit\n\
+         merge or discard. v2 appends claims directly to the shared log;\n\
+         CRDT merges are automatic on `git pull`, and sessions are closed\n\
+         non-destructively via supersession.\n\
+         \n\
+         Migrations:\n\
+           session merge    ->  (no-op; just `git pull` and commit your claims/)\n\
+           session discard  ->  `synthesist session close <id>`  (supersedes)\n\
+         \n\
+         If supersession chains diverged on a peer's branch, use\n\
+         `synthesist conflicts` to inspect and resolve.",
         name = subcommand_name,
     );
     std::process::exit(3);
