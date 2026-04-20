@@ -22,7 +22,8 @@ Prerequisites:
 - You are on a synthesist v2.0.0 or later binary. Check with
   `synthesist --version`. If you were running v1 yesterday, update
   the binary before anything else; the migration subcommand ships as
-  part of v2.
+  part of v2. There is no longer a separate `migrate-v1-to-v2`
+  executable; v2.1 folded it into this subcommand.
 - The project has a clean working tree, or all pending work is
   committed. The migrator writes new files and deletes nothing, but
   a clean state makes rollback trivial.

@@ -24,12 +24,14 @@
   [`beacon`](https://gitlab.com/nomograph/beacon).
 - Full supersession history per field. Previous values are retained
   in the claim log; in v1 they were overwritten in place.
-- `synthesist migrate v1-to-v2` (equivalently, the standalone
-  `migrate-v1-to-v2` binary) to port an existing `.synth/main.db`
-  to the new `claims/` layout, preserving original `created_at`
-  timestamps as `asserted_at`.
-- `synthesist conflicts` surfaces unresolved supersession conflicts
-  when concurrent writers disagree.
+- `synthesist migrate v1-to-v2 --from <v1.db> --to <claims-dir>`
+  ports an existing `.synth/main.db` to the new `claims/` layout,
+  preserving original `created_at` timestamps as `asserted_at`. The
+  earlier standalone `migrate-v1-to-v2` binary was folded into this
+  subcommand in v2.1; there is no separate executable.
+- `synthesist conflicts` lists diamond conflicts (same prior claim
+  superseded by more than one live successor) so concurrent writers
+  can resolve divergent supersession chains.
 
 ### Changed
 

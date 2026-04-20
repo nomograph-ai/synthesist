@@ -148,7 +148,7 @@ The agent halts and waits for explicit human approval.
 synthesist init                                  # creates claims/genesis.amc
 synthesist status                                # trees, task counts, ready tasks, sessions
 synthesist check                                 # referential integrity validation
-synthesist conflicts                             # list unresolved supersessions
+synthesist conflicts                             # list diamond conflicts (same prior superseded by >1 live successor)
 synthesist version                               # version + update check
 synthesist skill                                 # this file
 ```
@@ -220,14 +220,17 @@ synthesist --force phase set execute               # override transition validat
 
 ### Data Management
 ```
-synthesist export                                  # full JSON backup (claim log export)
-synthesist import backup.json                      # restore from backup
+synthesist export                                                                  # full JSON backup (claim log export)
+synthesist import backup.json                                                      # restore from backup
 synthesist sql "SELECT id, summary, status FROM tasks WHERE tree = 'upstream'"
-synthesist migrate v1-to-v2                        # port existing .synth/main.db to claims/
+synthesist migrate status                                                          # report v1/v2 status; names migrator if v1 db present
+synthesist migrate v1-to-v2 --from .synth/main.db --to claims/                     # port v1 db into v2 claims
 ```
 
-The standalone binary `migrate-v1-to-v2` has the same effect as the
-`migrate v1-to-v2` subcommand; use whichever your install ships.
+Migration is an integrated subcommand on v2 binaries; there is no
+separate `migrate-v1-to-v2` executable. Pass `--dry-run` first, then
+re-run without it. See synthesist/MIGRATION.md for the operator
+runbook.
 
 Observation commands (`stakeholder`, `disposition`, `signal`,
 `topic`, `stance`, `landscape`) have moved to the `lattice` tool.

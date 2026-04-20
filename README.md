@@ -129,12 +129,15 @@ claims to `claims/`, preserving original `created_at` timestamps as
 `asserted_at`:
 
 ```bash
-# Either the subcommand form ...
-synthesist migrate v1-to-v2
+# Dry run first
+synthesist migrate v1-to-v2 --from .synth/main.db --to claims/ --dry-run
 
-# ... or the standalone binary
-migrate-v1-to-v2
+# Real run
+synthesist migrate v1-to-v2 --from .synth/main.db --to claims/
 ```
+
+v2.1 folded the earlier standalone `migrate-v1-to-v2` binary into this
+subcommand; there is no separate executable to install.
 
 Migration is idempotent; re-running on an already-migrated repo is a
 no-op. After migration completes and you have verified the new
@@ -209,7 +212,7 @@ supersession conflicts surface via `synthesist conflicts`.
 | Campaigns | `campaign add`, `campaign list` |
 | Sessions | `session start`, `session close`, `session list`, `session status` |
 | Phase | `phase show`, `phase set` |
-| Data | `export`, `import`, `sql`, `conflicts`, `migrate v1-to-v2` |
+| Data | `export`, `import`, `sql`, `conflicts`, `migrate status`, `migrate v1-to-v2` |
 
 Observation-layer commands (`stakeholder`, `disposition`, `signal`,
 `topic`, `stance`, `landscape`) have moved to
