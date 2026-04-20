@@ -1,5 +1,37 @@
 # Changelog
 
+## [2.1.0] (2026-04-20)
+
+### Added
+
+- `synthesist conflicts` lists diamond conflicts in the claim log:
+  prior claims superseded by more than one live successor. Useful
+  after CRDT merge when concurrent writers have disagreed on the
+  replacement for a prior claim. Resolution is to append a new claim
+  that supersedes the contested pair.
+
+### Changed
+
+- `stakeholder`, `disposition`, `signal`, and `stance` commands now
+  print a single "moved to lattice" pointer regardless of args.
+  Previously, clap would reject missing required arguments before
+  reaching the interceptor, yielding a confusing error rather than
+  the helpful pointer.
+- `moved_to_lattice` message updated to reflect that `lattice` is a
+  private repository pending origination review and is not yet on
+  crates.io; the text names the future install path.
+
+### Fixed
+
+- Skill file, README, and MIGRATION.md now show `migrate v1-to-v2`
+  with its required `--from` and `--to` flags. Copying the skill
+  verbatim previously produced a clap rejection.
+- Removed references to a standalone `migrate-v1-to-v2` executable.
+  v2.1 folded the migrator into the subcommand; no separate binary
+  ships.
+- Skill's `conflicts` command reference rewritten to describe actual
+  output (diamond conflicts) rather than "unresolved supersessions".
+
 ## [2.0.0] (2026-04-19)
 
 ### Breaking
