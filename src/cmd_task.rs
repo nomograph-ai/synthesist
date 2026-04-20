@@ -353,8 +353,8 @@ fn cmd_task_done(
     let mut store = SynthStore::discover_for(session)?;
     let (prior_id, mut props) = current_task(&store, tree, spec, task_id)?
         .with_context(|| format!("task {tree}/{spec}/{task_id} not found"))?;
-    if !skip_verify {
-        if let Some(acceptance) = props.get("acceptance").and_then(|v| v.as_array()).cloned() {
+    if !skip_verify
+        && let Some(acceptance) = props.get("acceptance").and_then(|v| v.as_array()).cloned() {
             for crit in &acceptance {
                 let verify_cmd = crit
                     .get("verify_cmd")
@@ -376,7 +376,6 @@ fn cmd_task_done(
                 }
             }
         }
-    }
     props["status"] = json!("done");
     store.append(ClaimType::Task, props.clone(), Some(prior_id))?;
     json_out(&props)

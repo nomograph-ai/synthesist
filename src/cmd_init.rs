@@ -407,11 +407,10 @@ fn ready_tasks_all(store: &SynthStore) -> Result<Vec<Value>> {
                 "summary".into(),
                 props.get("summary").cloned().unwrap_or(Value::Null),
             );
-            if let Some(gate) = props.get("gate").cloned() {
-                if !gate.is_null() {
+            if let Some(gate) = props.get("gate").cloned()
+                && !gate.is_null() {
                     entry.insert("gate".into(), gate);
                 }
-            }
             out.push(Value::Object(entry));
         }
     }

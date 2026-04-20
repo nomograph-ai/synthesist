@@ -9,6 +9,13 @@
 //! and `spec = "v1-to-v2"` is written on completion; subsequent runs
 //! detect it and refuse to re-migrate unless `overwrite = true`.
 
+// Migrator uses several deeply-nested HashMap collection types to
+// stitch task deps/files/acceptance back together by (tree, spec, id)
+// keys. Factoring each into a type alias would obscure the shape at
+// the call site and the one-shot nature of this module means the
+// complexity is localized. Allow the lint here, not estate-wide.
+#![allow(clippy::type_complexity)]
+
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -93,14 +100,13 @@ pub fn migrate(from: &Path, to: &Path, dry_run: bool, overwrite: bool) -> Result
     }
     let conn = Connection::open_with_flags(from, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
 
-    if !dry_run {
-        if to.exists() && is_already_migrated(to)? {
+    if !dry_run
+        && to.exists() && is_already_migrated(to)? {
             if !overwrite {
                 return Err(MigrateError::AlreadyMigrated);
             }
             std::fs::remove_dir_all(to)?;
         }
-    }
 
     // Preserve a stable rollback artifact before any claim is written.
     let backup_path = if dry_run {

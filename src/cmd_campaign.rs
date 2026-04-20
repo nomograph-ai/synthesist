@@ -71,11 +71,10 @@ fn cmd_add(
     if !summary.is_empty() {
         props.insert("summary".into(), Value::from(summary));
     }
-    if let Some(t) = title {
-        if !t.is_empty() {
+    if let Some(t) = title
+        && !t.is_empty() {
             props.insert("title".into(), Value::from(t));
         }
-    }
     let deps: Vec<Value> = blocked_by
         .iter()
         .filter(|s| !s.is_empty())
