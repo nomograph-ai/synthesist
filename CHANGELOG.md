@@ -1,5 +1,28 @@
 # Changelog
 
+## [2.1.1] (2026-04-20)
+
+### Fixed
+
+- `--data-dir` flag and `SYNTHESIST_DIR` environment variable are
+  now honored. A regression from the v2 substrate rewrite left the
+  flag wired but unread: the CLI forwarded `--data-dir` into the
+  env var, but the workflow crate's `Store::discover` only consulted
+  cwd. Any invocation from a directory with no claim ancestry fell
+  through to a silent auto-init at `cwd/claims/`, making the flag
+  appear to "succeed" while never opening the intended store.
+- Explicit overrides now fail loudly when the path does not exist,
+  is not a directory, or has no `claims/genesis.amc`. The silent
+  fresh-init path only runs for the no-override case.
+- Worktrees and other detached checkouts (sibling of main, not
+  descendant) can now reach a main checkout's claim store via
+  `synthesist --data-dir /path/to/main status`.
+
+### Dependencies
+
+- `nomograph-workflow` bumped to `0.1.1` for the `Store::discover`
+  fix. No API-breaking changes in either crate.
+
 ## [2.1.0] (2026-04-20)
 
 ### Added
