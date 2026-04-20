@@ -30,11 +30,13 @@ pub fn run(cmd: &SessionCmd) -> Result<()> {
         SessionCmd::Status { id } => cmd_session_status(id),
         SessionCmd::Merge { .. } => bail!(
             "session merge removed in v2; merges are automatic (git pull; CRDT merge). \
-             Use `synthesist conflicts` if supersessions diverged."
+             Run `synthesist conflicts` to list diamond conflicts; resolve by \
+             appending a claim that supersedes both rivals."
         ),
         SessionCmd::Discard { .. } => bail!(
-            "session discard removed in v2; use `synthesist conflicts resolve --pick` \
-             or just stop referencing the session."
+            "session discard removed in v2; use `synthesist session close <id>` to \
+             supersede the opener non-destructively, or just stop referencing the \
+             session. Run `synthesist conflicts` if supersessions diverged."
         ),
         SessionCmd::Close { id } => cmd_session_close(id),
     }

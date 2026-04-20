@@ -42,6 +42,9 @@ pub enum Command {
     Status,
     /// Validate referential integrity across all tables.
     Check,
+    /// List prior claims superseded by more than one live successor
+    /// (diamond conflicts). Read-only; needs no session.
+    Conflicts,
 
     /// Manage trees (top-level project domains).
     Tree {
@@ -63,27 +66,33 @@ pub enum Command {
         #[command(subcommand)]
         cmd: DiscoveryCmd,
     },
-    /// Manage stakeholders (people relevant to the work).
+    /// Moved to `lattice` in v2. Any invocation prints a pointer to the
+    /// lattice install path; args are swallowed.
     Stakeholder {
-        #[command(subcommand)]
-        cmd: StakeholderCmd,
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        #[allow(dead_code)]
+        args: Vec<String>,
     },
-    /// Manage dispositions (assessed stakeholder stances on topics).
+    /// Moved to `lattice` in v2. Any invocation prints a pointer to the
+    /// lattice install path; args are swallowed.
     Disposition {
-        #[command(subcommand)]
-        cmd: DispositionCmd,
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        #[allow(dead_code)]
+        args: Vec<String>,
     },
-    /// Record signals (observable evidence from stakeholders).
+    /// Moved to `lattice` in v2. Any invocation prints a pointer to the
+    /// lattice install path; args are swallowed.
     Signal {
-        #[command(subcommand)]
-        cmd: SignalCmd,
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        #[allow(dead_code)]
+        args: Vec<String>,
     },
-    /// Query a stakeholder's current dispositions. Moved to `lattice` in v2.
+    /// Moved to `lattice` in v2. Any invocation prints a pointer to the
+    /// lattice install path; args are swallowed.
     Stance {
-        /// Stakeholder ID (e.g. "mwilson").
-        stakeholder: String,
-        /// Filter to dispositions matching this topic substring.
-        topic: Option<String>,
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        #[allow(dead_code)]
+        args: Vec<String>,
     },
     /// Manage campaigns (cross-tree spec coordination).
     Campaign {
@@ -359,120 +368,11 @@ pub enum DiscoveryCmd {
     },
 }
 
-// --- Stakeholder ---
-
-#[derive(Subcommand)]
-pub enum StakeholderCmd {
-    /// Add a stakeholder. Scoped to a tree (not tree/spec).
-    Add {
-        /// Tree name (e.g. "upstream"). Note: tree only, not tree/spec.
-        tree: String,
-        /// Stakeholder ID (e.g. "mwilson"). Short, unique within tree.
-        id: String,
-        /// Role and relevance (e.g. "lead maintainer, auth team").
-        #[arg(long)]
-        context: String,
-        /// Display name (e.g. "M. Wilson").
-        #[arg(long)]
-        name: Option<String>,
-        /// Comma-separated organizations.
-        #[arg(long, value_delimiter = ',')]
-        orgs: Vec<String>,
-    },
-    /// List all stakeholders in a tree.
-    List {
-        /// Tree name.
-        tree: String,
-    },
-}
-
-// --- Disposition ---
-
-#[derive(Subcommand)]
-pub enum DispositionCmd {
-    /// Add a disposition (assessed stance on a topic).
-    Add {
-        /// Path in tree/spec format.
-        tree_spec: String,
-        /// Stakeholder ID (must exist in the tree).
-        stakeholder: String,
-        /// Technical topic (e.g. "API versioning", "internal vs external tooling").
-        #[arg(long)]
-        topic: String,
-        /// Stance: supportive, cautious, opposed, neutral, unknown.
-        #[arg(long)]
-        stance: String,
-        /// Confidence: documented, verified, inferred, speculative.
-        #[arg(long)]
-        confidence: String,
-        /// What approach they prefer (e.g. "incremental migration over breaking rewrite").
-        #[arg(long)]
-        preferred: Option<String>,
-        /// Additional detail or nuance.
-        #[arg(long)]
-        detail: Option<String>,
-    },
-    /// List all dispositions for a spec (current and superseded).
-    List {
-        /// Path in tree/spec format.
-        tree_spec: String,
-    },
-    /// Supersede an existing disposition with updated stance.
-    Supersede {
-        /// Path in tree/spec format.
-        tree_spec: String,
-        /// ID of the disposition to supersede (e.g. "disp1").
-        old_id: String,
-        /// New stance: supportive, cautious, opposed, neutral, unknown.
-        #[arg(long)]
-        stance: String,
-        /// New confidence: documented, verified, inferred, speculative.
-        #[arg(long)]
-        confidence: String,
-        /// Updated preferred approach.
-        #[arg(long)]
-        preferred: Option<String>,
-        /// Updated detail.
-        #[arg(long)]
-        detail: Option<String>,
-    },
-}
-
-// --- Signal ---
-
-#[derive(Subcommand)]
-pub enum SignalCmd {
-    /// Record a signal (observable evidence from a stakeholder).
-    Add {
-        /// Path in tree/spec format.
-        tree_spec: String,
-        /// Stakeholder ID who produced the signal.
-        stakeholder: String,
-        /// Where the signal was observed (e.g. URL, document name).
-        #[arg(long)]
-        source: String,
-        /// Type: pr_comment, issue_comment, review, commit_message, chat, meeting, email, other.
-        #[arg(long)]
-        source_type: String,
-        /// What the stakeholder said or did.
-        #[arg(long)]
-        content: String,
-        /// What this signal means for our work.
-        #[arg(long)]
-        interpretation: Option<String>,
-        /// What we did that prompted this signal.
-        #[arg(long)]
-        our_action: Option<String>,
-        /// When the signal occurred (YYYY-MM-DD, default: today).
-        #[arg(long)]
-        date: Option<String>,
-    },
-    /// List all signals for a spec.
-    List {
-        /// Path in tree/spec format.
-        tree_spec: String,
-    },
-}
+// Stakeholder / Disposition / Signal / Stance subcommand enums were
+// removed in v2.1 — the families moved to `lattice` entirely. The
+// top-level commands now swallow any args via `trailing_var_arg` so
+// clap parse succeeds and `moved_to_lattice` in main.rs can print the
+// pointer message instead of a cryptic clap error.
 
 // --- Campaign ---
 
@@ -527,8 +427,9 @@ pub enum SessionCmd {
         #[arg(long)]
         summary: Option<String>,
     },
-    /// Merge (v2: claims are already in the main log; merge is a no-op
-    /// semantically but records a session-close marker).
+    /// Removed in v2. Bails with a pointer to `session close` and
+    /// `synthesist conflicts`; retained so v1 muscle memory gets a
+    /// specific error instead of clap's "unrecognized subcommand".
     Merge {
         /// Session ID to merge.
         id: String,
@@ -549,8 +450,8 @@ pub enum SessionCmd {
         /// Session ID.
         id: String,
     },
-    /// Discard a session. Marks session as discarded (claims remain in
-    /// the log but are tagged so queries can exclude them).
+    /// Removed in v2. Bails with a pointer to `session close`; v1-era
+    /// discard semantics do not exist on an append-only log.
     Discard {
         /// Session ID.
         id: String,

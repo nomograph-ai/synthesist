@@ -1,5 +1,6 @@
 mod cli;
 mod cmd_campaign;
+mod cmd_conflicts;
 mod cmd_discovery;
 mod cmd_export;
 mod cmd_import;
@@ -49,7 +50,9 @@ fn run(cli: cli::Cli) -> anyhow::Result<()> {
         // Landscape family (stakeholder/disposition/signal/stance) moved to
         // the `lattice` binary in v2. We short-circuit before session and
         // phase enforcement so users get the migration message even when
-        // they forget `--session` or are in the wrong phase.
+        // they forget `--session` or are in the wrong phase. Args are
+        // swallowed by clap via `trailing_var_arg` so any invocation
+        // reaches this arm rather than failing clap validation.
         cli::Command::Stakeholder { .. } => moved_to_lattice("stakeholder"),
         cli::Command::Disposition { .. } => moved_to_lattice("disposition"),
         cli::Command::Signal { .. } => moved_to_lattice("signal"),
@@ -74,6 +77,7 @@ fn run(cli: cli::Cli) -> anyhow::Result<()> {
         &cli.command,
         cli::Command::Status
             | cli::Command::Check
+            | cli::Command::Conflicts
             | cli::Command::Migrate { .. }
             | cli::Command::Export
             | cli::Command::Sql { .. }
@@ -131,6 +135,7 @@ fn run(cli: cli::Cli) -> anyhow::Result<()> {
     match &cli.command {
         cli::Command::Status => cmd_init::cmd_status(),
         cli::Command::Check => cmd_init::cmd_check(),
+        cli::Command::Conflicts => cmd_conflicts::cmd_conflicts(),
         cli::Command::Migrate { cmd } => cmd_migrate::run(cmd),
         cli::Command::Tree { cmd } => cmd_tree::run(cmd, &cli.session),
         cli::Command::Spec { cmd } => cmd_spec::run(cmd, &cli.session),
@@ -162,17 +167,19 @@ fn moved_to_lattice(subcommand_name: &str) -> ! {
     eprintln!(
         "synthesist: the `{name}` command moved to `lattice` in v2.\n\
          \n\
-         Install `lattice`:\n\
+         lattice is currently a private GitLab repo (pending origination\n\
+         review); it is not published to crates.io. If you need lattice\n\
+         access, contact the maintainer. When it lands on crates.io the\n\
+         install path will be `cargo install nomograph-lattice`.\n\
          \n\
-           cargo install --git https://gitlab.com/nomograph/lattice.git --locked\n\
+         lattice and synthesist share the same `claims/` directory, so\n\
+         lattice writes back into this same project once installed. The\n\
+         CLI shape mirrors this one:\n\
          \n\
-         Then run the equivalent:\n\
+           lattice --session=<id> {name} <args>\n\
          \n\
-           lattice {name} <args>           # (session is carried via --session=<id>)\n\
-         \n\
-         lattice and synthesist share the same `claims/` directory, so the\n\
-         command above writes back into this same project. See\n\
-         https://gitlab.com/nomograph/lattice for command reference.",
+         If you only need synthesist (specs, tasks, discoveries, phase),\n\
+         you can safely skip lattice for now.",
         name = subcommand_name,
     );
     std::process::exit(3);
@@ -196,8 +203,9 @@ fn session_removed_in_v2(subcommand_name: &str) -> ! {
            session merge    ->  (no-op; just `git pull` and commit your claims/)\n\
            session discard  ->  `synthesist session close <id>`  (supersedes)\n\
          \n\
-         If supersession chains diverged on a peer's branch, use\n\
-         `synthesist conflicts` to inspect and resolve.",
+         If supersession chains diverged on a peer's branch, list them with\n\
+         `synthesist conflicts` and resolve by appending a claim that\n\
+         supersedes both rivals.",
         name = subcommand_name,
     );
     std::process::exit(3);
