@@ -1,12 +1,25 @@
 .DS_Store
 *.log
 
-# Rust build artifacts
+# Rust build artifacts (root + nested tool crates)
 /target
+tools/*/target/
 
 # Binary (release builds)
 /synthesist
 dist/
 
-# Legacy v5 Dolt data (removed in v1.0.0)
+# v1 data directory. Kept ignored in v2 so leftover databases and
+# migrator-written backups (`.synth/main.db.v1-backup-*`) don't get
+# accidentally committed post-migration.
 .synth/
+
+# Claim store cache files. Tracked under claims/: genesis.amc,
+# changes/<hash>.amc, config.toml. Everything else is derived.
+claims/view.sqlite
+claims/view.sqlite-journal
+claims/view.sqlite-wal
+claims/view.sqlite-shm
+claims/view.heads
+claims/snapshot.amc
+claims/.lock

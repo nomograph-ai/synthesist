@@ -12,15 +12,15 @@ use clap::{Parser, Subcommand};
     name = "synthesist",
     version = env!("CARGO_PKG_VERSION"),
     about = "Specification graph manager for AI-augmented projects",
-    after_help = "All output is JSON. Reads use main.db; writes use the session .db if one exists.\nRun 'synthesist skill' for the full behavioral contract and worked examples."
+    after_help = "All output is JSON. Writes append typed claims to claims/; reads query the SQLite view materialized from them.\nRun 'synthesist skill' for the full behavioral contract and worked examples."
 )]
 pub struct Cli {
-    /// Session ID for write operations. Writes go to the session's .db file.
-    /// Reads always use main.db regardless of this flag.
+    /// Session ID for write operations. Sets the asserter class on every
+    /// appended claim so work is attributable. Required for all write ops.
     #[arg(long, env = "SYNTHESIST_SESSION", global = true)]
     pub session: Option<String>,
 
-    /// Path to the synthesist data directory (the one containing main.db).
+    /// Path to the synthesist data directory (contains claims/).
     /// Overrides SYNTHESIST_DIR and the parent-directory walk.
     /// Use in worktrees or detached checkouts to point at the main data dir.
     #[arg(long, global = true, value_name = "PATH")]
@@ -36,7 +36,7 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Command {
-    /// Initialize synthesist in the current directory. Creates synthesist/main.db.
+    /// Initialize synthesist in the current directory. Creates claims/ with genesis.amc.
     Init,
     /// Estate overview: trees, task counts, ready tasks, sessions, phase.
     Status,
@@ -78,7 +78,7 @@ pub enum Command {
         #[command(subcommand)]
         cmd: SignalCmd,
     },
-    /// Query a stakeholder's current dispositions. Reads session .db if active, else main.db.
+    /// Query a stakeholder's current dispositions. Moved to `lattice` in v2.
     Stance {
         /// Stakeholder ID (e.g. "mwilson").
         stakeholder: String,
@@ -90,7 +90,7 @@ pub enum Command {
         #[command(subcommand)]
         cmd: CampaignCmd,
     },
-    /// Manage sessions (isolated database copies for concurrent work).
+    /// Manage sessions (claim-scoped asserter namespaces for concurrent work).
     Session {
         #[command(subcommand)]
         cmd: SessionCmd,
@@ -100,8 +100,11 @@ pub enum Command {
         #[command(subcommand)]
         cmd: PhaseCmd,
     },
-    /// Check schema version and run pending migrations.
-    Migrate,
+    /// Check schema version, or migrate a v1 `.synth/main.db` to v2 `claims/`.
+    Migrate {
+        #[command(subcommand)]
+        cmd: MigrateCmd,
+    },
     /// Export all tables as JSON (for backup or migration).
     Export,
     /// Import tables from JSON (stdin if no file given).
@@ -117,7 +120,7 @@ pub enum Command {
         #[arg(long)]
         offline: bool,
     },
-    /// Run a read-only SQL query against main.db (SELECT, EXPLAIN, PRAGMA, WITH).
+    /// Run a read-only SQL query against the SQLite view (SELECT, EXPLAIN, PRAGMA, WITH).
     Sql {
         /// SQL query to execute. Only read-only queries are allowed.
         query: String,
@@ -508,9 +511,9 @@ pub enum CampaignCmd {
 
 #[derive(Subcommand)]
 pub enum SessionCmd {
-    /// Start a session. Creates an isolated copy of main.db.
-    /// Writes with --session=<id> go to this copy. Reads always use main.db.
-    /// Merge the session to make changes visible.
+    /// Start a session. Claims written with --session=<id> carry the
+    /// session in their asserter (user:local:<user>:<id>), providing
+    /// attribution and concurrent-work namespacing.
     Start {
         /// Session ID. Short, unique (e.g. "research", "factory-01").
         id: String,
@@ -524,8 +527,8 @@ pub enum SessionCmd {
         #[arg(long)]
         summary: Option<String>,
     },
-    /// Merge session changes into main.db using three-way diff.
-    /// Reports per-table adds/mods/deletes/conflicts.
+    /// Merge (v2: claims are already in the main log; merge is a no-op
+    /// semantically but records a session-close marker).
     Merge {
         /// Session ID to merge.
         id: String,
@@ -546,10 +549,44 @@ pub enum SessionCmd {
         /// Session ID.
         id: String,
     },
-    /// Discard a session. Deletes the session .db file. Changes are lost.
+    /// Discard a session. Marks session as discarded (claims remain in
+    /// the log but are tagged so queries can exclude them).
     Discard {
         /// Session ID.
         id: String,
+    },
+    /// Close a session. Appends a superseding `Session` claim marking
+    /// the session `closed`. Non-destructive: prior work stays in the log.
+    Close {
+        /// Session ID to close.
+        id: String,
+    },
+}
+
+// --- Migrate ---
+
+#[derive(Subcommand)]
+pub enum MigrateCmd {
+    /// Report claim-substrate status. If a legacy v1 `.synth/main.db`
+    /// is present, the next_action field names the migrator to run.
+    Status,
+    /// Migrate a v1 `.synth/main.db` into a v2 `claims/` directory.
+    /// Preserves created_at timestamps; auto-backs up the v1 db; emits
+    /// JSON with verified row-count round-trip.
+    #[command(name = "v1-to-v2")]
+    V1ToV2 {
+        /// Path to the v1 SQLite database (e.g. `.synth/main.db`).
+        #[arg(long)]
+        from: PathBuf,
+        /// Path to the v2 `claims/` directory to create.
+        #[arg(long)]
+        to: PathBuf,
+        /// Read only; do not write any claims or backup.
+        #[arg(long)]
+        dry_run: bool,
+        /// Delete any existing `claims/` at `--to` before migrating.
+        #[arg(long)]
+        overwrite: bool,
     },
 }
 

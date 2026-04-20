@@ -1,50 +1,54 @@
-//! Ad-hoc SQL query command (read-only).
+//! Ad-hoc SQL query command (read-only) over the claim view.
+//!
+//! v2: a thin wrapper around [`SynthStore::query`], which itself
+//! delegates to [`nomograph_claim::View::query`]. The view already
+//! rejects non-`SELECT/WITH/PRAGMA` statements with a prescriptive
+//! error; we catch the error and re-emit a synthesist-branded message
+//! so the CLI experience doesn't leak `View::query` internals.
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use serde_json::json;
 
-use crate::store::{json_out, Store};
+use crate::store::{SynthStore, json_out};
+
+/// SQL keywords we reject up front — the underlying view does the
+/// same, but a pre-check produces a clearer error (and short-circuits
+/// before touching the database).
+const WRITE_KEYWORDS: &[&str] = &[
+    "INSERT", "UPDATE", "DELETE", "DROP", "CREATE", "ALTER", "REPLACE", "TRUNCATE",
+];
 
 pub fn cmd_sql(query: &str) -> Result<()> {
-    // Validate query is read-only: reject anything that isn't SELECT, EXPLAIN, or PRAGMA.
-    let trimmed = query.trim_start();
-    let first_word = trimmed
+    // Reject writes with a specific message before we hit the view.
+    let first_word = query
         .split_whitespace()
         .next()
         .unwrap_or("")
         .to_uppercase();
-    if !matches!(first_word.as_str(), "SELECT" | "EXPLAIN" | "PRAGMA" | "WITH") {
-        bail!("synthesist sql only allows read-only queries (SELECT, EXPLAIN, PRAGMA, WITH). Use the CLI commands for writes.");
+    if WRITE_KEYWORDS.contains(&first_word.as_str()) {
+        bail!(
+            "synthesist sql is read-only (rejected `{first_word}`). \
+             The claim substrate is append-only: use the CLI \
+             (tree/spec/task/discovery/etc.) to record new facts; \
+             SQL is for reading the view only."
+        );
     }
 
-    // Open database in read-only mode as defense in depth.
-    let store = Store::discover()?;
+    let store = SynthStore::discover()?;
+    let rows = store.query(query, &[])?;
 
-    let mut stmt = store.conn.prepare(query)?;
-    let col_count = stmt.column_count();
-    let col_names: Vec<String> = (0..col_count)
-        .map(|i| stmt.column_name(i).unwrap().to_string())
-        .collect();
+    // Pull column names from the first row so `count: 0` queries still
+    // emit a `columns: []` shape the caller can rely on.
+    let columns: Vec<String> = rows
+        .first()
+        .and_then(|v| v.as_object())
+        .map(|m| m.keys().cloned().collect())
+        .unwrap_or_default();
 
-    let rows: Vec<serde_json::Value> = stmt
-        .query_map([], |row| {
-            let mut m = serde_json::Map::new();
-            for (i, name) in col_names.iter().enumerate() {
-                let val: rusqlite::types::Value = row.get(i)?;
-                m.insert(
-                    name.clone(),
-                    match val {
-                        rusqlite::types::Value::Null => serde_json::Value::Null,
-                        rusqlite::types::Value::Integer(n) => json!(n),
-                        rusqlite::types::Value::Real(f) => json!(f),
-                        rusqlite::types::Value::Text(s) => json!(s),
-                        rusqlite::types::Value::Blob(_) => json!("<blob>"),
-                    },
-                );
-            }
-            Ok(serde_json::Value::Object(m))
-        })?
-        .collect::<std::result::Result<Vec<_>, rusqlite::Error>>()?;
-
-    json_out(&json!({"columns": col_names, "rows": rows, "count": rows.len()}))
+    let count = rows.len();
+    json_out(&json!({
+        "columns": columns,
+        "rows": rows,
+        "count": count,
+    }))
 }
