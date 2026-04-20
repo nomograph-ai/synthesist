@@ -1,6 +1,6 @@
 # Synthesist
 
-Specification graph manager. Rust + SQLite.
+Specification graph manager. Rust + claim-core (Automerge) + SQLite view cache.
 
 ## Build
 
@@ -14,11 +14,23 @@ cargo build         # dev build (no copy)
 cargo test          # unit + integration tests only
 ```
 
-## Data Directory
+## Storage
 
-The working data directory is `synthesist/` (relative to the repo root where
-`synthesist init` was run). Never access the SQLite database file directly --
-all reads and writes go through `synthesist` subcommands.
+State lives in `claims/` at the repo root (created by `synthesist init`).
+
+- `claims/genesis.amc`, `claims/changes/<hash>.amc`, `claims/config.toml`
+  are git-tracked. They are the source of truth.
+- `claims/snapshot.amc`, `claims/view.sqlite`, `claims/view.heads` are
+  gitignored local caches. Deleting them is safe; they rebuild from
+  the log.
+
+Never read or write these files directly. All access goes through
+`synthesist` subcommands, which call into the
+[`nomograph-claim`](https://gitlab.com/nomograph/claim) substrate.
+
+The claim substrate is specified in
+`/Users/andrewdunn/gitlab.com/nomograph/keaton/research/graph-primitive/BUILDING.md`
+(decisions D1-D20, claim schema, file layout).
 
 ## Skill File
 
@@ -28,17 +40,22 @@ and other harness agents consume this output.
 
 ## Sessions
 
-Sessions use per-file SQLite copies for isolation. Always set the
-session context:
+Sessions tag writes. They are claim-scoped, not file-copied. Always
+set the session context:
 
 - **Environment variable**: `SYNTHESIST_SESSION=<name>` (preferred)
 - **Flag**: `--session <name>` on any command
 
 Session lifecycle:
-1. `synthesist session start <name>` -- create a session copy
-2. Work within the session (all commands read/write the session copy)
-3. `synthesist session merge <name>` -- merge back to main
+1. `synthesist session start <name>` -- appends a Session claim
+2. Work within the session (all subsequent writes carry the session tag)
+3. `synthesist session close <name>` -- appends a supersession closing
+   the session
 4. `synthesist session list` -- see active sessions
+
+There is no `session merge` or `session discard`. Multi-user writes
+merge automatically via CRDT. Conflicts are resolved by supersession;
+surface unresolved ones with `synthesist conflicts`.
 
 Commit after every task completion, not in batches.
 
@@ -53,11 +70,13 @@ Key rules:
 - PLAN -> EXECUTE must pass through AGREE (explicit human approval).
 - After each task in EXECUTE, enter REFLECT to assess plan validity.
 - If the plan changes, REPLAN -> AGREE before resuming EXECUTE.
+- Phase is per-session. Different sessions may be in different phases.
 
 ## Conventions
 
 - **Output**: all commands emit JSON; pipe through `jq` for human reading
-- **SQL**: never query the SQLite file directly; use `synthesist sql` for ad-hoc queries
+- **SQL**: never query `view.sqlite` directly; use `synthesist sql` for
+  ad-hoc read-only queries against the current view
 - **File size**: keep source files focused, one concern per file
 - **Tests**: integration tests in `tests/integration.rs`
 - **Linting**: zero warnings from `make lint`. Fix warnings before committing.

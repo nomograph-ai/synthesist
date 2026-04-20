@@ -1,12 +1,17 @@
-//! Task DAG commands.
+//! Task DAG commands — ported to the claim substrate.
+//!
+//! Every status transition is a supersession: find the current Task
+//! claim for `(tree, spec, id)`, build a new one with the updated
+//! status + propagated fields, append with `supersedes: Some(prior)`.
 
 use std::process::Command as ShellCommand;
 
-use anyhow::{bail, Result};
-use serde_json::json;
+use anyhow::{Context, Result, bail};
+use nomograph_claim::{ClaimId, ClaimType};
+use serde_json::{Value, json};
 
 use crate::cli::TaskCmd;
-use crate::store::{json_out, parse_tree_spec, Store};
+use crate::store::{SynthStore, json_out, parse_tree_spec};
 
 pub fn run(cmd: &TaskCmd, session: &Option<String>) -> Result<()> {
     match cmd {
@@ -21,8 +26,8 @@ pub fn run(cmd: &TaskCmd, session: &Option<String>) -> Result<()> {
         } => {
             let (tree, spec) = parse_tree_spec(tree_spec)?;
             cmd_task_add(
-                tree,
-                spec,
+                &tree,
+                &spec,
                 summary,
                 id.as_deref(),
                 depends_on,
@@ -38,11 +43,11 @@ pub fn run(cmd: &TaskCmd, session: &Option<String>) -> Result<()> {
             active,
         } => {
             let (tree, spec) = parse_tree_spec(tree_spec)?;
-            cmd_task_list(tree, spec, *active, session)
+            cmd_task_list(&tree, &spec, *active, session)
         }
         TaskCmd::Show { tree_spec, task_id } => {
             let (tree, spec) = parse_tree_spec(tree_spec)?;
-            cmd_task_show(tree, spec, task_id, session)
+            cmd_task_show(&tree, &spec, task_id, session)
         }
         TaskCmd::Update {
             tree_spec,
@@ -53,8 +58,8 @@ pub fn run(cmd: &TaskCmd, session: &Option<String>) -> Result<()> {
         } => {
             let (tree, spec) = parse_tree_spec(tree_spec)?;
             cmd_task_update(
-                tree,
-                spec,
+                &tree,
+                &spec,
                 task_id,
                 summary.as_deref(),
                 description.as_deref(),
@@ -64,7 +69,7 @@ pub fn run(cmd: &TaskCmd, session: &Option<String>) -> Result<()> {
         }
         TaskCmd::Claim { tree_spec, task_id } => {
             let (tree, spec) = parse_tree_spec(tree_spec)?;
-            cmd_task_claim(tree, spec, task_id, session)
+            cmd_task_claim(&tree, &spec, task_id, session)
         }
         TaskCmd::Done {
             tree_spec,
@@ -72,23 +77,24 @@ pub fn run(cmd: &TaskCmd, session: &Option<String>) -> Result<()> {
             skip_verify,
         } => {
             let (tree, spec) = parse_tree_spec(tree_spec)?;
-            cmd_task_done(tree, spec, task_id, *skip_verify, session)
+            cmd_task_done(&tree, &spec, task_id, *skip_verify, session)
         }
         TaskCmd::Reset {
             tree_spec,
             task_id,
-            session: reset_session,
+            session: _reset_session,
             reason,
-        } => cmd_task_reset(
-            tree_spec.as_deref(),
-            task_id.as_deref(),
-            reset_session.as_deref(),
-            reason.as_deref(),
-            session,
-        ),
+        } => {
+            if let (Some(ts), Some(tid)) = (tree_spec.as_deref(), task_id.as_deref()) {
+                let (tree, spec) = parse_tree_spec(ts)?;
+                cmd_task_reset(&tree, &spec, tid, reason.as_deref(), session)
+            } else {
+                bail!("task reset requires <tree/spec> <task_id>")
+            }
+        }
         TaskCmd::Block { tree_spec, task_id } => {
             let (tree, spec) = parse_tree_spec(tree_spec)?;
-            cmd_task_block(tree, spec, task_id, session)
+            cmd_task_status_transition(&tree, &spec, task_id, "blocked", None, None, session)
         }
         TaskCmd::Wait {
             tree_spec,
@@ -96,7 +102,15 @@ pub fn run(cmd: &TaskCmd, session: &Option<String>) -> Result<()> {
             reason,
         } => {
             let (tree, spec) = parse_tree_spec(tree_spec)?;
-            cmd_task_wait(tree, spec, task_id, reason, session)
+            cmd_task_status_transition(
+                &tree,
+                &spec,
+                task_id,
+                "waiting",
+                Some(("wait_reason", reason.as_str())),
+                None,
+                session,
+            )
         }
         TaskCmd::Cancel {
             tree_spec,
@@ -104,11 +118,20 @@ pub fn run(cmd: &TaskCmd, session: &Option<String>) -> Result<()> {
             reason,
         } => {
             let (tree, spec) = parse_tree_spec(tree_spec)?;
-            cmd_task_cancel(tree, spec, task_id, reason.as_deref(), session)
+            let reason_pair = reason.as_deref().map(|r| ("failure_note", r));
+            cmd_task_status_transition(
+                &tree,
+                &spec,
+                task_id,
+                "cancelled",
+                reason_pair,
+                None,
+                session,
+            )
         }
         TaskCmd::Ready { tree_spec } => {
             let (tree, spec) = parse_tree_spec(tree_spec)?;
-            cmd_task_ready(tree, spec, session)
+            cmd_task_ready(&tree, &spec, session)
         }
         TaskCmd::Acceptance {
             tree_spec,
@@ -117,9 +140,88 @@ pub fn run(cmd: &TaskCmd, session: &Option<String>) -> Result<()> {
             verify,
         } => {
             let (tree, spec) = parse_tree_spec(tree_spec)?;
-            cmd_task_acceptance(tree, spec, task_id, criterion, verify, session)
+            cmd_task_acceptance(&tree, &spec, task_id, criterion, verify, session)
         }
     }
+}
+
+/// Return `(claim_id, props)` for the currently-live Task claim for
+/// `(tree, spec, id)`, or `None` if no task exists.
+fn current_task(
+    store: &SynthStore,
+    tree: &str,
+    spec: &str,
+    id: &str,
+) -> Result<Option<(ClaimId, Value)>> {
+    let rows = store.query(
+        "SELECT id, props FROM claims \
+         WHERE claim_type = 'task' \
+           AND json_extract(props, '$.tree') = ?1 \
+           AND json_extract(props, '$.spec') = ?2 \
+           AND json_extract(props, '$.id') = ?3 \
+         ORDER BY asserted_at DESC LIMIT 1",
+        &[&tree, &spec, &id],
+    )?;
+    if let Some(row) = rows.into_iter().next() {
+        let claim_id = row
+            .get("id")
+            .and_then(|v| v.as_str())
+            .context("row missing id")?
+            .to_string();
+        let props_str = row
+            .get("props")
+            .and_then(|v| v.as_str())
+            .context("row missing props")?
+            .to_string();
+        let props: Value = serde_json::from_str(&props_str).context("parse props")?;
+        Ok(Some((claim_id, props)))
+    } else {
+        Ok(None)
+    }
+}
+
+/// Dedup + filter list of Task claims for `(tree, spec)` by id.
+fn list_current_tasks(store: &SynthStore, tree: &str, spec: &str) -> Result<Vec<Value>> {
+    let rows = store.query(
+        "SELECT id, props, supersedes FROM claims \
+         WHERE claim_type = 'task' \
+           AND json_extract(props, '$.tree') = ?1 \
+           AND json_extract(props, '$.spec') = ?2 \
+         ORDER BY asserted_at DESC",
+        &[&tree, &spec],
+    )?;
+    let superseded: std::collections::HashSet<String> = rows
+        .iter()
+        .filter_map(|r| r.get("supersedes"))
+        .filter_map(|v| v.as_str().map(|s| s.to_string()))
+        .collect();
+    let mut seen_ids: std::collections::HashSet<String> = Default::default();
+    let mut out = Vec::new();
+    for row in rows {
+        let claim_id = row
+            .get("id")
+            .and_then(|v| v.as_str())
+            .context("row id")?
+            .to_string();
+        if superseded.contains(&claim_id) {
+            continue;
+        }
+        let props_str = row
+            .get("props")
+            .and_then(|v| v.as_str())
+            .context("row props")?
+            .to_string();
+        let props: Value = serde_json::from_str(&props_str).context("parse props")?;
+        let task_id = props
+            .get("id")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string();
+        if seen_ids.insert(task_id) {
+            out.push(props);
+        }
+    }
+    Ok(out)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -134,168 +236,65 @@ fn cmd_task_add(
     description: Option<&str>,
     session: &Option<String>,
 ) -> Result<()> {
-    let store = Store::discover_for(session)?;
+    let mut store = SynthStore::discover_for(session)?;
     let task_id = match id {
-        Some(id) => id.to_string(),
-        None => store.next_id("tasks", tree, spec, "t")?,
-    };
-    let today = Store::today();
-
-    // Wrap multi-table write in a transaction for atomicity.
-    store.conn.execute("BEGIN IMMEDIATE", [])?;
-
-    let result = (|| -> Result<()> {
-        // Auto-ensure parent tree and spec exist (idempotent) for FK integrity.
-        store.conn.execute(
-            "INSERT OR IGNORE INTO trees (name) VALUES (?1)",
-            rusqlite::params![tree],
-        )?;
-        store.conn.execute(
-            "INSERT OR IGNORE INTO specs (tree, id, created) VALUES (?1, ?2, ?3)",
-            rusqlite::params![tree, spec, today],
-        )?;
-
-        store.conn.execute(
-            "INSERT INTO tasks (tree, spec, id, summary, description, status, gate, created) VALUES (?1, ?2, ?3, ?4, ?5, 'pending', ?6, ?7)",
-            rusqlite::params![tree, spec, task_id, summary, description, gate, today],
-        )?;
-
-        for dep in depends_on {
-            if dep.is_empty() {
-                continue;
-            }
-            store.conn.execute(
-                "INSERT INTO task_deps (tree, spec, task_id, depends_on) VALUES (?1, ?2, ?3, ?4)",
-                rusqlite::params![tree, spec, task_id, dep],
-            )?;
-        }
-
-        for file in files {
-            if file.is_empty() {
-                continue;
-            }
-            store.conn.execute(
-                "INSERT INTO task_files (tree, spec, task_id, path) VALUES (?1, ?2, ?3, ?4)",
-                rusqlite::params![tree, spec, task_id, file],
-            )?;
-        }
-        Ok(())
-    })();
-
-    match result {
-        Ok(()) => store.conn.execute("COMMIT", [])?,
-        Err(e) => {
-            store.conn.execute("ROLLBACK", []).ok();
-            return Err(e);
+        Some(s) => s.to_string(),
+        None => {
+            // auto-generate: next tN after max existing
+            let rows = list_current_tasks(&store, tree, spec)?;
+            let max_n = rows
+                .iter()
+                .filter_map(|r| r.get("id").and_then(|v| v.as_str()))
+                .filter_map(|s| s.strip_prefix('t').and_then(|n| n.parse::<u64>().ok()))
+                .max()
+                .unwrap_or(0);
+            format!("t{}", max_n + 1)
         }
     };
-
-    json_out(&json!({
+    if current_task(&store, tree, spec, &task_id)?.is_some() {
+        bail!("task {tree}/{spec}/{task_id} already exists");
+    }
+    let mut props = json!({
+        "tree": tree,
+        "spec": spec,
         "id": task_id,
         "summary": summary,
         "status": "pending",
         "depends_on": depends_on,
-        "created": today,
-    }))
+        "files": files,
+    });
+    if let Some(desc) = description {
+        props["description"] = json!(desc);
+    }
+    if let Some(g) = gate {
+        props["gate"] = json!(g);
+    }
+    store.append(ClaimType::Task, props.clone(), None)?;
+    json_out(&props)
 }
 
 fn cmd_task_list(tree: &str, spec: &str, active: bool, session: &Option<String>) -> Result<()> {
-    let store = Store::discover_for(session)?;
-    let sql = if active {
-        "SELECT id, summary, status, owner, gate, created, completed, failure_note, wait_reason FROM tasks WHERE tree = ?1 AND spec = ?2 AND status != 'cancelled' ORDER BY id"
+    let store = SynthStore::discover_for(session)?;
+    let tasks = list_current_tasks(&store, tree, spec)?;
+    let filtered: Vec<Value> = if active {
+        tasks
+            .into_iter()
+            .filter(|t| {
+                let s = t.get("status").and_then(|v| v.as_str()).unwrap_or("");
+                matches!(s, "pending" | "in_progress" | "blocked" | "waiting")
+            })
+            .collect()
     } else {
-        "SELECT id, summary, status, owner, gate, created, completed, failure_note, wait_reason FROM tasks WHERE tree = ?1 AND spec = ?2 ORDER BY id"
+        tasks
     };
-
-    let mut stmt = store.conn.prepare(sql)?;
-    let tasks: Vec<serde_json::Value> = stmt
-        .query_map(rusqlite::params![tree, spec], |row| {
-            let mut m = serde_json::Map::new();
-            m.insert("id".into(), json!(row.get::<_, String>(0)?));
-            m.insert("summary".into(), json!(row.get::<_, String>(1)?));
-            m.insert("status".into(), json!(row.get::<_, String>(2)?));
-            if let Ok(Some(v)) = row.get::<_, Option<String>>(3) {
-                m.insert("owner".into(), json!(v));
-            }
-            if let Ok(Some(v)) = row.get::<_, Option<String>>(4) {
-                m.insert("gate".into(), json!(v));
-            }
-            m.insert("created".into(), json!(row.get::<_, String>(5)?));
-            if let Ok(Some(v)) = row.get::<_, Option<String>>(6) {
-                m.insert("completed".into(), json!(v));
-            }
-            if let Ok(Some(v)) = row.get::<_, Option<String>>(7) {
-                m.insert("failure_note".into(), json!(v));
-            }
-            if let Ok(Some(v)) = row.get::<_, Option<String>>(8) {
-                m.insert("wait_reason".into(), json!(v));
-            }
-            Ok(serde_json::Value::Object(m))
-        })?
-        .collect::<std::result::Result<Vec<_>, rusqlite::Error>>()?;
-
-    json_out(&json!({"tree": tree, "spec": spec, "tasks": tasks}))
+    json_out(&json!({ "tasks": filtered }))
 }
 
 fn cmd_task_show(tree: &str, spec: &str, task_id: &str, session: &Option<String>) -> Result<()> {
-    let store = Store::discover_for(session)?;
-
-    let task = store.conn.query_row(
-        "SELECT summary, description, status, gate, owner, created, completed, failure_note, wait_reason FROM tasks WHERE tree = ?1 AND spec = ?2 AND id = ?3",
-        rusqlite::params![tree, spec, task_id],
-        |row| {
-            Ok(json!({
-                "id": task_id,
-                "summary": row.get::<_, String>(0)?,
-                "description": row.get::<_, Option<String>>(1)?,
-                "status": row.get::<_, String>(2)?,
-                "gate": row.get::<_, Option<String>>(3)?,
-                "owner": row.get::<_, Option<String>>(4)?,
-                "created": row.get::<_, String>(5)?,
-                "completed": row.get::<_, Option<String>>(6)?,
-                "failure_note": row.get::<_, Option<String>>(7)?,
-                "wait_reason": row.get::<_, Option<String>>(8)?,
-            }))
-        },
-    );
-
-    match task {
-        Ok(mut v) => {
-            // Add deps
-            let mut stmt = store.conn.prepare(
-                "SELECT depends_on FROM task_deps WHERE tree = ?1 AND spec = ?2 AND task_id = ?3",
-            )?;
-            let deps: Vec<String> = stmt
-                .query_map(rusqlite::params![tree, spec, task_id], |row| row.get(0))?
-                .collect::<std::result::Result<Vec<_>, rusqlite::Error>>()?;
-            v["depends_on"] = json!(deps);
-
-            // Add files
-            let mut stmt = store.conn.prepare(
-                "SELECT path FROM task_files WHERE tree = ?1 AND spec = ?2 AND task_id = ?3",
-            )?;
-            let files: Vec<String> = stmt
-                .query_map(rusqlite::params![tree, spec, task_id], |row| row.get(0))?
-                .collect::<std::result::Result<Vec<_>, rusqlite::Error>>()?;
-            v["files"] = json!(files);
-
-            // Add acceptance
-            let mut stmt = store.conn.prepare(
-                "SELECT criterion, verify_cmd FROM acceptance WHERE tree = ?1 AND spec = ?2 AND task_id = ?3 ORDER BY seq",
-            )?;
-            let acceptance: Vec<serde_json::Value> = stmt
-                .query_map(rusqlite::params![tree, spec, task_id], |row| {
-                    Ok(json!({
-                        "criterion": row.get::<_, String>(0)?,
-                        "verify": row.get::<_, String>(1)?,
-                    }))
-                })?
-                .collect::<std::result::Result<Vec<_>, rusqlite::Error>>()?;
-            v["acceptance"] = json!(acceptance);
-
-            json_out(&v)
-        }
-        Err(_) => bail!("task not found: {tree}/{spec}/{task_id}"),
+    let store = SynthStore::discover_for(session)?;
+    match current_task(&store, tree, spec, task_id)? {
+        Some((_id, props)) => json_out(&props),
+        None => bail!("task {tree}/{spec}/{task_id} not found"),
     }
 }
 
@@ -308,87 +307,40 @@ fn cmd_task_update(
     files: Option<&Vec<String>>,
     session: &Option<String>,
 ) -> Result<()> {
-    let store = Store::discover_for(session)?;
-
+    let mut store = SynthStore::discover_for(session)?;
+    let (prior_id, mut props) = current_task(&store, tree, spec, task_id)?
+        .with_context(|| format!("task {tree}/{spec}/{task_id} not found"))?;
     if let Some(s) = summary {
-        store.conn.execute(
-            "UPDATE tasks SET summary = ?1 WHERE tree = ?2 AND spec = ?3 AND id = ?4",
-            rusqlite::params![s, tree, spec, task_id],
-        )?;
+        props["summary"] = json!(s);
     }
     if let Some(d) = description {
-        store.conn.execute(
-            "UPDATE tasks SET description = ?1 WHERE tree = ?2 AND spec = ?3 AND id = ?4",
-            rusqlite::params![d, tree, spec, task_id],
-        )?;
+        props["description"] = json!(d);
     }
     if let Some(f) = files {
-        store.conn.execute(
-            "DELETE FROM task_files WHERE tree = ?1 AND spec = ?2 AND task_id = ?3",
-            rusqlite::params![tree, spec, task_id],
-        )?;
-        for file in f {
-            if file.is_empty() {
-                continue;
-            }
-            store.conn.execute(
-                "INSERT INTO task_files (tree, spec, task_id, path) VALUES (?1, ?2, ?3, ?4)",
-                rusqlite::params![tree, spec, task_id, file],
-            )?;
-        }
+        props["files"] = json!(f);
     }
-
-    json_out(&json!({"id": task_id, "updated": true}))
+    store.append(ClaimType::Task, props.clone(), Some(prior_id))?;
+    json_out(&props)
 }
 
-#[allow(clippy::too_many_arguments)]
 fn cmd_task_claim(tree: &str, spec: &str, task_id: &str, session: &Option<String>) -> Result<()> {
-    let store = Store::discover_for(session)?;
-    let owner = session.as_deref().unwrap_or("synthesist");
-
-    // Wrap dep check + claim in a transaction to prevent race conditions.
-    store.conn.execute("BEGIN IMMEDIATE", [])?;
-
-    // Check deps are done
-    let mut stmt = store.conn.prepare(
-        "SELECT d.depends_on, t.status FROM task_deps d JOIN tasks t ON d.tree = t.tree AND d.spec = t.spec AND d.depends_on = t.id WHERE d.tree = ?1 AND d.spec = ?2 AND d.task_id = ?3",
-    )?;
-    let deps: Vec<(String, String)> = stmt
-        .query_map(rusqlite::params![tree, spec, task_id], |row| {
-            Ok((row.get(0)?, row.get(1)?))
-        })?
-        .collect::<std::result::Result<Vec<_>, rusqlite::Error>>()?;
-    drop(stmt);
-
-    for (dep_id, dep_status) in &deps {
-        if dep_status != "done" {
-            store.conn.execute("ROLLBACK", []).ok();
-            bail!("dependency {dep_id} is {dep_status}, not done");
-        }
+    let mut store = SynthStore::discover_for(session)?;
+    let (prior_id, mut props) = current_task(&store, tree, spec, task_id)?
+        .with_context(|| format!("task {tree}/{spec}/{task_id} not found"))?;
+    let status = props
+        .get("status")
+        .and_then(|v| v.as_str())
+        .unwrap_or("pending");
+    if status != "pending" {
+        bail!("task {tree}/{spec}/{task_id} status is {status}; cannot claim (must be pending)");
     }
-
-    // Atomic claim
-    let affected = store.conn.execute(
-        "UPDATE tasks SET status = 'in_progress', owner = ?1 WHERE tree = ?2 AND spec = ?3 AND id = ?4 AND status = 'pending' AND (owner IS NULL OR owner = '')",
-        rusqlite::params![owner, tree, spec, task_id],
-    )?;
-
-    if affected == 0 {
-        store.conn.execute("ROLLBACK", []).ok();
-        let row = store.conn.query_row(
-            "SELECT status, owner FROM tasks WHERE tree = ?1 AND spec = ?2 AND id = ?3",
-            rusqlite::params![tree, spec, task_id],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
-        );
-        match row {
-            Ok((_status, Some(o))) if !o.is_empty() => bail!("task {task_id} already owned by {o}"),
-            Ok((status, _)) => bail!("task {task_id} is {status}, not pending"),
-            Err(_) => bail!("task not found: {tree}/{spec}/{task_id}"),
-        }
-    }
-
-    store.conn.execute("COMMIT", [])?;
-    json_out(&json!({"id": task_id, "status": "in_progress", "owner": owner}))
+    props["status"] = json!("in_progress");
+    let owner = session
+        .clone()
+        .unwrap_or_else(|| std::env::var("USER").unwrap_or_else(|_| "unknown".into()));
+    props["owner"] = json!(owner);
+    store.append(ClaimType::Task, props.clone(), Some(prior_id))?;
+    json_out(&props)
 }
 
 fn cmd_task_done(
@@ -398,187 +350,107 @@ fn cmd_task_done(
     skip_verify: bool,
     session: &Option<String>,
 ) -> Result<()> {
-    let store = Store::discover_for(session)?;
-    let mut results: Vec<serde_json::Value> = Vec::new();
-    let mut all_pass = true;
-
-    if !skip_verify {
-        let mut stmt = store.conn.prepare(
-            "SELECT seq, criterion, verify_cmd FROM acceptance WHERE tree = ?1 AND spec = ?2 AND task_id = ?3 ORDER BY seq",
-        )?;
-        let criteria: Vec<(i32, String, String)> = stmt
-            .query_map(rusqlite::params![tree, spec, task_id], |row| {
-                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
-            })?
-            .collect::<std::result::Result<Vec<_>, rusqlite::Error>>()?;
-
-        for (_seq, criterion, verify_cmd) in &criteria {
-            let output = ShellCommand::new("sh")
-                .arg("-c")
-                .arg(verify_cmd)
-                .current_dir(&store.root)
-                .output();
-
-            let passed = output.as_ref().map(|o| o.status.success()).unwrap_or(false);
-            let mut result = json!({"criterion": criterion, "verify": verify_cmd, "passed": passed});
-            if !passed {
-                all_pass = false;
-                if let Ok(o) = &output {
-                    result["output"] = json!(String::from_utf8_lossy(&o.stdout).trim().to_string());
+    let mut store = SynthStore::discover_for(session)?;
+    let (prior_id, mut props) = current_task(&store, tree, spec, task_id)?
+        .with_context(|| format!("task {tree}/{spec}/{task_id} not found"))?;
+    if !skip_verify
+        && let Some(acceptance) = props.get("acceptance").and_then(|v| v.as_array()).cloned() {
+            for crit in &acceptance {
+                let verify_cmd = crit
+                    .get("verify_cmd")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default();
+                if verify_cmd.is_empty() {
+                    continue;
+                }
+                let status = ShellCommand::new("sh")
+                    .arg("-c")
+                    .arg(verify_cmd)
+                    .status()
+                    .with_context(|| format!("run acceptance: {verify_cmd}"))?;
+                if !status.success() {
+                    bail!(
+                        "acceptance check failed: {}; pass --skip-verify to override",
+                        verify_cmd
+                    );
                 }
             }
-            results.push(result);
         }
-    }
-
-    let today = Store::today();
-    if all_pass {
-        let affected = store.conn.execute(
-            "UPDATE tasks SET status = 'done', completed = ?1, owner = NULL, failure_note = NULL WHERE tree = ?2 AND spec = ?3 AND id = ?4 AND status = 'in_progress'",
-            rusqlite::params![today, tree, spec, task_id],
-        )?;
-        if affected == 0 {
-            let status: String = store.conn.query_row(
-                "SELECT status FROM tasks WHERE tree = ?1 AND spec = ?2 AND id = ?3",
-                rusqlite::params![tree, spec, task_id],
-                |row| row.get(0),
-            ).map_err(|_| anyhow::anyhow!("task not found: {tree}/{spec}/{task_id}"))?;
-            bail!("task {task_id} is {status}, not in_progress");
-        }
-    } else {
-        store.conn.execute(
-            "UPDATE tasks SET status = 'pending', owner = NULL, failure_note = 'acceptance criteria failed' WHERE tree = ?1 AND spec = ?2 AND id = ?3 AND status = 'in_progress'",
-            rusqlite::params![tree, spec, task_id],
-        )?;
-    }
-
-    json_out(&json!({
-        "id": task_id,
-        "all_passed": all_pass,
-        "status": if all_pass { "done" } else { "pending" },
-        "criteria": results,
-    }))
+    props["status"] = json!("done");
+    store.append(ClaimType::Task, props.clone(), Some(prior_id))?;
+    json_out(&props)
 }
 
 fn cmd_task_reset(
-    tree_spec: Option<&str>,
-    task_id: Option<&str>,
-    session: Option<&str>,
+    tree: &str,
+    spec: &str,
+    task_id: &str,
     reason: Option<&str>,
-    outer_session: &Option<String>,
+    session: &Option<String>,
 ) -> Result<()> {
-    let store = Store::discover_for(outer_session)?;
-
-    // Bulk mode: reset all in_progress tasks owned by a session.
-    if let Some(sess) = session {
-        let query = if let Some(ts) = tree_spec {
-            let (tree, spec) = parse_tree_spec(ts)?;
-            store.conn.execute(
-                "UPDATE tasks SET status = 'pending', owner = NULL, failure_note = ?1 WHERE owner = ?2 AND status = 'in_progress' AND tree = ?3 AND spec = ?4",
-                rusqlite::params![reason, sess, tree, spec],
-            )?
-        } else {
-            store.conn.execute(
-                "UPDATE tasks SET status = 'pending', owner = NULL, failure_note = ?1 WHERE owner = ?2 AND status = 'in_progress'",
-                rusqlite::params![reason, sess],
-            )?
-        };
-        return json_out(&json!({"session": sess, "reset_count": query}));
+    let mut store = SynthStore::discover_for(session)?;
+    let (prior_id, mut props) = current_task(&store, tree, spec, task_id)?
+        .with_context(|| format!("task {tree}/{spec}/{task_id} not found"))?;
+    props["status"] = json!("pending");
+    props["owner"] = Value::Null;
+    if let Some(r) = reason {
+        props["reset_reason"] = json!(r);
     }
-
-    // Single-task mode
-    let ts = tree_spec.ok_or_else(|| anyhow::anyhow!("provide tree/spec + task-id or --session"))?;
-    let tid = task_id.ok_or_else(|| anyhow::anyhow!("provide tree/spec + task-id or --session"))?;
-    let (tree, spec) = parse_tree_spec(ts)?;
-
-    let affected = store.conn.execute(
-        "UPDATE tasks SET status = 'pending', owner = NULL, failure_note = ?1 WHERE tree = ?2 AND spec = ?3 AND id = ?4 AND status = 'in_progress'",
-        rusqlite::params![reason, tree, spec, tid],
-    )?;
-
-    if affected == 0 {
-        let status: String = store.conn.query_row(
-            "SELECT status FROM tasks WHERE tree = ?1 AND spec = ?2 AND id = ?3",
-            rusqlite::params![tree, spec, tid],
-            |row| row.get(0),
-        ).map_err(|_| anyhow::anyhow!("task not found: {tree}/{spec}/{tid}"))?;
-        bail!("task {tid} is {status}, not in_progress");
-    }
-
-    json_out(&json!({"id": tid, "status": "pending"}))
+    store.append(ClaimType::Task, props.clone(), Some(prior_id))?;
+    json_out(&props)
 }
 
-#[allow(clippy::too_many_arguments)]
-fn cmd_task_block(tree: &str, spec: &str, task_id: &str, session: &Option<String>) -> Result<()> {
-    let store = Store::discover_for(session)?;
-    let affected = store.conn.execute(
-        "UPDATE tasks SET status = 'blocked' WHERE tree = ?1 AND spec = ?2 AND id = ?3 AND status IN ('pending', 'in_progress')",
-        rusqlite::params![tree, spec, task_id],
-    )?;
-    if affected == 0 {
-        bail!("task {task_id} cannot be blocked (not pending or in_progress)");
+fn cmd_task_status_transition(
+    tree: &str,
+    spec: &str,
+    task_id: &str,
+    new_status: &str,
+    extra_field: Option<(&str, &str)>,
+    _clear: Option<&str>,
+    session: &Option<String>,
+) -> Result<()> {
+    let mut store = SynthStore::discover_for(session)?;
+    let (prior_id, mut props) = current_task(&store, tree, spec, task_id)?
+        .with_context(|| format!("task {tree}/{spec}/{task_id} not found"))?;
+    props["status"] = json!(new_status);
+    if let Some((k, v)) = extra_field {
+        props[k] = json!(v);
     }
-    json_out(&json!({"id": task_id, "status": "blocked"}))
-}
-
-#[allow(clippy::too_many_arguments)]
-fn cmd_task_wait(tree: &str, spec: &str, task_id: &str, reason: &str, session: &Option<String>) -> Result<()> {
-    let store = Store::discover_for(session)?;
-    let affected = store.conn.execute(
-        "UPDATE tasks SET status = 'waiting', wait_reason = ?1 WHERE tree = ?2 AND spec = ?3 AND id = ?4 AND status IN ('pending', 'in_progress')",
-        rusqlite::params![reason, tree, spec, task_id],
-    )?;
-    if affected == 0 {
-        bail!("task {task_id} cannot be set to waiting (not pending or in_progress)");
-    }
-    json_out(&json!({"id": task_id, "status": "waiting", "reason": reason}))
-}
-
-#[allow(clippy::too_many_arguments)]
-fn cmd_task_cancel(tree: &str, spec: &str, task_id: &str, reason: Option<&str>, session: &Option<String>) -> Result<()> {
-    let store = Store::discover_for(session)?;
-    let affected = store.conn.execute(
-        "UPDATE tasks SET status = 'cancelled', failure_note = ?1 WHERE tree = ?2 AND spec = ?3 AND id = ?4 AND status NOT IN ('done', 'cancelled')",
-        rusqlite::params![reason, tree, spec, task_id],
-    )?;
-    if affected == 0 {
-        let status: String = store.conn.query_row(
-            "SELECT status FROM tasks WHERE tree = ?1 AND spec = ?2 AND id = ?3",
-            rusqlite::params![tree, spec, task_id],
-            |row| row.get(0),
-        ).map_err(|_| anyhow::anyhow!("task not found: {tree}/{spec}/{task_id}"))?;
-        bail!("task {task_id} is {status}, cannot cancel");
-    }
-    json_out(&json!({"id": task_id, "status": "cancelled"}))
+    store.append(ClaimType::Task, props.clone(), Some(prior_id))?;
+    json_out(&props)
 }
 
 fn cmd_task_ready(tree: &str, spec: &str, session: &Option<String>) -> Result<()> {
-    let store = Store::discover_for(session)?;
-    let mut stmt = store.conn.prepare(
-        "SELECT t.id, t.summary, t.gate
-         FROM tasks t
-         WHERE t.tree = ?1 AND t.spec = ?2 AND t.status = 'pending'
-         AND NOT EXISTS (
-             SELECT 1 FROM task_deps d
-             JOIN tasks dep ON d.tree = dep.tree AND d.spec = dep.spec AND d.depends_on = dep.id
-             WHERE d.tree = t.tree AND d.spec = t.spec AND d.task_id = t.id
-             AND dep.status != 'done'
-         )
-         ORDER BY t.id",
-    )?;
-    let ready: Vec<serde_json::Value> = stmt
-        .query_map(rusqlite::params![tree, spec], |row| {
-            let mut m = serde_json::Map::new();
-            m.insert("id".into(), json!(row.get::<_, String>(0)?));
-            m.insert("summary".into(), json!(row.get::<_, String>(1)?));
-            if let Ok(Some(g)) = row.get::<_, Option<String>>(2) {
-                m.insert("gate".into(), json!(g));
+    let store = SynthStore::discover_for(session)?;
+    let tasks = list_current_tasks(&store, tree, spec)?;
+    // Build id → status map
+    let status_by_id: std::collections::HashMap<String, String> = tasks
+        .iter()
+        .filter_map(|t| {
+            let id = t.get("id").and_then(|v| v.as_str())?.to_string();
+            let s = t.get("status").and_then(|v| v.as_str())?.to_string();
+            Some((id, s))
+        })
+        .collect();
+    let ready: Vec<Value> = tasks
+        .iter()
+        .filter(|t| {
+            let s = t.get("status").and_then(|v| v.as_str()).unwrap_or("");
+            if s != "pending" {
+                return false;
             }
-            Ok(serde_json::Value::Object(m))
-        })?
-        .collect::<std::result::Result<Vec<_>, rusqlite::Error>>()?;
-
-    json_out(&json!({"tree": tree, "spec": spec, "ready": ready}))
+            let deps = t
+                .get("depends_on")
+                .and_then(|v| v.as_array())
+                .cloned()
+                .unwrap_or_default();
+            deps.iter()
+                .filter_map(|d| d.as_str())
+                .all(|d| status_by_id.get(d).map(|s| s.as_str()) == Some("done"))
+        })
+        .cloned()
+        .collect();
+    json_out(&json!({ "ready": ready }))
 }
 
 fn cmd_task_acceptance(
@@ -589,15 +461,16 @@ fn cmd_task_acceptance(
     verify: &str,
     session: &Option<String>,
 ) -> Result<()> {
-    let store = Store::discover_for(session)?;
-    let next_seq: i32 = store.conn.query_row(
-        "SELECT COALESCE(MAX(seq), 0) + 1 FROM acceptance WHERE tree = ?1 AND spec = ?2 AND task_id = ?3",
-        rusqlite::params![tree, spec, task_id],
-        |row| row.get(0),
-    )?;
-    store.conn.execute(
-        "INSERT INTO acceptance (tree, spec, task_id, seq, criterion, verify_cmd) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        rusqlite::params![tree, spec, task_id, next_seq, criterion, verify],
-    )?;
-    json_out(&json!({"task_id": task_id, "seq": next_seq, "criterion": criterion}))
+    let mut store = SynthStore::discover_for(session)?;
+    let (prior_id, mut props) = current_task(&store, tree, spec, task_id)?
+        .with_context(|| format!("task {tree}/{spec}/{task_id} not found"))?;
+    let mut acceptance = props
+        .get("acceptance")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    acceptance.push(json!({ "criterion": criterion, "verify_cmd": verify }));
+    props["acceptance"] = Value::Array(acceptance);
+    store.append(ClaimType::Task, props.clone(), Some(prior_id))?;
+    json_out(&props)
 }

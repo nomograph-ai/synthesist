@@ -1,9 +1,11 @@
+# gitlab.com/nomograph/synthesist .gitlab-ci.yml
+
 include:
   - template: Jobs/Secret-Detection.gitlab-ci.yml
   - component: gitlab.com/nomograph/pipeline/rust-cli@v2.4.6
     inputs:
       binary_name: synthesist
-      project_description: "Specification graph manager."
+      project_description: "Specification graph manager for AI-augmented projects, on the nomograph-claim substrate."
       audit_allow_failure: false
       crates_publish: true
 
