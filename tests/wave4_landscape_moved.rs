@@ -38,8 +38,8 @@ fn stakeholder_add_prints_moved_message() {
         .stderr(predicate::str::contains(
             "the `stakeholder` command moved to `lattice` in v2",
         ))
-        .stderr(predicate::str::contains("Install `lattice`"))
-        .stderr(predicate::str::contains("lattice stakeholder"));
+        .stderr(predicate::str::contains("cargo install nomograph-lattice"))
+        .stderr(predicate::str::contains("stakeholder"));
 }
 
 #[test]
