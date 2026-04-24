@@ -1,6 +1,10 @@
 .DS_Store
 *.log
 
+# Fixtures seeded by jig agent-shape runs. Regenerated deterministically
+# by scripts/agent-shape-fixture.sh; the output has no value tracked.
+fixtures/
+
 # Rust build artifacts (root + nested tool crates)
 /target
 tools/*/target/
