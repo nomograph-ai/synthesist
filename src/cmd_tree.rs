@@ -1,6 +1,6 @@
 //! Tree commands — ported to the claim substrate.
 
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use nomograph_claim::ClaimType;
 use serde_json::json;
 
@@ -15,6 +15,7 @@ pub fn run(cmd: &TreeCmd, session: &Option<String>) -> Result<()> {
             status,
         } => cmd_tree_add(name, description, status, session),
         TreeCmd::List => cmd_tree_list(session),
+        TreeCmd::Show { name } => cmd_tree_show(name, session),
     }
 }
 
@@ -53,4 +54,52 @@ fn cmd_tree_list(session: &Option<String>) -> Result<()> {
         })
         .collect();
     json_out(&json!({ "trees": trees }))
+}
+
+fn cmd_tree_show(name: &str, session: &Option<String>) -> Result<()> {
+    let store = SynthStore::discover_for(session)?;
+
+    let tree_rows = store.query(
+        "SELECT props FROM claims \
+         WHERE claim_type = 'tree' AND json_extract(props, '$.name') = ?1 \
+         ORDER BY asserted_at DESC LIMIT 1",
+        &[&name],
+    )?;
+    let tree_row = tree_rows
+        .first()
+        .ok_or_else(|| anyhow!("tree not found: {name}. Try `synthesist tree list`."))?;
+    let props_str = tree_row
+        .get("props")
+        .and_then(|v| v.as_str())
+        .unwrap_or("{}");
+    let props: serde_json::Value = serde_json::from_str(props_str).unwrap_or(json!({}));
+
+    let spec_count_rows = store.query(
+        "SELECT COUNT(*) AS n FROM claims \
+         WHERE claim_type = 'spec' AND json_extract(props, '$.tree') = ?1",
+        &[&name],
+    )?;
+    let spec_count = spec_count_rows
+        .first()
+        .and_then(|r| r.get("n"))
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+
+    let session_count_rows = store.query(
+        "SELECT COUNT(*) AS n FROM claims \
+         WHERE claim_type = 'session' AND json_extract(props, '$.tree') = ?1",
+        &[&name],
+    )?;
+    let session_count = session_count_rows
+        .first()
+        .and_then(|r| r.get("n"))
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+
+    json_out(&json!({
+        "name": props.get("name").cloned().unwrap_or_else(|| json!(name)),
+        "description": props.get("description").cloned().unwrap_or_default(),
+        "spec_count": spec_count,
+        "session_count": session_count,
+    }))
 }

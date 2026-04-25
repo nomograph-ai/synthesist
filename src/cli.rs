@@ -153,6 +153,11 @@ pub enum TreeCmd {
     },
     /// List all trees in the estate.
     List,
+    /// Show a single tree's metadata: name, description, spec count.
+    Show {
+        /// Tree name.
+        name: String,
+    },
 }
 
 // --- Spec ---
@@ -195,10 +200,16 @@ pub enum SpecCmd {
         #[arg(long)]
         outcome: Option<String>,
     },
-    /// List all specs in a tree.
+    /// List all specs in a tree. Tree may be passed as positional or
+    /// via `--tree <name>`. Agents reach for both shapes; jig surfaced
+    /// the flag form as a frequent invention.
     List {
-        /// Tree name.
-        tree: String,
+        /// Tree name (positional form).
+        #[arg(value_name = "TREE")]
+        tree: Option<String>,
+        /// Tree name (flag form, equivalent to positional).
+        #[arg(long = "tree", value_name = "TREE", conflicts_with = "tree", id = "tree_flag")]
+        tree_flag: Option<String>,
     },
 }
 
@@ -502,6 +513,8 @@ pub enum PhaseCmd {
         /// Phase name: orient, plan, agree, execute, reflect, replan, report.
         name: String,
     },
-    /// Show the current workflow phase.
+    /// Show the current workflow phase. `phase get` is an alias for
+    /// agents that reach for the get/set verb pairing.
+    #[command(alias = "get")]
     Show,
 }

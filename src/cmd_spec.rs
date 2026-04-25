@@ -64,7 +64,15 @@ pub fn run(cmd: &SpecCmd, session: &Option<String>) -> Result<()> {
                 session,
             )
         }
-        SpecCmd::List { tree } => cmd_spec_list(tree, session),
+        SpecCmd::List { tree, tree_flag } => {
+            let resolved = tree
+                .as_deref()
+                .or(tree_flag.as_deref())
+                .ok_or_else(|| anyhow::anyhow!(
+                    "tree required: pass as positional `synthesist spec list <tree>` or as flag `synthesist spec list --tree <tree>`"
+                ))?;
+            cmd_spec_list(resolved, session)
+        }
     }
 }
 

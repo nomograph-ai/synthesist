@@ -157,6 +157,7 @@ synthesist skill                                 # this file
 ```
 synthesist tree add <name> --description TEXT     # e.g. tree add upstream --description "GitLab"
 synthesist tree list
+synthesist tree show <name>                       # name, description, spec_count, session_count
 ```
 
 ### Specs
@@ -164,7 +165,8 @@ synthesist tree list
 synthesist spec add <tree/spec> --goal TEXT        # e.g. spec add upstream/auth --goal "Migrate v2->v3"
 synthesist spec show <tree/spec>
 synthesist spec update <tree/spec> --status completed --outcome "Shipped in MR !500"
-synthesist spec list <tree>                       # e.g. spec list upstream
+synthesist spec list <tree>                       # positional form, e.g. spec list upstream
+synthesist spec list --tree <name>                # flag form (same effect)
 ```
 Status values: active, completed, abandoned, superseded, deferred.
 
@@ -213,6 +215,7 @@ Multi-user writes merge automatically via CRDT. Run
 ### Phase
 ```
 synthesist phase show                              # current phase (for active session)
+synthesist phase get                               # alias of `phase show`
 synthesist phase set plan                          # orient -> plan (validated)
 synthesist phase set execute                       # fails if not in agree
 synthesist --force phase set execute               # override transition validation

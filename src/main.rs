@@ -269,6 +269,7 @@ fn command_path(cmd: &cli::Command) -> (&str, &str) {
             match cmd {
                 cli::TreeCmd::Add { .. } => "add",
                 cli::TreeCmd::List => "list",
+                cli::TreeCmd::Show { .. } => "show",
             },
         ),
         cli::Command::Spec { cmd } => (
