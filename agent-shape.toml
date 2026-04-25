@@ -149,3 +149,35 @@ sealed_against_tag = "synthesist-v5.1.0"
 # results. Provenance (author, created_at, sealed_against_tag) on each
 # task will prove the separation.
 # [[tasks.holdout]]  (none yet)
+
+# Cross-referenced by `jig check --binary <path>`. Drift in either
+# direction (binary advertising commands the rubric omits, or rubric
+# listing commands the binary doesn't expose) is the dominant source
+# of measurement error in this study so far. This list closes the
+# loop: any change to clap subcommands should land here in the same
+# commit.
+[commands]
+top_level = [
+  "init",
+  "status",
+  "check",
+  "conflicts",
+  "tree",
+  "spec",
+  "task",
+  "discovery",
+  "stakeholder",   # moved to lattice; binary still routes the message
+  "disposition",
+  "signal",
+  "stance",
+  "campaign",
+  "session",
+  "phase",
+  "migrate",
+  "export",
+  "import",
+  "skill",
+  "version",
+  "sql",
+  "serve",
+]
