@@ -472,9 +472,6 @@ fn render_dashboard(state: &State) -> String {
     let mut s = String::with_capacity(64 * 1024);
     s.push_str("<!doctype html>\n<html lang=\"en\"><head>");
     s.push_str("<meta charset=\"utf-8\">");
-    s.push_str(&format!(
-        "<meta http-equiv=\"refresh\" content=\"{REFRESH_SECONDS}\">"
-    ));
     s.push_str("<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">");
     s.push_str("<title>synthesist · ");
     s.push_str(&html_escape(&state.data_dir));
@@ -485,10 +482,9 @@ fn render_dashboard(state: &State) -> String {
     // Header
     s.push_str("<header><h1>synthesist</h1>");
     s.push_str(&format!(
-        "<div class=\"meta\"><code>{}</code> · v{} · refreshes every {}s</div>",
+        "<div class=\"meta\"><code>{}</code> · v{} <span id=\"live-status\" class=\"live-on\">· live</span> <button id=\"live-toggle\" class=\"chrome-btn\" type=\"button\">pause</button> <button id=\"refresh-now\" class=\"chrome-btn\" type=\"button\">refresh</button></div>",
         html_escape(&state.data_dir),
         html_escape(&state.version),
-        REFRESH_SECONDS
     ));
     s.push_str("</header>");
 
@@ -783,43 +779,110 @@ const STYLE: &str = r#"<style>
   footer { margin-top: 2rem; padding-top: 0.75rem; border-top: 1px solid var(--border); font-family: var(--mono); font-size: 0.75rem; color: var(--fg-muted); }
   footer a { color: var(--accent); text-decoration: none; }
   footer a:hover { text-decoration: underline; }
+  .chrome-btn {
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    padding: 0.15em 0.55em;
+    margin-left: 0.4em;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    background: var(--bg-soft);
+    color: var(--fg);
+    cursor: pointer;
+  }
+  .chrome-btn:hover { background: var(--border); }
+  .live-on { color: var(--status-done); }
+  .live-off { color: var(--fg-muted); }
 </style>"#;
 
-/// Persists `<details>` open state across reloads to localStorage,
-/// keyed by the stable id we put on every <details>. Without this
-/// the meta-refresh nukes every expansion the user clicked open.
-/// Pure client-side; no server state.
+/// Client-side behavior for serve:
+///   1. Persists `<details>` open state across reloads to
+///      localStorage, keyed by the stable id we put on every
+///      `<details>`. Without this any refresh nukes every expansion.
+///   2. Smooth live refresh: every 5s, fetch `/`, swap the body
+///      innerHTML using DOMParser. No navigation, no flicker. State
+///      restoration runs after each swap.
+///   3. Pause/resume + manual refresh buttons in the header.
 const SCRIPT: &str = r#"<script>
 (function () {
   const KEY = 'synthesist-serve:open-details';
+  const LIVE_KEY = 'synthesist-serve:live';
+  const INTERVAL_MS = 5000;
+
   function loadOpen() {
     try { return new Set(JSON.parse(localStorage.getItem(KEY) || '[]')); }
     catch (_) { return new Set(); }
   }
   function saveOpen(set) {
     try { localStorage.setItem(KEY, JSON.stringify(Array.from(set))); }
-    catch (_) { /* localStorage full or disabled; soldier on */ }
+    catch (_) { /* localStorage disabled; soldier on */ }
   }
-  // Apply saved state on load. Default-open sections (trees,
-  // sessions) only restore if previously CLOSED — otherwise they
-  // stay open as the server rendered them.
-  const open = loadOpen();
-  document.querySelectorAll('details[id]').forEach(d => {
-    const id = d.id;
-    if (open.has('OPEN:' + id)) d.open = true;
-    if (open.has('CLOSED:' + id)) d.open = false;
-  });
-  // Listen for toggles and persist.
-  document.querySelectorAll('details[id]').forEach(d => {
-    d.addEventListener('toggle', () => {
-      const cur = loadOpen();
-      const id = d.id;
-      cur.delete('OPEN:' + id);
-      cur.delete('CLOSED:' + id);
-      cur.add((d.open ? 'OPEN:' : 'CLOSED:') + id);
-      saveOpen(cur);
+  function applyOpen(root) {
+    const open = loadOpen();
+    root.querySelectorAll('details[id]').forEach(d => {
+      if (open.has('OPEN:' + d.id)) d.open = true;
+      if (open.has('CLOSED:' + d.id)) d.open = false;
     });
-  });
+  }
+  function attachToggle(root) {
+    root.querySelectorAll('details[id]').forEach(d => {
+      d.addEventListener('toggle', () => {
+        const cur = loadOpen();
+        cur.delete('OPEN:' + d.id);
+        cur.delete('CLOSED:' + d.id);
+        cur.add((d.open ? 'OPEN:' : 'CLOSED:') + d.id);
+        saveOpen(cur);
+      });
+    });
+  }
+
+  let liveOn = localStorage.getItem(LIVE_KEY) !== '0';
+  let timer = null;
+
+  async function refresh() {
+    try {
+      const res = await fetch(window.location.pathname, { cache: 'no-store' });
+      if (!res.ok) return;
+      const html = await res.text();
+      const next = new DOMParser().parseFromString(html, 'text/html');
+      // Swap only the body; keep the <head> stable.
+      document.body.innerHTML = next.body.innerHTML;
+      applyOpen(document);
+      attachToggle(document);
+      wireChrome();
+    } catch (_) { /* network blip; skip this tick */ }
+  }
+  function setLive(on) {
+    liveOn = on;
+    localStorage.setItem(LIVE_KEY, on ? '1' : '0');
+    if (timer) clearInterval(timer);
+    timer = on ? setInterval(refresh, INTERVAL_MS) : null;
+    const status = document.getElementById('live-status');
+    const toggle = document.getElementById('live-toggle');
+    if (status) {
+      status.textContent = on ? '· live' : '· paused';
+      status.className = on ? 'live-on' : 'live-off';
+    }
+    if (toggle) toggle.textContent = on ? 'pause' : 'resume';
+  }
+  function wireChrome() {
+    const toggle = document.getElementById('live-toggle');
+    if (toggle) toggle.onclick = () => setLive(!liveOn);
+    const now = document.getElementById('refresh-now');
+    if (now) now.onclick = () => refresh();
+    // Reflect current state into freshly-swapped chrome.
+    const status = document.getElementById('live-status');
+    if (status) {
+      status.textContent = liveOn ? '· live' : '· paused';
+      status.className = liveOn ? 'live-on' : 'live-off';
+    }
+    if (toggle) toggle.textContent = liveOn ? 'pause' : 'resume';
+  }
+
+  applyOpen(document);
+  attachToggle(document);
+  wireChrome();
+  if (liveOn) timer = setInterval(refresh, INTERVAL_MS);
 })();
 </script>"#;
 
