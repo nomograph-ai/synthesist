@@ -24,10 +24,7 @@ pub fn cmd_conflicts() -> Result<()> {
     let mut supers: BTreeMap<String, Vec<String>> = BTreeMap::new();
     for c in &claims {
         if let Some(prior) = &c.supersedes {
-            supers
-                .entry(prior.clone())
-                .or_default()
-                .push(c.id.clone());
+            supers.entry(prior.clone()).or_default().push(c.id.clone());
         }
     }
 

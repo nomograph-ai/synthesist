@@ -354,28 +354,29 @@ fn cmd_task_done(
     let (prior_id, mut props) = current_task(&store, tree, spec, task_id)?
         .with_context(|| format!("task {tree}/{spec}/{task_id} not found"))?;
     if !skip_verify
-        && let Some(acceptance) = props.get("acceptance").and_then(|v| v.as_array()).cloned() {
-            for crit in &acceptance {
-                let verify_cmd = crit
-                    .get("verify_cmd")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or_default();
-                if verify_cmd.is_empty() {
-                    continue;
-                }
-                let status = ShellCommand::new("sh")
-                    .arg("-c")
-                    .arg(verify_cmd)
-                    .status()
-                    .with_context(|| format!("run acceptance: {verify_cmd}"))?;
-                if !status.success() {
-                    bail!(
-                        "acceptance check failed: {}; pass --skip-verify to override",
-                        verify_cmd
-                    );
-                }
+        && let Some(acceptance) = props.get("acceptance").and_then(|v| v.as_array()).cloned()
+    {
+        for crit in &acceptance {
+            let verify_cmd = crit
+                .get("verify_cmd")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
+            if verify_cmd.is_empty() {
+                continue;
+            }
+            let status = ShellCommand::new("sh")
+                .arg("-c")
+                .arg(verify_cmd)
+                .status()
+                .with_context(|| format!("run acceptance: {verify_cmd}"))?;
+            if !status.success() {
+                bail!(
+                    "acceptance check failed: {}; pass --skip-verify to override",
+                    verify_cmd
+                );
             }
         }
+    }
     props["status"] = json!("done");
     store.append(ClaimType::Task, props.clone(), Some(prior_id))?;
     json_out(&props)

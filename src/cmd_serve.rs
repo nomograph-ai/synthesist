@@ -1916,7 +1916,9 @@ async function initNetwork() {
     detail.classList.remove('empty');
     const lines = [
       n.kind + ': ' + n.label,
-      n.tree ? 'tree: ' + n.tree : null,
+      // Skip the "tree:" line when the node IS a tree (would just
+      // restate the kind line).
+      (n.tree && n.kind !== 'tree') ? 'tree: ' + n.tree : null,
       n.status ? 'status: ' + n.status : null,
     ].filter(Boolean);
     // Show plus a "open in trees view" link.

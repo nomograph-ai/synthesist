@@ -100,13 +100,12 @@ pub fn migrate(from: &Path, to: &Path, dry_run: bool, overwrite: bool) -> Result
     }
     let conn = Connection::open_with_flags(from, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
 
-    if !dry_run
-        && to.exists() && is_already_migrated(to)? {
-            if !overwrite {
-                return Err(MigrateError::AlreadyMigrated);
-            }
-            std::fs::remove_dir_all(to)?;
+    if !dry_run && to.exists() && is_already_migrated(to)? {
+        if !overwrite {
+            return Err(MigrateError::AlreadyMigrated);
         }
+        std::fs::remove_dir_all(to)?;
+    }
 
     // Preserve a stable rollback artifact before any claim is written.
     let backup_path = if dry_run {

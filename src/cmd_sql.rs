@@ -20,11 +20,7 @@ const WRITE_KEYWORDS: &[&str] = &[
 
 pub fn cmd_sql(query: &str) -> Result<()> {
     // Reject writes with a specific message before we hit the view.
-    let first_word = query
-        .split_whitespace()
-        .next()
-        .unwrap_or("")
-        .to_uppercase();
+    let first_word = query.split_whitespace().next().unwrap_or("").to_uppercase();
     if WRITE_KEYWORDS.contains(&first_word.as_str()) {
         bail!(
             "synthesist sql is read-only (rejected `{first_word}`). \
