@@ -2,7 +2,7 @@
 #
 # Run with: `jig run agent-shape.toml --tuning-only`
 #
-# Drives jig's claude-in-the-loop battery to measure whether the
+# Drives jig's runtime-in-the-loop battery to measure whether the
 # synthesist CLI is shaped so agents reach for correct commands by
 # default. First subject tool for jig; study results will be
 # retrospective across tagged synthesist versions.
