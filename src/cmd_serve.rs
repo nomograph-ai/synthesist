@@ -808,8 +808,10 @@ fn render_dashboard(state: &State) -> String {
     s.push_str(STYLE);
     s.push_str("</head><body>");
 
-    // Header
-    s.push_str("<header><h1>synthesist</h1>");
+    // Header — nomograph mark, page title, meta + chrome
+    s.push_str("<header>");
+    s.push_str(NOM_MARK);
+    s.push_str("<h1>synthesist</h1>");
     s.push_str(&format!(
         "<div class=\"meta\"><code>{}</code> · v{} <span id=\"live-status\" class=\"live-on\">· connecting</span> <button id=\"live-toggle\" class=\"chrome-btn\" type=\"button\">pause</button> <button id=\"refresh-now\" class=\"chrome-btn\" type=\"button\">refresh</button></div>",
         html_escape(&state.data_dir),
@@ -820,7 +822,7 @@ fn render_dashboard(state: &State) -> String {
     // Recent activity (cross-cutting)
     if !state.recent.is_empty() {
         s.push_str(&format!(
-            "<section><details open id=\"section:recent\"><summary><span class=\"section-title\">recent</span> <span class=\"count\">{} claims</span></summary>",
+            "<section class=\"recent\"><details open id=\"section:recent\"><summary><span class=\"section-title\">recent</span> <span class=\"count\">{} claims</span></summary>",
             state.recent.len()
         ));
         for r in &state.recent {
@@ -839,7 +841,7 @@ fn render_dashboard(state: &State) -> String {
 
     // Trees
     s.push_str(&format!(
-        "<section><details open id=\"section:trees\"><summary><span class=\"section-title\">trees</span> <span class=\"count\">{}</span></summary>",
+        "<section class=\"trees\"><details open id=\"section:trees\"><summary><span class=\"section-title\">trees</span> <span class=\"count\">{}</span></summary>",
         state.trees.len()
     ));
     for tree in &state.trees {
@@ -851,7 +853,7 @@ fn render_dashboard(state: &State) -> String {
     let active_n = state.sessions.iter().filter(|s| s.status == "active").count();
     let closed_n = state.sessions.len() - active_n;
     s.push_str(&format!(
-        "<section><details open id=\"section:sessions\"><summary><span class=\"section-title\">sessions</span> <span class=\"count\">{} <span class=\"muted\">/ {} active · {} closed</span></span></summary>",
+        "<section class=\"sessions\"><details open id=\"section:sessions\"><summary><span class=\"section-title\">sessions</span> <span class=\"count\">{} <span class=\"muted\">/ {} active · {} closed</span></span></summary>",
         state.sessions.len(),
         active_n,
         closed_n,
@@ -1054,36 +1056,86 @@ fn html_escape(s: &str) -> String {
     out
 }
 
-const STYLE: &str = r#"<style>
+const STYLE: &str = r#"
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=DM+Serif+Display&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
   :root {
-    --fg: #1a1a1a;
-    --fg-muted: #6a737d;
-    --bg: #ffffff;
-    --bg-soft: #f6f8fa;
-    --border: #e5e7eb;
-    --accent: #7d9aaa;
-    --status-active: #1a73e8;
-    --status-closed: #6a737d;
-    --status-in_progress: #e36209;
-    --status-done: #2ea44f;
-    --status-blocked: #d73a49;
-    --status-deferred: #6a737d;
-    --status-pending: #6a737d;
-    --status-completed: #2ea44f;
-    --status-cancelled: #6a737d;
-    --status-superseded: #6a737d;
-    --status-abandoned: #d73a49;
-    --gate: #d73a49;
-    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
-    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    /* Nomograph palette — gitlab.com/nomograph/design/tokens/colors.css */
+    --paper-50:  #faf9f7;
+    --paper-100: #f2f0eb;
+    --paper-200: #e2e0da;
+    --paper-300: #c8c5bc;
+    --paper-400: #9c9890;
+    --paper-500: #706d66;
+    --ink-300: #5c5c5c;
+    --ink-400: #3d3d3d;
+    --ink-500: #1a1a1a;
+    --ink-600: #111111;
+    --ink-700: #080808;
+    --steel-100: #dde4e9;
+    --steel-200: #b8c6cf;
+    --steel-300: #7d9aaa;
+    --steel-400: #4a6072;
+    --steel-500: #364858;
+    --steel-600: #243040;
+
+    /* Semantic mappings */
+    --bg: var(--paper-50);
+    --bg-soft: var(--paper-100);
+    --bg-tint: var(--paper-200);
+    --border: var(--paper-200);
+    --border-strong: var(--paper-300);
+    --fg: var(--ink-500);
+    --fg-secondary: var(--ink-400);
+    --fg-muted: var(--paper-500);
+
+    --accent: var(--steel-400);
+    --accent-soft: var(--steel-200);
+    --accent-mute: color-mix(in srgb, var(--steel-300) 8%, transparent);
+    --accent-mute-strong: color-mix(in srgb, var(--steel-300) 18%, transparent);
+
+    /* Status semantics — layered on top of paper, not pure RGB */
+    --status-active: var(--steel-400);
+    --status-in_progress: #b95a18;
+    --status-done: #427c50;
+    --status-completed: #427c50;
+    --status-blocked: #b03a3a;
+    --status-pending: var(--paper-400);
+    --status-deferred: var(--paper-400);
+    --status-closed: var(--paper-400);
+    --status-cancelled: var(--paper-400);
+    --status-superseded: var(--paper-400);
+    --status-abandoned: #b03a3a;
+    --gate: #b03a3a;
+
+    /* Section accents — give each top-level section a distinct hue */
+    --accent-recent: #8a6f3a;
+    --accent-trees: var(--steel-400);
+    --accent-sessions: #5e5b8a;
+
+    --serif: "DM Serif Display", Georgia, "Times New Roman", serif;
+    --sans:  "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    --mono:  "JetBrains Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --fg: #e6edf3;
-      --fg-muted: #8b949e;
-      --bg: #0d1117;
-      --bg-soft: #161b22;
-      --border: #30363d;
+      --bg: var(--ink-600);
+      --bg-soft: #1a1f24;
+      --bg-tint: #232830;
+      --border: #2a3038;
+      --border-strong: #3a4250;
+      --fg: var(--paper-100);
+      --fg-secondary: var(--paper-200);
+      --fg-muted: var(--paper-400);
+      --accent: var(--steel-300);
+      --accent-soft: var(--steel-500);
+      --accent-mute: color-mix(in srgb, var(--steel-300) 10%, transparent);
+      --accent-mute-strong: color-mix(in srgb, var(--steel-300) 22%, transparent);
+      --accent-recent: #c4a26b;
+      --accent-trees: var(--steel-300);
+      --accent-sessions: #9b97c9;
     }
   }
   * { box-sizing: border-box; }
@@ -1092,98 +1144,280 @@ const STYLE: &str = r#"<style>
     background: var(--bg);
     color: var(--fg);
     margin: 0;
-    padding: 1.5rem;
-    max-width: 100ch;
+    padding: 1.5rem 2rem 3rem;
+    max-width: 110ch;
     margin-left: auto;
     margin-right: auto;
     font-size: 14px;
     line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
-  header { margin-bottom: 1.5rem; padding-bottom: 0.75rem; border-bottom: 1px solid var(--border); }
-  h1 { margin: 0 0 0.25rem 0; font-size: 1.25rem; font-weight: 600; font-family: var(--mono); letter-spacing: -0.01em; }
-  .meta { font-family: var(--mono); font-size: 0.8rem; color: var(--fg-muted); }
-  .meta code { background: var(--bg-soft); padding: 0.1em 0.35em; border-radius: 3px; }
-  section { margin: 1rem 0; }
+
+  /* ───────── Header ─────────────────────────────────────────── */
+  header {
+    margin-bottom: 1.5rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: baseline;
+    gap: 0.85rem;
+    flex-wrap: wrap;
+  }
+  .nom-mark { display: inline-block; width: 22px; height: 22px; flex: 0 0 22px; align-self: center; color: var(--accent); }
+  .nom-mark svg { width: 100%; height: 100%; display: block; }
+  h1 {
+    margin: 0;
+    font-family: var(--serif);
+    font-weight: 400;
+    font-size: 1.6rem;
+    letter-spacing: 0.01em;
+    color: var(--fg);
+  }
+  .meta {
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    color: var(--fg-muted);
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+  }
+  .meta code {
+    background: var(--bg-soft);
+    padding: 0.12em 0.4em;
+    border-radius: 3px;
+    color: var(--fg-secondary);
+  }
+
+  /* ───────── Sections (callout pattern) ─────────────────────── */
+  section {
+    margin: 1.25rem 0;
+    border-left: 3px solid var(--section-accent, var(--accent));
+    background: var(--section-tint, var(--accent-mute));
+    padding: 0.85rem 0.85rem 0.85rem 1rem;
+    border-radius: 0 4px 4px 0;
+  }
+  section.recent   { --section-accent: var(--accent-recent);   --section-tint: color-mix(in srgb, var(--accent-recent) 6%, transparent); }
+  section.trees    { --section-accent: var(--accent-trees);    --section-tint: color-mix(in srgb, var(--accent-trees) 6%, transparent); }
+  section.sessions { --section-accent: var(--accent-sessions); --section-tint: color-mix(in srgb, var(--accent-sessions) 6%, transparent); }
+
+  /* ───────── Disclosure ─────────────────────────────────────── */
   details { margin: 0.15rem 0; }
   details > summary {
     cursor: pointer;
-    padding: 0.25rem 0;
+    padding: 0.2rem 0;
     list-style: none;
     user-select: none;
   }
   details > summary::-webkit-details-marker { display: none; }
   details > summary::before {
-    content: "▸ ";
-    color: var(--fg-muted);
+    content: "▸";
+    color: var(--paper-400);
     display: inline-block;
     width: 1em;
-    transition: transform 0.1s;
+    margin-right: 0.15em;
+    transition: transform 0.1s ease;
   }
-  details[open] > summary::before { content: "▾ "; }
-  .section-title { font-family: var(--mono); font-weight: 600; font-size: 0.95rem; }
-  .section-sub { font-family: var(--mono); font-size: 0.85rem; color: var(--fg-muted); }
-  .count { font-family: var(--mono); font-size: 0.8rem; color: var(--fg-muted); }
-  .muted { color: var(--fg-muted); font-family: var(--mono); font-size: 0.8rem; }
-  .name { font-family: var(--mono); font-weight: 500; }
-  .desc { color: var(--fg-muted); font-size: 0.875rem; margin: 0.25rem 0 0.5rem 1.5em; }
-  .indent { padding-left: 1.5em; border-left: 1px solid var(--border); margin-left: 0.5em; }
-  .tree summary { font-size: 0.95rem; }
-  .spec summary { font-size: 0.9rem; }
-  .session summary { font-size: 0.9rem; }
-  .status {
+  details[open] > summary::before { content: "▾"; color: var(--accent); }
+
+  /* ───────── Text styles ────────────────────────────────────── */
+  .section-title {
+    font-family: var(--serif);
+    font-weight: 400;
+    font-size: 1.05rem;
+    color: var(--fg);
+    letter-spacing: 0.01em;
+  }
+  .section-sub {
     font-family: var(--mono);
-    font-size: 0.7rem;
-    padding: 0.1em 0.45em;
-    border-radius: 3px;
-    text-transform: lowercase;
-    font-weight: 500;
-    color: var(--bg);
-    margin: 0 0.15em;
+    font-size: 0.78rem;
+    color: var(--fg-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
   }
-  .status-active { background: var(--status-active); }
-  .status-closed { background: var(--status-closed); }
-  .status-in_progress { background: var(--status-in_progress); }
-  .status-done { background: var(--status-done); }
-  .status-completed { background: var(--status-completed); }
-  .status-pending { background: var(--status-pending); color: var(--fg); border: 1px solid var(--border); }
-  .status-blocked { background: var(--status-blocked); }
-  .status-deferred { background: var(--status-deferred); }
-  .status-cancelled { background: var(--status-cancelled); }
-  .status-superseded { background: var(--status-superseded); }
-  .status-abandoned { background: var(--status-abandoned); }
-  .gate { color: var(--gate); font-family: var(--mono); font-size: 0.75rem; }
-  .task { padding: 0.15rem 0; padding-left: 1.5em; font-family: var(--sans); font-size: 0.875rem; }
-  .task-id { font-family: var(--mono); color: var(--fg-muted); margin-right: 0.25em; }
-  .task-summary { color: var(--fg); }
-  .deps, .owner { font-size: 0.75rem; }
-  .discovery { padding: 0.4rem 0; padding-left: 1.5em; }
-  .discovery-id { font-family: var(--mono); color: var(--fg-muted); font-size: 0.75rem; }
-  .discovery-body { margin: 0.25rem 0 0; font-size: 0.875rem; }
-  .impact { font-family: var(--mono); font-size: 0.7rem; padding: 0.1em 0.4em; border-radius: 3px; background: var(--bg-soft); color: var(--fg-muted); }
-  .claim { padding: 0.15rem 0; padding-left: 1.5em; font-size: 0.8rem; }
-  .claim-type { font-family: var(--mono); color: var(--fg-muted); display: inline-block; min-width: 6ch; }
-  .claim-summary { font-family: var(--sans); color: var(--fg); }
-  .recent-row { padding: 0.15rem 0; font-size: 0.8rem; padding-left: 1.5em; }
-  .recent-when { font-family: var(--mono); color: var(--fg-muted); display: inline-block; min-width: 4ch; text-align: right; margin-right: 0.5em; }
-  .recent-session { font-size: 0.75rem; }
-  footer { margin-top: 2rem; padding-top: 0.75rem; border-top: 1px solid var(--border); font-family: var(--mono); font-size: 0.75rem; color: var(--fg-muted); }
-  footer a { color: var(--accent); text-decoration: none; }
-  footer a:hover { text-decoration: underline; }
-  .chrome-btn {
+  .count {
     font-family: var(--mono);
     font-size: 0.75rem;
-    padding: 0.15em 0.55em;
-    margin-left: 0.4em;
-    border-radius: 4px;
-    border: 1px solid var(--border);
-    background: var(--bg-soft);
-    color: var(--fg);
-    cursor: pointer;
+    color: var(--fg-muted);
   }
-  .chrome-btn:hover { background: var(--border); }
-  .live-on { color: var(--status-done); }
+  .muted {
+    color: var(--fg-muted);
+    font-family: var(--mono);
+    font-size: 0.78rem;
+  }
+  .name {
+    font-family: var(--mono);
+    font-weight: 500;
+    color: var(--fg);
+  }
+  .desc {
+    color: var(--fg-secondary);
+    font-size: 0.85rem;
+    margin: 0.3rem 0 0.5rem 1.5em;
+    font-family: var(--sans);
+    line-height: 1.45;
+    max-width: 75ch;
+  }
+  .indent {
+    padding-left: 1.5em;
+    border-left: 1px dashed var(--border-strong);
+    margin-left: 0.4em;
+  }
+
+  /* Trees > tree > spec > tasks/discoveries */
+  .tree    > summary { font-size: 0.95rem; padding: 0.35rem 0; }
+  .tree    > summary .name { font-weight: 600; font-size: 0.95rem; }
+  .spec    > summary { font-size: 0.88rem; padding: 0.25rem 0; }
+  .session > summary { font-size: 0.9rem; padding: 0.3rem 0; }
+
+  /* ───────── Status pills ──────────────────────────────────── */
+  .status {
+    font-family: var(--mono);
+    font-size: 0.65rem;
+    padding: 0.15em 0.55em;
+    border-radius: 10px;
+    text-transform: lowercase;
+    font-weight: 500;
+    letter-spacing: 0.03em;
+    color: var(--paper-50);
+    margin: 0 0.2em;
+    vertical-align: 1px;
+  }
+  .status-active     { background: var(--status-active); }
+  .status-closed     { background: var(--paper-300); color: var(--fg-secondary); }
+  .status-in_progress { background: var(--status-in_progress); }
+  .status-done       { background: var(--status-done); }
+  .status-completed  { background: var(--status-completed); }
+  .status-pending    {
+    background: transparent;
+    color: var(--fg-muted);
+    border: 1px solid var(--border-strong);
+  }
+  .status-blocked    { background: var(--status-blocked); }
+  .status-deferred   { background: var(--paper-300); color: var(--fg-secondary); }
+  .status-cancelled  { background: var(--paper-300); color: var(--fg-secondary); }
+  .status-superseded { background: var(--paper-300); color: var(--fg-secondary); }
+  .status-abandoned  { background: var(--status-abandoned); }
+  .gate { color: var(--gate); font-family: var(--mono); font-size: 0.7rem; }
+
+  /* ───────── Task / discovery / claim rows ─────────────────── */
+  .task {
+    padding: 0.18rem 0;
+    padding-left: 1.5em;
+    font-family: var(--sans);
+    font-size: 0.85rem;
+    line-height: 1.4;
+  }
+  .task-id { font-family: var(--mono); color: var(--fg-muted); margin-right: 0.4em; font-size: 0.75rem; }
+  .task-summary { color: var(--fg); }
+  .deps, .owner { font-size: 0.7rem; }
+
+  .discovery {
+    padding: 0.4rem 0.6rem;
+    margin: 0.3rem 0 0.3rem 1.5em;
+    border-left: 2px solid var(--accent-soft);
+    background: var(--accent-mute);
+    border-radius: 0 3px 3px 0;
+  }
+  .discovery-id { font-family: var(--mono); color: var(--fg-muted); font-size: 0.7rem; }
+  .discovery-body {
+    margin: 0.2rem 0 0;
+    font-size: 0.85rem;
+    font-family: var(--serif);
+    font-style: italic;
+    color: var(--fg-secondary);
+    line-height: 1.45;
+  }
+  .impact {
+    font-family: var(--mono);
+    font-size: 0.65rem;
+    padding: 0.1em 0.45em;
+    border-radius: 3px;
+    background: var(--bg-tint);
+    color: var(--fg-secondary);
+    margin-left: 0.4em;
+  }
+
+  .claim {
+    padding: 0.16rem 0;
+    padding-left: 1.5em;
+    font-size: 0.8rem;
+    line-height: 1.4;
+  }
+  .claim-type {
+    font-family: var(--mono);
+    color: var(--fg-muted);
+    display: inline-block;
+    min-width: 7ch;
+    font-size: 0.72rem;
+  }
+  .claim-summary { font-family: var(--sans); color: var(--fg-secondary); }
+
+  /* ───────── Recent activity rows ──────────────────────────── */
+  .recent-row {
+    padding: 0.22rem 0;
+    font-size: 0.8rem;
+    padding-left: 1em;
+    line-height: 1.4;
+    display: flex;
+    gap: 0.5rem;
+    align-items: baseline;
+  }
+  .recent-row + .recent-row {
+    border-top: 1px dashed color-mix(in srgb, var(--accent-recent) 18%, transparent);
+  }
+  .recent-when {
+    font-family: var(--mono);
+    color: var(--accent-recent);
+    font-weight: 500;
+    min-width: 3.5ch;
+    text-align: right;
+    font-size: 0.72rem;
+    flex: 0 0 auto;
+  }
+  .recent-session {
+    font-size: 0.72rem;
+    flex: 0 0 auto;
+  }
+
+  /* ───────── Footer ────────────────────────────────────────── */
+  footer {
+    margin-top: 2.5rem;
+    padding-top: 0.85rem;
+    border-top: 1px solid var(--border);
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    color: var(--fg-muted);
+  }
+  footer a { color: var(--accent); text-decoration: none; }
+  footer a:hover { text-decoration: underline; }
+
+  /* ───────── Chrome (header buttons) ───────────────────────── */
+  .chrome-btn {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    padding: 0.2em 0.7em;
+    margin-left: 0.3em;
+    border-radius: 4px;
+    border: 1px solid var(--border-strong);
+    background: var(--bg-soft);
+    color: var(--fg-secondary);
+    cursor: pointer;
+    transition: background 0.1s, border-color 0.1s, color 0.1s;
+  }
+  .chrome-btn:hover {
+    background: var(--accent-mute);
+    border-color: var(--accent-soft);
+    color: var(--fg);
+  }
+  .live-on  { color: var(--status-done); font-weight: 500; }
   .live-off { color: var(--fg-muted); }
 </style>"#;
+
+/// Inline SVG of the nomograph mark — single-color, currentColor.
+/// Path from gitlab.com/nomograph/design.
+const NOM_MARK: &str = r#"<span class="nom-mark" aria-hidden="true"><svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><path d="M 14 6 C 14 10, 14 22, 22 28 S 50 38, 50 58" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg></span>"#;
 
 /// Client-side behavior for serve:
 ///   1. Persists `<details>` open state across refreshes to
