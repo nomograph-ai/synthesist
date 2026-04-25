@@ -107,7 +107,19 @@ struct SessionView {
     status: String,
     started_at: Option<i64>,
     claim_count: usize,
+    /// Most-recent first. Capped at SESSION_CLAIM_LIMIT to keep
+    /// the rendered page bounded; the count above is exact.
+    claims: Vec<SessionClaim>,
 }
+
+#[derive(Debug, serde::Serialize)]
+struct SessionClaim {
+    asserted_at: i64,
+    claim_type: String,
+    summary: String,
+}
+
+const SESSION_CLAIM_LIMIT: i64 = 50;
 
 fn collect_state() -> Result<State> {
     let store = SynthStore::discover().context("discover synthesist data dir")?;
@@ -404,6 +416,7 @@ fn collect_sessions(store: &SynthStore) -> Result<Vec<SessionView>> {
     for (sid, (props, started, is_closer)) in by_id {
         let status = if is_closer { "closed" } else { "active" }.to_string();
         let claim_count = count_claims_by_session(store, &sid)?;
+        let claims = collect_session_claims(store, &sid)?;
         out.push(SessionView {
             id: sid,
             tree: props.get("tree").and_then(|v| v.as_str()).map(String::from),
@@ -415,6 +428,7 @@ fn collect_sessions(store: &SynthStore) -> Result<Vec<SessionView>> {
             status,
             started_at: Some(started),
             claim_count,
+            claims,
         });
     }
     // Sort: active first, then by started_at descending.
@@ -439,6 +453,99 @@ fn count_claims_by_session(store: &SynthStore, session: &str) -> Result<usize> {
         .and_then(|r| r.get("n"))
         .and_then(|v| v.as_i64())
         .unwrap_or(0) as usize)
+}
+
+fn collect_session_claims(store: &SynthStore, session: &str) -> Result<Vec<SessionClaim>> {
+    let pattern = format!("%:{session}");
+    let limit = SESSION_CLAIM_LIMIT;
+    let rows = store.query(
+        "SELECT asserted_at, claim_type, props FROM claims \
+         WHERE asserted_by LIKE ?1 \
+         ORDER BY asserted_at DESC LIMIT ?2",
+        &[&pattern.as_str(), &limit],
+    )?;
+    Ok(rows
+        .into_iter()
+        .map(|row| {
+            let asserted_at = row
+                .get("asserted_at")
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0);
+            let claim_type = row
+                .get("claim_type")
+                .and_then(|v| v.as_str())
+                .unwrap_or("?")
+                .to_string();
+            let props = parse_props(&row);
+            let summary = summarize_claim_props(&claim_type, &props);
+            SessionClaim {
+                asserted_at,
+                claim_type,
+                summary,
+            }
+        })
+        .collect())
+}
+
+/// One-line description of a claim, leaning on whichever props
+/// matter most for that claim_type. Keeps the session drill-down
+/// scannable without dumping raw JSON.
+fn summarize_claim_props(claim_type: &str, props: &serde_json::Map<String, Value>) -> String {
+    let s = |k: &str| props.get(k).and_then(|v| v.as_str()).unwrap_or("").to_string();
+    match claim_type {
+        "task" => {
+            let id = s("id");
+            let tree = s("tree");
+            let spec = s("spec");
+            let status = s("status");
+            let summary = s("summary");
+            let path = if !tree.is_empty() && !spec.is_empty() {
+                format!("{tree}/{spec}/{id}")
+            } else {
+                id
+            };
+            format!("{path} [{status}] {summary}")
+        }
+        "spec" => {
+            let id = s("id");
+            let tree = s("tree");
+            let goal = s("goal");
+            let status = s("status");
+            format!("{tree}/{id} [{status}] {goal}")
+        }
+        "tree" => format!("{} — {}", s("name"), s("description")),
+        "discovery" => {
+            let tree = s("tree");
+            let spec = s("spec");
+            let finding = s("finding");
+            format!("{tree}/{spec}: {finding}")
+        }
+        "session" => {
+            let id = s("id");
+            let summary = s("summary");
+            format!("{id}: {summary}")
+        }
+        "phase" => {
+            let phase = s("phase");
+            let session = s("session");
+            format!("phase={phase} session={session}")
+        }
+        "campaign" => {
+            let id = s("id");
+            let title = s("title");
+            format!("{id}: {title}")
+        }
+        _ => {
+            // Fallback: key=value of first 3 string fields.
+            let mut parts = Vec::new();
+            for (k, v) in props.iter().take(3) {
+                if let Some(vs) = v.as_str() {
+                    parts.push(format!("{k}={vs}"));
+                }
+            }
+            parts.join(" · ")
+        }
+    }
 }
 
 fn parse_props(row: &Value) -> serde_json::Map<String, Value> {
@@ -560,7 +667,10 @@ fn render_spec(sp: &SpecView) -> String {
         s.push_str(&format!("<p class=\"desc\">{}</p>", html_escape(&sp.goal)));
     }
     if !sp.tasks.is_empty() {
-        s.push_str("<div class=\"indent\"><details><summary><span class=\"section-sub\">tasks</span> <span class=\"count\">");
+        s.push_str(&format!(
+            "<div class=\"indent\"><details id=\"spec-tasks:{}\"><summary><span class=\"section-sub\">tasks</span> <span class=\"count\">",
+            html_escape(&sp.id)
+        ));
         s.push_str(&sp.tasks.len().to_string());
         s.push_str("</span></summary>");
         for t in &sp.tasks {
@@ -569,7 +679,10 @@ fn render_spec(sp: &SpecView) -> String {
         s.push_str("</details></div>");
     }
     if !sp.discoveries.is_empty() {
-        s.push_str("<div class=\"indent\"><details><summary><span class=\"section-sub\">discoveries</span> <span class=\"count\">");
+        s.push_str(&format!(
+            "<div class=\"indent\"><details id=\"spec-discoveries:{}\"><summary><span class=\"section-sub\">discoveries</span> <span class=\"count\">",
+            html_escape(&sp.id)
+        ));
         s.push_str(&sp.discoveries.len().to_string());
         s.push_str("</span></summary>");
         for d in &sp.discoveries {
@@ -643,8 +756,36 @@ fn render_session(sess: &SessionView) -> String {
         .as_deref()
         .map(|s| format!("<p class=\"desc\">{}</p>", html_escape(s)))
         .unwrap_or_default();
+
+    let mut claims_html = String::new();
+    if !sess.claims.is_empty() {
+        claims_html.push_str(&format!(
+            "<div class=\"indent\"><details id=\"session-claims:{}\"><summary><span class=\"section-sub\">claims</span> <span class=\"count\">",
+            html_escape(&sess.id)
+        ));
+        let limited = sess.claim_count > sess.claims.len();
+        if limited {
+            claims_html.push_str(&format!(
+                "{} of {} (most recent)",
+                sess.claims.len(),
+                sess.claim_count
+            ));
+        } else {
+            claims_html.push_str(&sess.claims.len().to_string());
+        }
+        claims_html.push_str("</span></summary>");
+        for c in &sess.claims {
+            claims_html.push_str(&format!(
+                "<div class=\"claim\"><span class=\"claim-type\">{}</span> <span class=\"claim-summary\">{}</span></div>",
+                html_escape(&c.claim_type),
+                html_escape(&c.summary),
+            ));
+        }
+        claims_html.push_str("</details></div>");
+    }
+
     format!(
-        "<details class=\"session\" id=\"session:{}\"><summary><span class=\"name\">{}</span> <span class=\"status status-{}\">{}</span>{} <span class=\"muted\">· {} claims</span></summary>{}</details>",
+        "<details class=\"session\" id=\"session:{}\"><summary><span class=\"name\">{}</span> <span class=\"status status-{}\">{}</span>{} <span class=\"muted\">· {} claims</span></summary>{}{}</details>",
         html_escape(&sess.id),
         html_escape(&sess.id),
         html_escape(&sess.status),
@@ -652,6 +793,7 @@ fn render_session(sess: &SessionView) -> String {
         scope,
         sess.claim_count,
         summary,
+        claims_html,
     )
 }
 
@@ -776,6 +918,9 @@ const STYLE: &str = r#"<style>
   .discovery-id { font-family: var(--mono); color: var(--fg-muted); font-size: 0.75rem; }
   .discovery-body { margin: 0.25rem 0 0; font-size: 0.875rem; }
   .impact { font-family: var(--mono); font-size: 0.7rem; padding: 0.1em 0.4em; border-radius: 3px; background: var(--bg-soft); color: var(--fg-muted); }
+  .claim { padding: 0.15rem 0; padding-left: 1.5em; font-size: 0.8rem; }
+  .claim-type { font-family: var(--mono); color: var(--fg-muted); display: inline-block; min-width: 6ch; }
+  .claim-summary { font-family: var(--sans); color: var(--fg); }
   footer { margin-top: 2rem; padding-top: 0.75rem; border-top: 1px solid var(--border); font-family: var(--mono); font-size: 0.75rem; color: var(--fg-muted); }
   footer a { color: var(--accent); text-decoration: none; }
   footer a:hover { text-decoration: underline; }
