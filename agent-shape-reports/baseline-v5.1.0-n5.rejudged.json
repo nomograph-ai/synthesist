@@ -1,0 +1,177 @@
+{
+  "subject": "synthesist",
+  "version_pin": null,
+  "run_timestamp": "unix:1777084824",
+  "judge_model": "claude-haiku-4-5",
+  "tuning": {
+    "n_trials": 50,
+    "mean_score": 0.77,
+    "completion_rate": 0.94,
+    "mean_tokens": 2499.08,
+    "mean_turns": 14.18,
+    "total_invented_commands": 19,
+    "total_fallback_to_sql": 5
+  },
+  "holdout": {
+    "n_trials": 0,
+    "mean_score": null,
+    "completion_rate": null,
+    "mean_tokens": null,
+    "mean_turns": null,
+    "total_invented_commands": 0,
+    "total_fallback_to_sql": 0
+  },
+  "cells": [
+    {
+      "section": "tuning",
+      "task_id": "cross-tree-query-01",
+      "model": "claude-opus-4-7",
+      "n": 5,
+      "mean_score": 1.0,
+      "score_stddev": 0.0,
+      "mean_tokens": 1844.0,
+      "mean_turns": 11.2,
+      "invented_commands": [
+        "synthesist spec list --tree \"$tree\""
+      ],
+      "fallback_count": 0,
+      "mean_irr_delta": 0.1
+    },
+    {
+      "section": "tuning",
+      "task_id": "cross-tree-query-01",
+      "model": "claude-sonnet-4-6",
+      "n": 5,
+      "mean_score": 0.9,
+      "score_stddev": 0.22360679774997902,
+      "mean_tokens": 2199.4,
+      "mean_turns": 13.8,
+      "invented_commands": [],
+      "fallback_count": 1,
+      "mean_irr_delta": 0.3
+    },
+    {
+      "section": "tuning",
+      "task_id": "exploration-01",
+      "model": "claude-opus-4-7",
+      "n": 5,
+      "mean_score": 0.7,
+      "score_stddev": 0.4472135954999579,
+      "mean_tokens": 1792.2,
+      "mean_turns": 8.8,
+      "invented_commands": [
+        "synthesist spec list (without tree argument, commands 4 and 5)"
+      ],
+      "fallback_count": 0,
+      "mean_irr_delta": 0.2
+    },
+    {
+      "section": "tuning",
+      "task_id": "exploration-01",
+      "model": "claude-sonnet-4-6",
+      "n": 5,
+      "mean_score": 0.9,
+      "score_stddev": 0.22360679774997902,
+      "mean_tokens": 4571.4,
+      "mean_turns": 27.2,
+      "invented_commands": [
+        "./synthesist phase get",
+        "phase get"
+      ],
+      "fallback_count": 0,
+      "mean_irr_delta": 0.1
+    },
+    {
+      "section": "tuning",
+      "task_id": "resume-work-01",
+      "model": "claude-opus-4-7",
+      "n": 5,
+      "mean_score": 0.8,
+      "score_stddev": 0.27386127875258304,
+      "mean_tokens": 1321.4,
+      "mean_turns": 8.4,
+      "invented_commands": [
+        "phase get",
+        "phase get --session treatment-design",
+        "synthesist phase get --session treatment-design"
+      ],
+      "fallback_count": 0,
+      "mean_irr_delta": 0.1
+    },
+    {
+      "section": "tuning",
+      "task_id": "resume-work-01",
+      "model": "claude-sonnet-4-6",
+      "n": 5,
+      "mean_score": 0.55,
+      "score_stddev": 0.27386127875258304,
+      "mean_tokens": 2029.4,
+      "mean_turns": 15.0,
+      "invented_commands": [
+        "phase get",
+        "phase list",
+        "synthesist phase get --session treatment-design"
+      ],
+      "fallback_count": 1,
+      "mean_irr_delta": 0.15
+    },
+    {
+      "section": "tuning",
+      "task_id": "session-drill-down-01",
+      "model": "claude-opus-4-7",
+      "n": 5,
+      "mean_score": 0.55,
+      "score_stddev": 0.4107919181288746,
+      "mean_tokens": 2019.0,
+      "mean_turns": 10.0,
+      "invented_commands": [],
+      "fallback_count": 3,
+      "mean_irr_delta": 0.2
+    },
+    {
+      "section": "tuning",
+      "task_id": "session-drill-down-01",
+      "model": "claude-sonnet-4-6",
+      "n": 5,
+      "mean_score": 1.0,
+      "score_stddev": 0.0,
+      "mean_tokens": 4458.0,
+      "mean_turns": 20.8,
+      "invented_commands": [],
+      "fallback_count": 0,
+      "mean_irr_delta": 0.2
+    },
+    {
+      "section": "tuning",
+      "task_id": "tree-overview-01",
+      "model": "claude-opus-4-7",
+      "n": 5,
+      "mean_score": 0.5,
+      "score_stddev": 0.5,
+      "mean_tokens": 1514.4,
+      "mean_turns": 8.0,
+      "invented_commands": [
+        "spec list --tree",
+        "tree --help",
+        "tree show"
+      ],
+      "fallback_count": 0,
+      "mean_irr_delta": 0.15
+    },
+    {
+      "section": "tuning",
+      "task_id": "tree-overview-01",
+      "model": "claude-sonnet-4-6",
+      "n": 5,
+      "mean_score": 0.8,
+      "score_stddev": 0.27386127875258304,
+      "mean_tokens": 3241.6,
+      "mean_turns": 18.6,
+      "invented_commands": [
+        "spec list --tree keaton"
+      ],
+      "fallback_count": 0,
+      "mean_irr_delta": 0.15
+    }
+  ]
+}

@@ -57,6 +57,10 @@ Commands that exist in synthesist v5 include (non-exhaustive):
   synthesist discovery add | list
   synthesist campaign add | list
   synthesist session start | close | list | status
+  synthesist phase set | show
+  synthesist sql "<read-only SELECT/EXPLAIN/PRAGMA/WITH>"
+  synthesist export | import
+  synthesist migrate v1-to-v2
   synthesist phase set
   synthesist migrate v1-to-v2
 
