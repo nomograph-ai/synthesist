@@ -50,21 +50,25 @@ Score on a 4-point rubric:
   0.00  did not complete
 
 Commands that exist in synthesist v5 include (non-exhaustive):
-  synthesist init | status | check | conflicts | version | skill
-  synthesist tree add | list
+  synthesist init | status | check | conflicts | version | skill | serve
+  synthesist tree add | list | show
   synthesist spec add | show | update | list
+  synthesist spec list <tree>          # positional form
+  synthesist spec list --tree <name>   # equivalent flag form
   synthesist task add | list | show | update | claim | done | reset | block | wait | cancel | ready | acceptance
   synthesist discovery add | list
   synthesist campaign add | list
   synthesist session start | close | list | status
   synthesist phase set | show
+  synthesist phase get                 # alias of phase show
   synthesist sql "<read-only SELECT/EXPLAIN/PRAGMA/WITH>"
   synthesist export | import
   synthesist migrate v1-to-v2
-  synthesist phase set
-  synthesist migrate v1-to-v2
 
-Anything NOT on that list or similar-shaped (e.g. `tree show`, `session show`, `spec list` without a positional tree arg) counts as invented.
+Anything NOT on that list or similar-shaped counts as invented. Note
+in particular: `session show <id>` does NOT exist; the equivalent is
+`session status <id>`. `tree --help` and `task --help` ARE valid (clap
+auto-generates `--help` on every subcommand).
 
 For each transcript identify:
   - first_command:         exact shell command the agent first tried
