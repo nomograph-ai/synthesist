@@ -69,6 +69,7 @@ async fn serve_async(port: Option<u16>, bind_all: bool) -> Result<()> {
     let app = Router::new()
         .route("/", get(handle_dashboard))
         .route("/api/state", get(handle_state_json))
+        .route("/api/graph", get(handle_graph_json))
         .route("/events", get(handle_events))
         .with_state(tx);
 
@@ -142,9 +143,12 @@ fn spawn_fs_watcher(target: PathBuf, tx: broadcast::Sender<()>) -> Result<()> {
     Ok(())
 }
 
-async fn handle_dashboard() -> axum::response::Response {
+async fn handle_dashboard(
+    axum::extract::Query(q): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> axum::response::Response {
+    let view = q.get("view").cloned().unwrap_or_else(|| "trees".to_string());
     match tokio::task::spawn_blocking(collect_state).await {
-        Ok(Ok(state)) => Html(render_dashboard(&state)).into_response(),
+        Ok(Ok(state)) => Html(render_dashboard_with_view(&state, &view)).into_response(),
         Ok(Err(e)) => render_error(&format!("error: {e}")),
         Err(e) => render_error(&format!("join error: {e}")),
     }
@@ -153,6 +157,14 @@ async fn handle_dashboard() -> axum::response::Response {
 async fn handle_state_json() -> axum::response::Response {
     match tokio::task::spawn_blocking(collect_state).await {
         Ok(Ok(state)) => Json(state).into_response(),
+        Ok(Err(e)) => render_error(&format!("error: {e}")),
+        Err(e) => render_error(&format!("join error: {e}")),
+    }
+}
+
+async fn handle_graph_json() -> axum::response::Response {
+    match tokio::task::spawn_blocking(collect_state).await {
+        Ok(Ok(state)) => Json(build_graph(&state)).into_response(),
         Ok(Err(e)) => render_error(&format!("error: {e}")),
         Err(e) => render_error(&format!("join error: {e}")),
     }
@@ -210,6 +222,107 @@ struct RecentClaim {
 }
 
 const RECENT_LIMIT: i64 = 20;
+
+#[derive(Debug, serde::Serialize)]
+struct GraphView {
+    nodes: Vec<GraphNode>,
+    edges: Vec<GraphEdge>,
+}
+
+#[derive(Debug, serde::Serialize)]
+struct GraphNode {
+    /// Stable id, scoped by kind (tree:keaton, spec:keaton/foo, session:s1).
+    id: String,
+    label: String,
+    /// One of: tree, spec, session.
+    kind: String,
+    /// Tree the node belongs to (for color clustering). For trees,
+    /// it's the tree itself. For sessions, the session's tree if any.
+    tree: Option<String>,
+    /// Status (active/done/closed/...) where applicable.
+    status: Option<String>,
+}
+
+#[derive(Debug, serde::Serialize)]
+struct GraphEdge {
+    source: String,
+    target: String,
+    /// One of: contains, asserted.
+    kind: String,
+}
+
+/// Build a graph projection of the estate. Nodes: trees, specs, sessions.
+/// Edges: tree-contains-spec; session-asserted-on-spec/tree.
+///
+/// Sessions without a tree/spec scope are EXCLUDED — they have no
+/// edges, would be disconnected components, and the force layout
+/// would scatter them far from the clusters. The point of the
+/// network view is to surface connections; isolated nodes hurt
+/// more than they help.
+fn build_graph(state: &State) -> GraphView {
+    let mut nodes = Vec::new();
+    let mut edges = Vec::new();
+
+    for tree in &state.trees {
+        nodes.push(GraphNode {
+            id: format!("tree:{}", tree.name),
+            label: tree.name.clone(),
+            kind: "tree".into(),
+            tree: Some(tree.name.clone()),
+            status: None,
+        });
+        for spec in &tree.specs {
+            let spec_id = format!("spec:{}/{}", tree.name, spec.id);
+            nodes.push(GraphNode {
+                id: spec_id.clone(),
+                label: spec.id.clone(),
+                kind: "spec".into(),
+                tree: Some(tree.name.clone()),
+                status: Some(spec.status.clone()),
+            });
+            edges.push(GraphEdge {
+                source: format!("tree:{}", tree.name),
+                target: spec_id,
+                kind: "contains".into(),
+            });
+        }
+    }
+
+    for sess in &state.sessions {
+        // Only include sessions with a known scope; otherwise they
+        // would be disconnected nodes scattered far from clusters.
+        if sess.tree.is_none() && sess.spec.is_none() {
+            continue;
+        }
+        let sid = format!("session:{}", sess.id);
+        nodes.push(GraphNode {
+            id: sid.clone(),
+            label: sess.id.clone(),
+            kind: "session".into(),
+            tree: sess.tree.clone(),
+            status: Some(sess.status.clone()),
+        });
+        match (&sess.tree, &sess.spec) {
+            (Some(t), Some(sp)) => {
+                edges.push(GraphEdge {
+                    source: sid,
+                    target: format!("spec:{}/{}", t, sp),
+                    kind: "asserted".into(),
+                });
+            }
+            (Some(t), None) => {
+                edges.push(GraphEdge {
+                    source: sid,
+                    target: format!("tree:{}", t),
+                    kind: "asserted".into(),
+                });
+            }
+            _ => {}
+        }
+    }
+
+    GraphView { nodes, edges }
+}
 
 #[derive(Debug, serde::Serialize)]
 struct TreeView {
@@ -798,6 +911,10 @@ fn relative_time(asserted_at_ms: i64) -> String {
 }
 
 fn render_dashboard(state: &State) -> String {
+    render_dashboard_with_view(state, "trees")
+}
+
+fn render_dashboard_with_view(state: &State, view: &str) -> String {
     let mut s = String::with_capacity(64 * 1024);
     s.push_str("<!doctype html>\n<html lang=\"en\"><head>");
     s.push_str("<meta charset=\"utf-8\">");
@@ -818,6 +935,32 @@ fn render_dashboard(state: &State) -> String {
         html_escape(&state.version),
     ));
     s.push_str("</header>");
+
+    // View tabs
+    s.push_str("<nav class=\"view-tabs\">");
+    for (key, label) in &[("trees", "Trees"), ("network", "Network")] {
+        let active = if view == *key { " active" } else { "" };
+        s.push_str(&format!(
+            "<a href=\"?view={}\" class=\"view-tab{}\">{}</a>",
+            key, active, label
+        ));
+    }
+    s.push_str("</nav>");
+
+    if view == "network" {
+        render_network_view(&mut s);
+        s.push_str(SCRIPT);
+        s.push_str("</body></html>");
+        return s;
+    }
+    // Default: trees view (existing dashboard sections)
+    render_trees_view(&mut s, state);
+    s.push_str(SCRIPT);
+    s.push_str("</body></html>");
+    s
+}
+
+fn render_trees_view(s: &mut String, state: &State) {
 
     // Recent activity (cross-cutting)
     if !state.recent.is_empty() {
@@ -866,9 +1009,22 @@ fn render_dashboard(state: &State) -> String {
     s.push_str("<footer>generated unix:");
     s.push_str(&html_escape(&state.generated_at));
     s.push_str(" · <a href=\"/api/state\">/api/state</a> for JSON</footer>");
-    s.push_str(SCRIPT);
-    s.push_str("</body></html>");
-    s
+}
+
+fn render_network_view(s: &mut String) {
+    s.push_str(r#"<section class="network"><div class="network-shell">
+        <div id="graph-status" class="muted">loading graph…</div>
+        <svg id="graph-canvas" viewBox="0 0 800 600" preserveAspectRatio="xMidYMid meet"></svg>
+        <div class="legend">
+          <span class="legend-item"><span class="legend-dot dot-tree"></span>tree</span>
+          <span class="legend-item"><span class="legend-dot dot-spec"></span>spec</span>
+          <span class="legend-item"><span class="legend-dot dot-session"></span>session</span>
+          <span class="legend-item"><span class="legend-edge edge-contains"></span>contains</span>
+          <span class="legend-item"><span class="legend-edge edge-asserted"></span>asserted</span>
+        </div>
+        <div id="graph-detail" class="graph-detail"></div>
+      </div></section>"#);
+    s.push_str("<footer><a href=\"/api/graph\">/api/graph</a> for JSON</footer>");
 }
 
 fn render_tree(t: &TreeView) -> String {
@@ -1413,6 +1569,103 @@ const STYLE: &str = r#"
   }
   .live-on  { color: var(--status-done); font-weight: 500; }
   .live-off { color: var(--fg-muted); }
+
+  /* ───────── View tabs ─────────────────────────────────────── */
+  .view-tabs {
+    display: flex;
+    gap: 0.4rem;
+    margin: -0.5rem 0 1rem;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 0;
+  }
+  .view-tab {
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    text-transform: lowercase;
+    letter-spacing: 0.04em;
+    padding: 0.45rem 0.85rem;
+    border: 1px solid transparent;
+    border-bottom: none;
+    border-radius: 4px 4px 0 0;
+    text-decoration: none;
+    color: var(--fg-muted);
+    margin-bottom: -1px;
+    background: transparent;
+  }
+  .view-tab:hover { color: var(--fg); background: var(--accent-mute); }
+  .view-tab.active {
+    color: var(--fg);
+    border-color: var(--border);
+    border-bottom: 1px solid var(--bg);
+    background: var(--bg);
+    font-weight: 500;
+  }
+
+  /* ───────── Network view ──────────────────────────────────── */
+  section.network { padding: 0.5rem; border-left: 3px solid var(--accent-trees); background: var(--accent-mute); }
+  .network-shell { position: relative; }
+  #graph-canvas {
+    width: 100%;
+    height: 70vh;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    cursor: grab;
+  }
+  #graph-canvas:active { cursor: grabbing; }
+  #graph-status {
+    position: absolute;
+    top: 0.5rem;
+    left: 0.6rem;
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    color: var(--fg-muted);
+    pointer-events: none;
+  }
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    margin-top: 0.5rem;
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    color: var(--fg-muted);
+  }
+  .legend-item { display: inline-flex; align-items: center; gap: 0.35em; }
+  .legend-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; }
+  .legend-edge { display: inline-block; width: 18px; height: 0; border-top: 2px solid; }
+  .dot-tree { background: var(--accent-trees); width: 14px; height: 14px; }
+  .dot-spec { background: var(--steel-300); }
+  .dot-session { background: var(--accent-sessions); }
+  .edge-contains { border-top-style: solid;  border-top-color: var(--paper-400); }
+  .edge-asserted { border-top-style: dashed; border-top-color: var(--accent-sessions); }
+  .graph-detail {
+    margin-top: 0.75rem;
+    padding: 0.6rem 0.8rem;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 0.85rem;
+    min-height: 2.5rem;
+    color: var(--fg-secondary);
+  }
+  .graph-detail.empty { color: var(--fg-muted); font-style: italic; }
+  /* SVG node + edge classes */
+  .gnode { cursor: pointer; }
+  .gnode-tree    { fill: var(--accent-trees); stroke: var(--bg); stroke-width: 2; }
+  .gnode-spec    { fill: var(--steel-300); stroke: var(--bg); stroke-width: 1; }
+  .gnode-session { fill: var(--accent-sessions); stroke: var(--bg); stroke-width: 1; }
+  .gedge { fill: none; stroke: var(--paper-400); stroke-width: 1; opacity: 0.6; }
+  .gedge-asserted { stroke: var(--accent-sessions); stroke-dasharray: 4 3; opacity: 0.55; }
+  .glabel {
+    font-family: var(--mono);
+    font-size: 9px;
+    fill: var(--fg-secondary);
+    pointer-events: none;
+  }
+  .glabel-tree { font-size: 11px; font-weight: 600; fill: var(--fg); }
+  .gnode.dimmed, .gedge.dimmed, .glabel.dimmed { opacity: 0.12; }
+  .gnode.highlight { stroke: var(--ink-500); stroke-width: 2; }
 </style>"#;
 
 /// Inline SVG of the nomograph mark — single-color, currentColor.
@@ -1468,7 +1721,9 @@ const SCRIPT: &str = r#"<script>
     if (inflight) return;
     inflight = true;
     try {
-      const res = await fetch(window.location.pathname, { cache: 'no-store' });
+      // Preserve query string (?view=...) across SSE-triggered refreshes.
+      const url = window.location.pathname + window.location.search;
+      const res = await fetch(url, { cache: 'no-store' });
       if (!res.ok) return;
       const html = await res.text();
       const next = new DOMParser().parseFromString(html, 'text/html');
@@ -1476,6 +1731,9 @@ const SCRIPT: &str = r#"<script>
       applyOpen(document);
       attachToggle(document);
       wireChrome();
+      // If we're on the network view, the body swap nuked the SVG.
+      // Re-run network init.
+      if (document.getElementById('graph-canvas')) initNetwork();
       flashStatus('updated');
     } catch (_) { /* network blip; ignore */ }
     finally { inflight = false; }
@@ -1526,6 +1784,152 @@ const SCRIPT: &str = r#"<script>
   wireChrome();
   if (liveOn) openStream();
 })();
+
+// Network view setup, exposed so refresh() can re-run it after body swap.
+let __d3forceModule = null;
+async function initNetwork() {
+  const canvas = document.getElementById('graph-canvas');
+  if (!canvas) return;
+  const status = document.getElementById('graph-status');
+  const detail = document.getElementById('graph-detail');
+  detail.classList.add('empty');
+  detail.textContent = 'click a node to inspect';
+
+  let d3 = __d3forceModule;
+  if (!d3) {
+    try {
+      d3 = await import('https://cdn.jsdelivr.net/npm/d3-force@3/+esm');
+      __d3forceModule = d3;
+    } catch (e) {
+      status.textContent = 'failed to load d3-force from CDN: ' + e.message;
+      return;
+    }
+  }
+
+  let res;
+  try { res = await fetch('/api/graph'); }
+  catch (e) { status.textContent = 'graph fetch failed: ' + e.message; return; }
+  if (!res.ok) { status.textContent = 'graph fetch HTTP ' + res.status; return; }
+  const graph = await res.json();
+  status.textContent = graph.nodes.length + ' nodes · ' + graph.edges.length + ' edges';
+
+  const W = 800, H = 600;
+  const NS = 'http://www.w3.org/2000/svg';
+  while (canvas.firstChild) canvas.removeChild(canvas.firstChild);
+
+  // Node radius by kind.
+  function radius(n) {
+    if (n.kind === 'tree') return 14;
+    if (n.kind === 'session') return 6;
+    return 5;
+  }
+
+  // Build mutable copies for d3-force.
+  const nodes = graph.nodes.map(n => ({ ...n }));
+  const edges = graph.edges.map(e => ({ ...e }));
+
+  const sim = d3.forceSimulation(nodes)
+    .force('link', d3.forceLink(edges).id(n => n.id).distance(e => e.kind === 'contains' ? 50 : 80).strength(0.4))
+    .force('charge', d3.forceManyBody().strength(-180))
+    .force('center', d3.forceCenter(W/2, H/2))
+    .force('collide', d3.forceCollide().radius(n => radius(n) + 4))
+    .stop();
+
+  // Run synchronously for a fixed number of ticks so layout is stable
+  // before paint. Avoids the wiggle that d3 tickwise rendering shows.
+  for (let i = 0; i < 400; i++) sim.tick();
+
+  // Compute bounds and re-fit viewBox so the layout fills the canvas.
+  let xmin = Infinity, xmax = -Infinity, ymin = Infinity, ymax = -Infinity;
+  nodes.forEach(n => {
+    xmin = Math.min(xmin, n.x); xmax = Math.max(xmax, n.x);
+    ymin = Math.min(ymin, n.y); ymax = Math.max(ymax, n.y);
+  });
+  const pad = 40;
+  const vbW = Math.max(200, (xmax - xmin) + pad * 2);
+  const vbH = Math.max(200, (ymax - ymin) + pad * 2);
+  canvas.setAttribute('viewBox', `${xmin - pad} ${ymin - pad} ${vbW} ${vbH}`);
+
+  // Build SVG content. Edges first so nodes paint over them.
+  const edgeLayer = document.createElementNS(NS, 'g');
+  const nodeLayer = document.createElementNS(NS, 'g');
+  const labelLayer = document.createElementNS(NS, 'g');
+  canvas.appendChild(edgeLayer);
+  canvas.appendChild(nodeLayer);
+  canvas.appendChild(labelLayer);
+
+  const edgeEls = edges.map(e => {
+    const line = document.createElementNS(NS, 'line');
+    line.classList.add('gedge');
+    if (e.kind === 'asserted') line.classList.add('gedge-asserted');
+    line.setAttribute('x1', e.source.x); line.setAttribute('y1', e.source.y);
+    line.setAttribute('x2', e.target.x); line.setAttribute('y2', e.target.y);
+    line.dataset.source = e.source.id; line.dataset.target = e.target.id;
+    edgeLayer.appendChild(line);
+    return line;
+  });
+
+  const nodeEls = nodes.map(n => {
+    const circle = document.createElementNS(NS, 'circle');
+    circle.classList.add('gnode', 'gnode-' + n.kind);
+    circle.setAttribute('r', radius(n));
+    circle.setAttribute('cx', n.x);
+    circle.setAttribute('cy', n.y);
+    circle.dataset.id = n.id;
+    circle.addEventListener('mouseenter', () => focus(n.id));
+    circle.addEventListener('mouseleave', () => unfocus());
+    circle.addEventListener('click', () => select(n));
+    nodeLayer.appendChild(circle);
+    if (n.kind === 'tree' || n.kind === 'session') {
+      const label = document.createElementNS(NS, 'text');
+      label.classList.add('glabel');
+      if (n.kind === 'tree') label.classList.add('glabel-tree');
+      label.setAttribute('x', n.x + radius(n) + 3);
+      label.setAttribute('y', n.y + 3);
+      label.textContent = n.label;
+      label.dataset.id = n.id;
+      labelLayer.appendChild(label);
+    }
+    return circle;
+  });
+
+  function neighbors(id) {
+    const set = new Set([id]);
+    edges.forEach(e => {
+      if (e.source.id === id) set.add(e.target.id);
+      if (e.target.id === id) set.add(e.source.id);
+    });
+    return set;
+  }
+  function focus(id) {
+    const ns = neighbors(id);
+    nodeEls.forEach(c => c.classList.toggle('dimmed', !ns.has(c.dataset.id)));
+    edgeEls.forEach(l => l.classList.toggle('dimmed', !(l.dataset.source === id || l.dataset.target === id)));
+    labelLayer.querySelectorAll('text').forEach(t => t.classList.toggle('dimmed', !ns.has(t.dataset.id)));
+  }
+  function unfocus() {
+    nodeEls.forEach(c => c.classList.remove('dimmed'));
+    edgeEls.forEach(l => l.classList.remove('dimmed'));
+    labelLayer.querySelectorAll('text').forEach(t => t.classList.remove('dimmed'));
+  }
+  function select(n) {
+    detail.classList.remove('empty');
+    const lines = [
+      n.kind + ': ' + n.label,
+      n.tree ? 'tree: ' + n.tree : null,
+      n.status ? 'status: ' + n.status : null,
+    ].filter(Boolean);
+    // Show plus a "open in trees view" link.
+    const lns = lines.map(l => `<div>${l}</div>`).join('');
+    let link = '';
+    if (n.kind === 'tree') link = `<a href="/?view=trees#tree:${encodeURIComponent(n.label)}">open in trees</a>`;
+    if (n.kind === 'spec') link = `<a href="/?view=trees#spec:${encodeURIComponent(n.label)}">open in trees</a>`;
+    if (n.kind === 'session') link = `<a href="/?view=trees#session:${encodeURIComponent(n.label)}">open in trees</a>`;
+    detail.innerHTML = lns + (link ? `<div style="margin-top:0.4em">${link}</div>` : '');
+  }
+}
+// Run on initial load.
+initNetwork();
 </script>"#;
 
 #[allow(dead_code)]
