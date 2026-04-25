@@ -59,9 +59,20 @@ struct State {
     data_dir: String,
     version: String,
     generated_at: String,
+    recent: Vec<RecentClaim>,
     trees: Vec<TreeView>,
     sessions: Vec<SessionView>,
 }
+
+#[derive(Debug, serde::Serialize)]
+struct RecentClaim {
+    asserted_at: i64,
+    asserted_by: String,
+    claim_type: String,
+    summary: String,
+}
+
+const RECENT_LIMIT: i64 = 20;
 
 #[derive(Debug, serde::Serialize)]
 struct TreeView {
@@ -163,14 +174,60 @@ fn collect_state() -> Result<State> {
         .or_else(|| std::env::current_dir().ok().map(|p| p.display().to_string()))
         .unwrap_or_else(|| "(discovered)".to_string());
 
+    let recent = collect_recent_claims(&store)?;
+
     let _ = store; // Keep store alive until we read all data above.
     Ok(State {
         data_dir,
         version: env!("CARGO_PKG_VERSION").to_string(),
         generated_at: now_human(),
+        recent,
         trees,
         sessions,
     })
+}
+
+fn collect_recent_claims(store: &SynthStore) -> Result<Vec<RecentClaim>> {
+    let limit = RECENT_LIMIT;
+    let rows = store.query(
+        "SELECT asserted_at, asserted_by, claim_type, props FROM claims \
+         ORDER BY asserted_at DESC LIMIT ?1",
+        &[&limit],
+    )?;
+    Ok(rows
+        .into_iter()
+        .map(|row| {
+            let asserted_at = row
+                .get("asserted_at")
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0);
+            let asserted_by = row
+                .get("asserted_by")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let claim_type = row
+                .get("claim_type")
+                .and_then(|v| v.as_str())
+                .unwrap_or("?")
+                .to_string();
+            let props = parse_props(&row);
+            let summary = summarize_claim_props(&claim_type, &props);
+            RecentClaim {
+                asserted_at,
+                asserted_by,
+                claim_type,
+                summary,
+            }
+        })
+        .collect())
+}
+
+/// Extract the session id from an asserter string of the form
+/// `user:local:<USER>:<session-id>`. Returns None if the asserter
+/// doesn't match the expected shape.
+fn session_from_asserter(asserter: &str) -> Option<&str> {
+    asserter.rsplit(':').next().filter(|s| !s.is_empty())
 }
 
 fn collect_specs(store: &SynthStore, tree: &str) -> Result<Vec<SpecView>> {
@@ -575,6 +632,34 @@ fn now_human() -> String {
     format!("{secs}")
 }
 
+/// Render an asserted_at unix-ms timestamp as a relative duration
+/// from now: `5s`, `12m`, `3h`, `2d`. Capped at days for older
+/// entries; precision is intentionally coarse.
+fn relative_time(asserted_at_ms: i64) -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let now_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0);
+    let mut delta = (now_ms - asserted_at_ms) / 1000; // seconds
+    if delta < 0 {
+        delta = 0;
+    }
+    if delta < 60 {
+        return format!("{delta}s");
+    }
+    let minutes = delta / 60;
+    if minutes < 60 {
+        return format!("{minutes}m");
+    }
+    let hours = minutes / 60;
+    if hours < 48 {
+        return format!("{hours}h");
+    }
+    let days = hours / 24;
+    format!("{days}d")
+}
+
 fn render_dashboard(state: &State) -> String {
     let mut s = String::with_capacity(64 * 1024);
     s.push_str("<!doctype html>\n<html lang=\"en\"><head>");
@@ -594,6 +679,26 @@ fn render_dashboard(state: &State) -> String {
         html_escape(&state.version),
     ));
     s.push_str("</header>");
+
+    // Recent activity (cross-cutting)
+    if !state.recent.is_empty() {
+        s.push_str(&format!(
+            "<section><details open id=\"section:recent\"><summary><span class=\"section-title\">recent</span> <span class=\"count\">{} claims</span></summary>",
+            state.recent.len()
+        ));
+        for r in &state.recent {
+            let session = session_from_asserter(&r.asserted_by).unwrap_or("");
+            let when = relative_time(r.asserted_at);
+            s.push_str(&format!(
+                "<div class=\"recent-row\"><span class=\"recent-when\">{}</span> <span class=\"claim-type\">{}</span> <span class=\"recent-session muted\">@{}</span> <span class=\"claim-summary\">{}</span></div>",
+                html_escape(&when),
+                html_escape(&r.claim_type),
+                html_escape(session),
+                html_escape(&r.summary),
+            ));
+        }
+        s.push_str("</details></section>");
+    }
 
     // Trees
     s.push_str(&format!(
@@ -921,6 +1026,9 @@ const STYLE: &str = r#"<style>
   .claim { padding: 0.15rem 0; padding-left: 1.5em; font-size: 0.8rem; }
   .claim-type { font-family: var(--mono); color: var(--fg-muted); display: inline-block; min-width: 6ch; }
   .claim-summary { font-family: var(--sans); color: var(--fg); }
+  .recent-row { padding: 0.15rem 0; font-size: 0.8rem; padding-left: 1.5em; }
+  .recent-when { font-family: var(--mono); color: var(--fg-muted); display: inline-block; min-width: 4ch; text-align: right; margin-right: 0.5em; }
+  .recent-session { font-size: 0.75rem; }
   footer { margin-top: 2rem; padding-top: 0.75rem; border-top: 1px solid var(--border); font-family: var(--mono); font-size: 0.75rem; color: var(--fg-muted); }
   footer a { color: var(--accent); text-decoration: none; }
   footer a:hover { text-decoration: underline; }
