@@ -366,7 +366,11 @@ fn collect_sessions(store: &SynthStore) -> Result<Vec<SessionView>> {
                 .map(String::from)
         })
         .collect();
-    let mut by_id: std::collections::BTreeMap<String, (Value, i64)> =
+    // Closed signal: a session is closed when its session_id has a
+    // claim that supersedes another. cmd_session_close re-writes
+    // identical props with `supersedes` pointing at the opener — no
+    // status field is added — so the only signal is the supersession.
+    let mut by_id: std::collections::BTreeMap<String, (Value, i64, bool)> =
         std::collections::BTreeMap::new();
     for row in rows {
         let id = row
@@ -390,15 +394,15 @@ fn collect_sessions(store: &SynthStore) -> Result<Vec<SessionView>> {
             .get("asserted_at")
             .and_then(|v| v.as_i64())
             .unwrap_or(0);
-        by_id.insert(session_id, (Value::Object(props), started));
+        let is_closer = row
+            .get("supersedes")
+            .and_then(|v| v.as_str())
+            .is_some_and(|s| !s.is_empty());
+        by_id.insert(session_id, (Value::Object(props), started, is_closer));
     }
     let mut out: Vec<SessionView> = Vec::new();
-    for (sid, (props, started)) in by_id {
-        let status = props
-            .get("status")
-            .and_then(|v| v.as_str())
-            .unwrap_or("active")
-            .to_string();
+    for (sid, (props, started, is_closer)) in by_id {
+        let status = if is_closer { "closed" } else { "active" }.to_string();
         let claim_count = count_claims_by_session(store, &sid)?;
         out.push(SessionView {
             id: sid,
@@ -490,7 +494,7 @@ fn render_dashboard(state: &State) -> String {
 
     // Trees
     s.push_str(&format!(
-        "<section><details open><summary><span class=\"section-title\">trees</span> <span class=\"count\">{}</span></summary>",
+        "<section><details open id=\"section:trees\"><summary><span class=\"section-title\">trees</span> <span class=\"count\">{}</span></summary>",
         state.trees.len()
     ));
     for tree in &state.trees {
@@ -500,10 +504,12 @@ fn render_dashboard(state: &State) -> String {
 
     // Sessions
     let active_n = state.sessions.iter().filter(|s| s.status == "active").count();
+    let closed_n = state.sessions.len() - active_n;
     s.push_str(&format!(
-        "<section><details open><summary><span class=\"section-title\">sessions</span> <span class=\"count\">{} <span class=\"muted\">/ {} active</span></span></summary>",
+        "<section><details open id=\"section:sessions\"><summary><span class=\"section-title\">sessions</span> <span class=\"count\">{} <span class=\"muted\">/ {} active · {} closed</span></span></summary>",
         state.sessions.len(),
-        active_n
+        active_n,
+        closed_n,
     ));
     for sess in &state.sessions {
         s.push_str(&render_session(sess));
@@ -513,6 +519,7 @@ fn render_dashboard(state: &State) -> String {
     s.push_str("<footer>generated unix:");
     s.push_str(&html_escape(&state.generated_at));
     s.push_str(" · <a href=\"/api/state\">/api/state</a> for JSON</footer>");
+    s.push_str(SCRIPT);
     s.push_str("</body></html>");
     s
 }
@@ -520,7 +527,8 @@ fn render_dashboard(state: &State) -> String {
 fn render_tree(t: &TreeView) -> String {
     let mut s = String::new();
     s.push_str(&format!(
-        "<details class=\"tree\"><summary><span class=\"name\">{}</span> <span class=\"muted\">· {} specs · {} sessions</span></summary>",
+        "<details class=\"tree\" id=\"tree:{}\"><summary><span class=\"name\">{}</span> <span class=\"muted\">· {} specs · {} sessions</span></summary>",
+        html_escape(&t.name),
         html_escape(&t.name),
         t.specs.len(),
         t.session_count
@@ -545,7 +553,8 @@ fn render_tree(t: &TreeView) -> String {
 fn render_spec(sp: &SpecView) -> String {
     let mut s = String::new();
     s.push_str(&format!(
-        "<details class=\"spec\"><summary><span class=\"name\">{}</span> <span class=\"status status-{}\">{}</span> <span class=\"muted\">· {} tasks</span></summary>",
+        "<details class=\"spec\" id=\"spec:{}\"><summary><span class=\"name\">{}</span> <span class=\"status status-{}\">{}</span> <span class=\"muted\">· {} tasks</span></summary>",
+        html_escape(&sp.id),
         html_escape(&sp.id),
         html_escape(&sp.status),
         html_escape(&sp.status),
@@ -639,7 +648,8 @@ fn render_session(sess: &SessionView) -> String {
         .map(|s| format!("<p class=\"desc\">{}</p>", html_escape(s)))
         .unwrap_or_default();
     format!(
-        "<details class=\"session\"><summary><span class=\"name\">{}</span> <span class=\"status status-{}\">{}</span>{} <span class=\"muted\">· {} claims</span></summary>{}</details>",
+        "<details class=\"session\" id=\"session:{}\"><summary><span class=\"name\">{}</span> <span class=\"status status-{}\">{}</span>{} <span class=\"muted\">· {} claims</span></summary>{}</details>",
+        html_escape(&sess.id),
         html_escape(&sess.id),
         html_escape(&sess.status),
         html_escape(&sess.status),
@@ -673,6 +683,7 @@ const STYLE: &str = r#"<style>
     --border: #e5e7eb;
     --accent: #7d9aaa;
     --status-active: #1a73e8;
+    --status-closed: #6a737d;
     --status-in_progress: #e36209;
     --status-done: #2ea44f;
     --status-blocked: #d73a49;
@@ -750,6 +761,7 @@ const STYLE: &str = r#"<style>
     margin: 0 0.15em;
   }
   .status-active { background: var(--status-active); }
+  .status-closed { background: var(--status-closed); }
   .status-in_progress { background: var(--status-in_progress); }
   .status-done { background: var(--status-done); }
   .status-completed { background: var(--status-completed); }
@@ -772,6 +784,44 @@ const STYLE: &str = r#"<style>
   footer a { color: var(--accent); text-decoration: none; }
   footer a:hover { text-decoration: underline; }
 </style>"#;
+
+/// Persists `<details>` open state across reloads to localStorage,
+/// keyed by the stable id we put on every <details>. Without this
+/// the meta-refresh nukes every expansion the user clicked open.
+/// Pure client-side; no server state.
+const SCRIPT: &str = r#"<script>
+(function () {
+  const KEY = 'synthesist-serve:open-details';
+  function loadOpen() {
+    try { return new Set(JSON.parse(localStorage.getItem(KEY) || '[]')); }
+    catch (_) { return new Set(); }
+  }
+  function saveOpen(set) {
+    try { localStorage.setItem(KEY, JSON.stringify(Array.from(set))); }
+    catch (_) { /* localStorage full or disabled; soldier on */ }
+  }
+  // Apply saved state on load. Default-open sections (trees,
+  // sessions) only restore if previously CLOSED — otherwise they
+  // stay open as the server rendered them.
+  const open = loadOpen();
+  document.querySelectorAll('details[id]').forEach(d => {
+    const id = d.id;
+    if (open.has('OPEN:' + id)) d.open = true;
+    if (open.has('CLOSED:' + id)) d.open = false;
+  });
+  // Listen for toggles and persist.
+  document.querySelectorAll('details[id]').forEach(d => {
+    d.addEventListener('toggle', () => {
+      const cur = loadOpen();
+      const id = d.id;
+      cur.delete('OPEN:' + id);
+      cur.delete('CLOSED:' + id);
+      cur.add((d.open ? 'OPEN:' : 'CLOSED:') + id);
+      saveOpen(cur);
+    });
+  });
+})();
+</script>"#;
 
 #[allow(dead_code)]
 fn _quiet_unused_warnings() -> Value {
