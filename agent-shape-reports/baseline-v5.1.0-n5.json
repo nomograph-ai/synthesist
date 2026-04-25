@@ -1,0 +1,222 @@
+{
+  "subject": "synthesist",
+  "version_pin": null,
+  "run_timestamp": "unix:1777077964",
+  "judge_model": "claude-haiku-4-5",
+  "tuning": {
+    "n_trials": 50,
+    "mean_score": 0.6,
+    "completion_rate": 0.96,
+    "mean_tokens": 2499.08,
+    "mean_turns": 14.18,
+    "total_invented_commands": 80,
+    "total_fallback_to_sql": 7
+  },
+  "holdout": {
+    "n_trials": 0,
+    "mean_score": null,
+    "completion_rate": null,
+    "mean_tokens": null,
+    "mean_turns": null,
+    "total_invented_commands": 0,
+    "total_fallback_to_sql": 0
+  },
+  "cells": [
+    {
+      "section": "tuning",
+      "task_id": "cross-tree-query-01",
+      "model": "claude-opus-4-7",
+      "n": 5,
+      "mean_score": 0.45,
+      "score_stddev": 0.11180339887498948,
+      "mean_tokens": 1844.0,
+      "mean_turns": 11.2,
+      "invented_commands": [
+        "synthesist sql",
+        "synthesist sql \"PRAGMA table_info(claims)\" 2>&1",
+        "synthesist sql \"SELECT * FROM claims LIMIT 1\"",
+        "synthesist sql \"SELECT name FROM sqlite_master WHERE type='table'\"",
+        "synthesist sql \"SELECT name FROM sqlite_master WHERE type='table'\" 2>&1",
+        "synthesist sql \"SELECT tree, name FROM specs WHERE name LIKE '%gkg%' ORDER BY tree, name\"",
+        "synthesist sql \"SELECT tree_id, name FROM specs WHERE name LIKE '%gkg%' ORDER BY tree_id, name\" 2>&1"
+      ],
+      "fallback_count": 2,
+      "mean_irr_delta": 0.05
+    },
+    {
+      "section": "tuning",
+      "task_id": "cross-tree-query-01",
+      "model": "claude-sonnet-4-6",
+      "n": 5,
+      "mean_score": 0.5,
+      "score_stddev": 0.0,
+      "mean_tokens": 2199.4,
+      "mean_turns": 13.8,
+      "invented_commands": [
+        "synthesist sql",
+        "synthesist sql (15 invocations with various SQL queries)",
+        "synthesist sql (with PRAGMA table_info(claims)...)",
+        "synthesist sql (with SELECT * FROM claims...)",
+        "synthesist sql (with SELECT COUNT(*) as total...)",
+        "synthesist sql (with SELECT DISTINCT claim_type...)",
+        "synthesist sql (with SELECT id, tree_id, name, status...)",
+        "synthesist sql (with SELECT name FROM sqlite_master...)"
+      ],
+      "fallback_count": 2,
+      "mean_irr_delta": 0.1
+    },
+    {
+      "section": "tuning",
+      "task_id": "exploration-01",
+      "model": "claude-opus-4-7",
+      "n": 5,
+      "mean_score": 0.7,
+      "score_stddev": 0.4472135954999579,
+      "mean_tokens": 1792.2,
+      "mean_turns": 8.8,
+      "invented_commands": [
+        "synthesist phase show",
+        "synthesist spec list",
+        "synthesist sql"
+      ],
+      "fallback_count": 0,
+      "mean_irr_delta": 0.2
+    },
+    {
+      "section": "tuning",
+      "task_id": "exploration-01",
+      "model": "claude-sonnet-4-6",
+      "n": 5,
+      "mean_score": 0.5,
+      "score_stddev": 0.0,
+      "mean_tokens": 4571.4,
+      "mean_turns": 27.2,
+      "invented_commands": [
+        "phase get",
+        "synthesist phase get",
+        "synthesist phase show",
+        "synthesist sql"
+      ],
+      "fallback_count": 0,
+      "mean_irr_delta": 0.1
+    },
+    {
+      "section": "tuning",
+      "task_id": "resume-work-01",
+      "model": "claude-opus-4-7",
+      "n": 5,
+      "mean_score": 1.0,
+      "score_stddev": 0.0,
+      "mean_tokens": 1321.4,
+      "mean_turns": 8.4,
+      "invented_commands": [
+        "phase get --session treatment-design",
+        "phase show",
+        "phase show --session treatment-design",
+        "synthesist phase get --session treatment-design",
+        "synthesist phase get --session treatment-design | jq",
+        "synthesist phase show --session treatment-design",
+        "synthesist phase show --session treatment-design | jq"
+      ],
+      "fallback_count": 0,
+      "mean_irr_delta": 0.2
+    },
+    {
+      "section": "tuning",
+      "task_id": "resume-work-01",
+      "model": "claude-sonnet-4-6",
+      "n": 5,
+      "mean_score": 0.7,
+      "score_stddev": 0.27386127875258304,
+      "mean_tokens": 2029.4,
+      "mean_turns": 15.0,
+      "invented_commands": [
+        "phase get",
+        "phase get --session treatment-design",
+        "phase show",
+        "phase show --session treatment-design",
+        "sql",
+        "synthesist phase --help",
+        "synthesist phase get --session treatment-design",
+        "synthesist phase list",
+        "synthesist phase show",
+        "synthesist phase show --session treatment-design",
+        "synthesist sql",
+        "synthesist task list --spec lever-compliance",
+        "synthesist task list keaton/lever-compliance"
+      ],
+      "fallback_count": 0,
+      "mean_irr_delta": 0.2
+    },
+    {
+      "section": "tuning",
+      "task_id": "session-drill-down-01",
+      "model": "claude-opus-4-7",
+      "n": 5,
+      "mean_score": 0.5,
+      "score_stddev": 0.0,
+      "mean_tokens": 2019.0,
+      "mean_turns": 10.0,
+      "invented_commands": [
+        "synthesist sql",
+        "synthesist sql \"PRAGMA table_info(claims)\"",
+        "synthesist sql \"SELECT * FROM claims LIMIT 1\"",
+        "synthesist sql \"SELECT id, claim_type, asserted_at, asserted_by, props, supersedes FROM claims WHERE asserted_by LIKE '%lever-audit%' ORDER BY asserted_at\"",
+        "synthesist sql \"SELECT id, claim_type, props, asserted_at, valid_until FROM claims WHERE claim_type='session' AND props LIKE '%lever-audit%'\"",
+        "synthesist sql \"SELECT id, claim_type, props, asserted_by, asserted_at FROM claims WHERE asserted_by LIKE '%lever-audit%' ORDER BY asserted_at\"",
+        "synthesist sql \"SELECT name FROM sqlite_master WHERE type='table'\""
+      ],
+      "fallback_count": 0,
+      "mean_irr_delta": 0.1
+    },
+    {
+      "section": "tuning",
+      "task_id": "session-drill-down-01",
+      "model": "claude-sonnet-4-6",
+      "n": 5,
+      "mean_score": 0.5,
+      "score_stddev": 0.0,
+      "mean_tokens": 4458.0,
+      "mean_turns": 20.8,
+      "invented_commands": [
+        "synthesist sql"
+      ],
+      "fallback_count": 2,
+      "mean_irr_delta": 0.0
+    },
+    {
+      "section": "tuning",
+      "task_id": "tree-overview-01",
+      "model": "claude-opus-4-7",
+      "n": 5,
+      "mean_score": 0.65,
+      "score_stddev": 0.4873397172404482,
+      "mean_tokens": 1514.4,
+      "mean_turns": 8.0,
+      "invented_commands": [
+        "tree --help",
+        "tree show",
+        "tree show keaton"
+      ],
+      "fallback_count": 1,
+      "mean_irr_delta": 0.25
+    },
+    {
+      "section": "tuning",
+      "task_id": "tree-overview-01",
+      "model": "claude-sonnet-4-6",
+      "n": 5,
+      "mean_score": 0.5,
+      "score_stddev": 0.0,
+      "mean_tokens": 3241.6,
+      "mean_turns": 18.6,
+      "invented_commands": [
+        "sql",
+        "synthesist spec list keaton",
+        "synthesist sql"
+      ],
+      "fallback_count": 0,
+      "mean_irr_delta": 0.0
+    }
+  ]
+}
