@@ -9,50 +9,187 @@
 //! Routes:
 //!   GET /             — full dashboard (trees, sessions, summary)
 //!   GET /api/state    — same data as JSON (agent-readable)
+//!   GET /events       — SSE stream that ticks on every claims/changes/
+//!                       filesystem event (push-based refresh)
 //!
-//! Auto-refresh via meta tag (5s). No JS required for the v1 view.
+//! No timed polling. The client subscribes to /events and only
+//! re-fetches when the server signals a change.
 
 use anyhow::{Context, Result};
-use rouille::{Response, router};
+use axum::{
+    Router,
+    response::{Html, Json, Sse, sse::Event},
+    routing::get,
+};
+use futures_util::stream::Stream;
+use notify::{Event as NotifyEvent, EventKind, RecursiveMode, Watcher};
 use serde_json::{Value, json};
+use std::convert::Infallible;
+use std::path::PathBuf;
+use std::time::Duration;
+use tokio::sync::broadcast;
+use tokio_stream::{StreamExt, wrappers::BroadcastStream};
 
 use crate::store::SynthStore;
 
 const DEFAULT_PORT: u16 = 5179;
-const REFRESH_SECONDS: u32 = 5;
+/// Coalesce filesystem events that arrive within this window into a
+/// single SSE tick. Multiple claims often land within a few ms of
+/// each other (a `task done` writes 2-3 claims in quick succession);
+/// firing one event covers all of them.
+const COALESCE_MS: u64 = 250;
 
 pub fn run(port: Option<u16>, bind_all: bool) -> Result<()> {
+    // Bridge sync caller into the async runtime. main.rs is sync; this
+    // is the only async entry point we need.
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .context("build tokio runtime")?;
+    rt.block_on(serve_async(port, bind_all))
+}
+
+async fn serve_async(port: Option<u16>, bind_all: bool) -> Result<()> {
     let port = port.unwrap_or(DEFAULT_PORT);
     let host = if bind_all { "0.0.0.0" } else { "127.0.0.1" };
-    let addr = format!("{host}:{port}");
+    let addr: std::net::SocketAddr = format!("{host}:{port}")
+        .parse()
+        .with_context(|| format!("parse bind addr {host}:{port}"))?;
+
+    // Resolve claims_dir for the watcher. We re-discover it through
+    // the store so the same env-var precedence applies as everywhere
+    // else in synthesist. Store::root() returns the claims/ dir.
+    let store = SynthStore::discover().context("discover synthesist data dir")?;
+    let claims_changes = store.root().join("changes");
+    drop(store);
+
+    let (tx, _) = broadcast::channel::<()>(16);
+    spawn_fs_watcher(claims_changes.clone(), tx.clone())?;
+
+    let app = Router::new()
+        .route("/", get(handle_dashboard))
+        .route("/api/state", get(handle_state_json))
+        .route("/events", get(handle_events))
+        .with_state(tx);
 
     eprintln!("synthesist serve listening on http://{addr}");
     eprintln!("  GET /          — dashboard");
     eprintln!("  GET /api/state — JSON");
+    eprintln!("  GET /events    — SSE (push on fs change)");
+    eprintln!("watching {} for changes", claims_changes.display());
     eprintln!("press ctrl-c to stop");
 
-    rouille::start_server(addr, move |request| {
-        router!(request,
-            (GET) (/) => { handle_dashboard() },
-            (GET) (/api/state) => { handle_state_json() },
-            _ => Response::empty_404(),
-        )
+    let listener = tokio::net::TcpListener::bind(addr)
+        .await
+        .with_context(|| format!("bind {addr}"))?;
+    axum::serve(listener, app)
+        .with_graceful_shutdown(async {
+            let _ = tokio::signal::ctrl_c().await;
+            eprintln!("\nstopping serve");
+        })
+        .await
+        .context("axum serve")?;
+    Ok(())
+}
+
+fn spawn_fs_watcher(target: PathBuf, tx: broadcast::Sender<()>) -> Result<()> {
+    if !target.is_dir() {
+        eprintln!(
+            "warning: claims/changes/ not found at {}; serve will run but won't push live updates",
+            target.display()
+        );
+        return Ok(());
+    }
+    // Channel from notify thread → coalescing task.
+    let (raw_tx, mut raw_rx) = tokio::sync::mpsc::unbounded_channel();
+    let mut watcher = notify::recommended_watcher(move |res: Result<NotifyEvent, _>| {
+        if let Ok(ev) = res
+            && matches!(
+                ev.kind,
+                EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_)
+            )
+        {
+            let _ = raw_tx.send(());
+        }
+    })
+    .context("create fs watcher")?;
+    watcher
+        .watch(&target, RecursiveMode::NonRecursive)
+        .with_context(|| format!("watch {}", target.display()))?;
+
+    // Coalesce bursts of events into a single tick. Hold the watcher
+    // alive in the spawned task — dropping it stops the watch.
+    tokio::spawn(async move {
+        let _watcher = watcher;
+        loop {
+            // Block for the first event in the burst.
+            if raw_rx.recv().await.is_none() {
+                break;
+            }
+            // Drain anything that arrives within COALESCE_MS so a
+            // multi-claim write produces one notification.
+            let coalesce = tokio::time::sleep(Duration::from_millis(COALESCE_MS));
+            tokio::pin!(coalesce);
+            loop {
+                tokio::select! {
+                    _ = &mut coalesce => break,
+                    msg = raw_rx.recv() => if msg.is_none() { return; },
+                }
+            }
+            let _ = tx.send(());
+        }
     });
+    Ok(())
 }
 
-fn handle_dashboard() -> Response {
-    match collect_state() {
-        Ok(state) => Response::html(render_dashboard(&state)),
-        Err(e) => Response::text(format!("error: {e}")).with_status_code(500),
+async fn handle_dashboard() -> axum::response::Response {
+    match tokio::task::spawn_blocking(collect_state).await {
+        Ok(Ok(state)) => Html(render_dashboard(&state)).into_response(),
+        Ok(Err(e)) => render_error(&format!("error: {e}")),
+        Err(e) => render_error(&format!("join error: {e}")),
     }
 }
 
-fn handle_state_json() -> Response {
-    match collect_state() {
-        Ok(state) => Response::json(&state),
-        Err(e) => Response::text(format!("error: {e}")).with_status_code(500),
+async fn handle_state_json() -> axum::response::Response {
+    match tokio::task::spawn_blocking(collect_state).await {
+        Ok(Ok(state)) => Json(state).into_response(),
+        Ok(Err(e)) => render_error(&format!("error: {e}")),
+        Err(e) => render_error(&format!("join error: {e}")),
     }
 }
+
+fn render_error(msg: &str) -> axum::response::Response {
+    use axum::http::StatusCode;
+    (StatusCode::INTERNAL_SERVER_ERROR, msg.to_string()).into_response()
+}
+
+async fn handle_events(
+    axum::extract::State(tx): axum::extract::State<broadcast::Sender<()>>,
+) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    let rx = tx.subscribe();
+    let stream = BroadcastStream::new(rx).filter_map(|res| {
+        match res {
+            Ok(()) => Some(Ok(Event::default().event("change").data("changed"))),
+            // Lagged: client missed events because the broadcast
+            // buffer was full. Send a single "refresh anyway" tick;
+            // we don't try to enumerate what was missed.
+            Err(tokio_stream::wrappers::errors::BroadcastStreamRecvError::Lagged(_)) => {
+                Some(Ok(Event::default().event("change").data("lagged")))
+            }
+        }
+    });
+    // Initial event so the client renders fresh on connect.
+    let initial = futures_util::stream::once(async {
+        Ok::<_, Infallible>(Event::default().event("change").data("initial"))
+    });
+    Sse::new(initial.chain(stream)).keep_alive(
+        axum::response::sse::KeepAlive::new()
+            .interval(Duration::from_secs(15))
+            .text("keep-alive"),
+    )
+}
+
+use axum::response::IntoResponse as _;
 
 #[derive(Debug, serde::Serialize)]
 struct State {
@@ -674,7 +811,7 @@ fn render_dashboard(state: &State) -> String {
     // Header
     s.push_str("<header><h1>synthesist</h1>");
     s.push_str(&format!(
-        "<div class=\"meta\"><code>{}</code> · v{} <span id=\"live-status\" class=\"live-on\">· live</span> <button id=\"live-toggle\" class=\"chrome-btn\" type=\"button\">pause</button> <button id=\"refresh-now\" class=\"chrome-btn\" type=\"button\">refresh</button></div>",
+        "<div class=\"meta\"><code>{}</code> · v{} <span id=\"live-status\" class=\"live-on\">· connecting</span> <button id=\"live-toggle\" class=\"chrome-btn\" type=\"button\">pause</button> <button id=\"refresh-now\" class=\"chrome-btn\" type=\"button\">refresh</button></div>",
         html_escape(&state.data_dir),
         html_escape(&state.version),
     ));
@@ -1049,18 +1186,18 @@ const STYLE: &str = r#"<style>
 </style>"#;
 
 /// Client-side behavior for serve:
-///   1. Persists `<details>` open state across reloads to
-///      localStorage, keyed by the stable id we put on every
-///      `<details>`. Without this any refresh nukes every expansion.
-///   2. Smooth live refresh: every 5s, fetch `/`, swap the body
-///      innerHTML using DOMParser. No navigation, no flicker. State
-///      restoration runs after each swap.
-///   3. Pause/resume + manual refresh buttons in the header.
+///   1. Persists `<details>` open state across refreshes to
+///      localStorage, keyed by the stable id on every `<details>`.
+///   2. Push-based live refresh: subscribes to /events (Server-Sent
+///      Events). Server pushes a `change` event when claims/changes/
+///      sees a filesystem event, coalesced across bursts. No timed
+///      polling. Page only re-fetches when something actually
+///      changed.
+///   3. Pause/resume (closes/opens the EventSource) + manual refresh.
 const SCRIPT: &str = r#"<script>
 (function () {
   const KEY = 'synthesist-serve:open-details';
   const LIVE_KEY = 'synthesist-serve:live';
-  const INTERVAL_MS = 5000;
 
   function loadOpen() {
     try { return new Set(JSON.parse(localStorage.getItem(KEY) || '[]')); }
@@ -1090,52 +1227,70 @@ const SCRIPT: &str = r#"<script>
   }
 
   let liveOn = localStorage.getItem(LIVE_KEY) !== '0';
-  let timer = null;
+  let es = null;
+  let inflight = false;
 
   async function refresh() {
+    if (inflight) return;
+    inflight = true;
     try {
       const res = await fetch(window.location.pathname, { cache: 'no-store' });
       if (!res.ok) return;
       const html = await res.text();
       const next = new DOMParser().parseFromString(html, 'text/html');
-      // Swap only the body; keep the <head> stable.
       document.body.innerHTML = next.body.innerHTML;
       applyOpen(document);
       attachToggle(document);
       wireChrome();
-    } catch (_) { /* network blip; skip this tick */ }
+      flashStatus('updated');
+    } catch (_) { /* network blip; ignore */ }
+    finally { inflight = false; }
+  }
+  function flashStatus(text) {
+    const status = document.getElementById('live-status');
+    if (!status) return;
+    const prev = status.textContent;
+    status.textContent = '· ' + text;
+    setTimeout(() => { if (status) status.textContent = prev; }, 700);
+  }
+  function openStream() {
+    if (es) { es.close(); es = null; }
+    es = new EventSource('/events');
+    es.addEventListener('open', () => updateStatus());
+    es.addEventListener('change', () => refresh());
+    es.addEventListener('error', () => updateStatus('reconnecting'));
+  }
+  function closeStream() {
+    if (es) { es.close(); es = null; }
   }
   function setLive(on) {
     liveOn = on;
     localStorage.setItem(LIVE_KEY, on ? '1' : '0');
-    if (timer) clearInterval(timer);
-    timer = on ? setInterval(refresh, INTERVAL_MS) : null;
+    if (on) openStream(); else closeStream();
+    updateStatus(on ? 'live' : 'paused');
+  }
+  function updateStatus(override) {
     const status = document.getElementById('live-status');
     const toggle = document.getElementById('live-toggle');
+    const text = override !== undefined ? override : (liveOn ? 'live' : 'paused');
     if (status) {
-      status.textContent = on ? '· live' : '· paused';
-      status.className = on ? 'live-on' : 'live-off';
+      status.textContent = '· ' + text;
+      status.className = (text === 'live' || text === 'updated') ? 'live-on' : 'live-off';
     }
-    if (toggle) toggle.textContent = on ? 'pause' : 'resume';
+    if (toggle) toggle.textContent = liveOn ? 'pause' : 'resume';
   }
   function wireChrome() {
     const toggle = document.getElementById('live-toggle');
     if (toggle) toggle.onclick = () => setLive(!liveOn);
     const now = document.getElementById('refresh-now');
     if (now) now.onclick = () => refresh();
-    // Reflect current state into freshly-swapped chrome.
-    const status = document.getElementById('live-status');
-    if (status) {
-      status.textContent = liveOn ? '· live' : '· paused';
-      status.className = liveOn ? 'live-on' : 'live-off';
-    }
-    if (toggle) toggle.textContent = liveOn ? 'pause' : 'resume';
+    updateStatus();
   }
 
   applyOpen(document);
   attachToggle(document);
   wireChrome();
-  if (liveOn) timer = setInterval(refresh, INTERVAL_MS);
+  if (liveOn) openStream();
 })();
 </script>"#;
 

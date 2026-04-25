@@ -43,7 +43,15 @@ chrono = { version = "0.4", features = ["serde"] }
 thiserror = "1"
 nomograph-claim = "0.1"
 nomograph-workflow = "0.1"
-rouille = { version = "3", default-features = false }
+# `serve` uses async axum + a fs watcher. See src/cmd_serve.rs.
+# Replaced rouille (sync, smaller deps) with axum because axum has
+# the bigger community trajectory (tokio + tower) and natively
+# supports SSE for push-based updates.
+axum = "0.8"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "sync", "time"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
+notify = "6"
+futures-util = "0.3"
 
 [features]
 # Legacy SQL-backed commands not yet ported to the claim substrate.
