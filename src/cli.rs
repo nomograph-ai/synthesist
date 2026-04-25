@@ -134,6 +134,17 @@ pub enum Command {
         /// SQL query to execute. Only read-only queries are allowed.
         query: String,
     },
+    /// Serve a browsable HTML dashboard of the claim graph on a local
+    /// HTTP port. Multi-person reviewers (and agents via `/api/state`)
+    /// can drill in via progressive disclosure. Read-only.
+    Serve {
+        /// Port to listen on (default 5179).
+        #[arg(long)]
+        port: Option<u16>,
+        /// Bind to 0.0.0.0 instead of localhost. Off by default.
+        #[arg(long)]
+        bind_all: bool,
+    },
 }
 
 // --- Tree ---

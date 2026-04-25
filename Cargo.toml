@@ -43,6 +43,7 @@ chrono = { version = "0.4", features = ["serde"] }
 thiserror = "1"
 nomograph-claim = "0.1"
 nomograph-workflow = "0.1"
+rouille = { version = "3", default-features = false }
 
 [features]
 # Legacy SQL-backed commands not yet ported to the claim substrate.

@@ -7,6 +7,7 @@ mod cmd_import;
 mod cmd_init;
 mod cmd_migrate;
 mod cmd_phase;
+mod cmd_serve;
 mod cmd_session;
 mod cmd_spec;
 mod cmd_sql;
@@ -81,6 +82,7 @@ fn run(cli: cli::Cli) -> anyhow::Result<()> {
             | cli::Command::Migrate { .. }
             | cli::Command::Export
             | cli::Command::Sql { .. }
+            | cli::Command::Serve { .. }
             | cli::Command::Phase {
                 cmd: cli::PhaseCmd::Show
             }
@@ -147,6 +149,7 @@ fn run(cli: cli::Cli) -> anyhow::Result<()> {
         cli::Command::Export => cmd_export::cmd_export(),
         cli::Command::Import { file } => cmd_import::cmd_import(file),
         cli::Command::Sql { query } => cmd_sql::cmd_sql(query),
+        cli::Command::Serve { port, bind_all } => cmd_serve::run(*port, *bind_all),
         // Init, Skill, Version, and the landscape family (stakeholder,
         // disposition, signal, stance) are handled in the short-circuit
         // match above.
