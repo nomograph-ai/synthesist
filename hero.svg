@@ -3,96 +3,97 @@
 
   <!-- Title bar -->
   <rect x="0" y="0" width="1200" height="36" fill="#2c2417"/>
-  <text x="16" y="24" font-family="'IBM Plex Mono', monospace" font-size="14" fill="#faf6ed" font-weight="bold">synthesist -- specification graph manager</text>
-  <text x="1184" y="24" font-family="'IBM Plex Mono', monospace" font-size="11" fill="#c4b99a" text-anchor="end">rust + sqlite · agent-mediated</text>
+  <text x="16" y="24" font-family="'IBM Plex Mono', monospace" font-size="14" fill="#faf6ed" font-weight="bold">synthesist -- specification graph manager (v2)</text>
+  <text x="1184" y="24" font-family="'IBM Plex Mono', monospace" font-size="11" fill="#c4b99a" text-anchor="end">claim substrate · rust + sqlite</text>
 
-  <!-- Phase machine -->
+  <!-- Phase machine ribbon -->
   <rect x="40" y="52" width="1120" height="30" fill="none" stroke="#c4b99a" stroke-width="1"/>
   <text x="56" y="72" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">ORIENT -> PLAN -> AGREE -> EXECUTE &lt;-> REFLECT -> REPORT</text>
-  <text x="1144" y="72" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#2c2417" text-anchor="end">AGREE = hard gate</text>
+  <text x="1144" y="72" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#2c2417" text-anchor="end">AGREE = hard gate (per session)</text>
 
-  <!-- Left: Context Acquisition -->
+  <!-- Left: INPUTS -->
   <rect x="40" y="100" width="260" height="250" fill="none" stroke="#2c2417" stroke-width="2"/>
   <rect x="40" y="100" width="260" height="28" fill="#2c2417"/>
-  <text x="170" y="118" font-family="'IBM Plex Mono', monospace" font-size="11" fill="#faf6ed" text-anchor="middle" font-weight="bold">CONTEXT ACQUISITION</text>
+  <text x="170" y="118" font-family="'IBM Plex Mono', monospace" font-size="11" fill="#faf6ed" text-anchor="middle" font-weight="bold">INPUTS</text>
 
-  <text x="56" y="148" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#2c2417" font-weight="bold">signals</text>
-  <text x="56" y="164" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">  PR reviews, comments, decisions</text>
-  <text x="56" y="180" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">  bi-temporal: event + record date</text>
+  <text x="56" y="148" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#2c2417" font-weight="bold">agent commands</text>
+  <text x="56" y="164" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">  spec / task / discovery / session</text>
+  <text x="56" y="180" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">  campaign / phase / migrate</text>
 
-  <text x="56" y="204" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#2c2417" font-weight="bold">dispositions</text>
-  <text x="56" y="220" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">  assessed stakeholder stances</text>
-  <text x="56" y="236" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">  topic-scoped, confidence-tiered</text>
-  <text x="56" y="252" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">  temporal supersession chains</text>
+  <text x="56" y="204" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#2c2417" font-weight="bold">claim writes</text>
+  <text x="56" y="220" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">  16 typed claim kinds</text>
+  <text x="56" y="236" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">  bi-temporal: event + asserted</text>
+  <text x="56" y="252" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">  content-addressed, append-only</text>
 
-  <text x="56" y="276" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#2c2417" font-weight="bold">discoveries</text>
-  <text x="56" y="292" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">  institutional memory</text>
-  <text x="56" y="308" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">  append-only, cross-session</text>
+  <text x="56" y="276" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#2c2417" font-weight="bold">session scope</text>
+  <text x="56" y="292" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">  asserter namespace per writer</text>
+  <text x="56" y="308" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">  required for every write</text>
 
-  <text x="170" y="340" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f" text-anchor="middle">query before generating</text>
+  <text x="170" y="340" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f" text-anchor="middle">CLI surface = the only way in</text>
 
   <!-- Arrow -->
   <line x1="300" y1="225" x2="350" y2="225" stroke="#2c2417" stroke-width="1.5"/>
   <polygon points="350,220 360,225 350,230" fill="#2c2417"/>
 
-  <!-- Center: Task DAG -->
+  <!-- Center: PROCESS -->
   <rect x="360" y="100" width="260" height="250" fill="none" stroke="#2c2417" stroke-width="2"/>
   <rect x="360" y="100" width="260" height="28" fill="#2c2417"/>
-  <text x="490" y="118" font-family="'IBM Plex Mono', monospace" font-size="11" fill="#faf6ed" text-anchor="middle" font-weight="bold">TASK DAG</text>
+  <text x="490" y="118" font-family="'IBM Plex Mono', monospace" font-size="11" fill="#faf6ed" text-anchor="middle" font-weight="bold">PROCESS</text>
 
-  <text x="376" y="148" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#2c2417" font-weight="bold">trees / specs / tasks</text>
-  <text x="376" y="164" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">  dependency resolution</text>
-  <text x="376" y="180" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">  atomic claiming</text>
-  <text x="376" y="196" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">  acceptance criteria</text>
+  <text x="376" y="148" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#2c2417" font-weight="bold">claim graph (CRDT)</text>
+  <text x="376" y="164" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">  append-only .amc log</text>
+  <text x="376" y="180" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">  supersession per field</text>
+  <text x="376" y="196" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">  multi-writer auto-merge</text>
 
   <line x1="376" y1="210" x2="604" y2="210" stroke="#c4b99a" stroke-width="1"/>
 
-  <text x="376" y="230" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#2c2417" font-weight="bold">sessions</text>
-  <text x="376" y="246" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">  per-file SQLite copies</text>
-  <text x="376" y="262" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">  PK-aware three-way merge</text>
-  <text x="376" y="278" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">  conflict detection</text>
+  <text x="376" y="230" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#2c2417" font-weight="bold">materialized view</text>
+  <text x="376" y="246" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">  SQLite cache (rebuildable)</text>
+  <text x="376" y="262" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">  read-only SQL queries</text>
+  <text x="376" y="278" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">  diamond-conflict surfacing</text>
 
   <line x1="376" y1="292" x2="604" y2="292" stroke="#c4b99a" stroke-width="1"/>
 
-  <text x="376" y="312" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#2c2417" font-weight="bold">campaigns</text>
-  <text x="376" y="328" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">  cross-tree coordination</text>
-  <text x="376" y="344" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">  active + backlog specs</text>
+  <text x="376" y="312" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#2c2417" font-weight="bold">phase machine</text>
+  <text x="376" y="328" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">  algorithmic enforcement</text>
+  <text x="376" y="344" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">  per-session, not global</text>
 
   <!-- Arrow -->
   <line x1="620" y1="225" x2="670" y2="225" stroke="#2c2417" stroke-width="1.5"/>
   <polygon points="670,220 680,225 670,230" fill="#2c2417"/>
 
-  <!-- Right: Agent Interface -->
+  <!-- Right: OUTPUTS -->
   <rect x="680" y="100" width="480" height="250" fill="none" stroke="#2c2417" stroke-width="2"/>
   <rect x="680" y="100" width="480" height="28" fill="#2c2417"/>
-  <text x="920" y="118" font-family="'IBM Plex Mono', monospace" font-size="11" fill="#faf6ed" text-anchor="middle" font-weight="bold">AGENT INTERFACE</text>
+  <text x="920" y="118" font-family="'IBM Plex Mono', monospace" font-size="11" fill="#faf6ed" text-anchor="middle" font-weight="bold">OUTPUTS</text>
 
-  <text x="696" y="148" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#2c2417" font-weight="bold">skill file</text>
-  <text x="696" y="164" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">  behavioral contract + command reference</text>
-  <text x="696" y="180" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">  execution-system agnostic (claude, cursor, ...)</text>
+  <text x="696" y="148" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#2c2417" font-weight="bold">estate JSON</text>
+  <text x="696" y="164" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">  every command emits structured JSON; agents pipe it</text>
 
-  <line x1="696" y1="192" x2="1144" y2="192" stroke="#c4b99a" stroke-width="1"/>
+  <line x1="696" y1="178" x2="1144" y2="178" stroke="#c4b99a" stroke-width="1"/>
 
-  <text x="696" y="212" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#2c2417">synthesist status</text>
-  <text x="900" y="212" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">estate overview</text>
-  <text x="696" y="228" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#2c2417">synthesist stance mwilson</text>
-  <text x="900" y="228" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">query preferences</text>
-  <text x="696" y="244" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#2c2417">synthesist task ready t/s</text>
-  <text x="900" y="244" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">next actionable work</text>
-  <text x="696" y="260" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#2c2417">synthesist task claim t/s id</text>
-  <text x="900" y="260" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">atomic ownership</text>
-  <text x="696" y="276" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#2c2417">synthesist session merge id</text>
-  <text x="900" y="276" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">three-way reconcile</text>
+  <text x="696" y="198" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#2c2417">synthesist status</text>
+  <text x="900" y="198" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">trees, ready tasks, sessions, phase</text>
+  <text x="696" y="214" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#2c2417">synthesist task ready t/s</text>
+  <text x="900" y="214" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">next actionable work</text>
+  <text x="696" y="230" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#2c2417">synthesist task done t/s id</text>
+  <text x="900" y="230" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">verifies acceptance</text>
+  <text x="696" y="246" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#2c2417">synthesist discovery add t/s</text>
+  <text x="900" y="246" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">institutional memory</text>
+  <text x="696" y="262" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#2c2417">synthesist conflicts</text>
+  <text x="900" y="262" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">diamond-conflict report</text>
+  <text x="696" y="278" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#2c2417">synthesist sql "SELECT ..."</text>
+  <text x="900" y="278" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">read-only view queries</text>
 
-  <line x1="696" y1="288" x2="1144" y2="288" stroke="#c4b99a" stroke-width="1"/>
+  <line x1="696" y1="292" x2="1144" y2="292" stroke="#c4b99a" stroke-width="1"/>
 
-  <text x="696" y="308" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">all output is JSON</text>
-  <text x="696" y="324" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">phase enforcement is algorithmic</text>
-  <text x="696" y="340" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">human decides what, agent decides how</text>
+  <text x="696" y="312" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">propagation checks fan stale outputs across the spec DAG</text>
+  <text x="696" y="328" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">retros close arcs and emit transforms</text>
+  <text x="696" y="344" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">human decides what; the agent decides how</text>
 
   <!-- Footer -->
   <line x1="40" y1="370" x2="1160" y2="370" stroke="#c4b99a" stroke-width="1"/>
-  <text x="600" y="392" font-family="'IBM Plex Mono', monospace" font-size="10" fill="#6b5d4f" text-anchor="middle">context asymmetry is a representation problem -- query preferences before generating code</text>
+  <text x="600" y="392" font-family="'IBM Plex Mono', monospace" font-size="10" fill="#6b5d4f" text-anchor="middle">specification first; the binary enforces structure on the process governing the code</text>
   <text x="590" y="416" text-anchor="middle" fill="#2c2417" font-family="'IBM Plex Mono', monospace" font-size="9" font-weight="600">Built with GitLab</text>
   <g transform="translate(634, 405) scale(0.045)">
     <path d="M282.83,170.73l-.27-.69-26.14-68.22a6.81,6.81,0,0,0-2.69-3.24,7,7,0,0,0-8,.43,7,7,0,0,0-2.32,3.52l-17.65,54H154.29l-17.65-54A6.86,6.86,0,0,0,134.32,99a7,7,0,0,0-8-.43,6.87,6.87,0,0,0-2.69,3.24L97.44,170l-.26.69a48.54,48.54,0,0,0,16.1,56.1l.09.07.24.17,39.82,29.82,19.7,14.91,12,9.06a8.07,8.07,0,0,0,9.76,0l12-9.06,19.7-14.91,40.06-30,.1-.08A48.56,48.56,0,0,0,282.83,170.73Z" fill="#E24329"/>
