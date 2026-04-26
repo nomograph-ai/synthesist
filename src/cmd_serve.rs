@@ -1668,9 +1668,9 @@ const STYLE: &str = r#"
   .gnode.highlight { stroke: var(--ink-500); stroke-width: 2; }
 </style>"#;
 
-/// Inline SVG of the nomograph mark — single-color, currentColor.
-/// Path from gitlab.com/nomograph/design.
-const NOM_MARK: &str = r#"<span class="nom-mark" aria-hidden="true"><svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><path d="M 14 6 C 14 10, 14 22, 22 28 S 50 38, 50 58" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg></span>"#;
+/// Inline SVG of the nomograph mark: three dashed scales plus the curve.
+/// Single-color, currentColor. Source: gitlab.com/nomograph/design/mark/mark.svg.
+const NOM_MARK: &str = r#"<span class="nom-mark" aria-hidden="true"><svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><line x1="14" y1="6" x2="14" y2="58" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="5,6"/><line x1="32" y1="6" x2="32" y2="58" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="2,3"/><line x1="50" y1="6" x2="50" y2="58" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="3.5,5"/><path d="M 14 6 C 14 10, 14 22, 22 28 S 50 38, 50 58" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg></span>"#;
 
 /// Client-side behavior for serve:
 ///   1. Persists `<details>` open state across refreshes to
