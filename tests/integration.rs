@@ -19,6 +19,11 @@ fn synth(dir: &TempDir) -> Command {
     let mut cmd = Command::cargo_bin("synthesist").unwrap();
     cmd.current_dir(dir.path());
     cmd.env("SYNTHESIST_OFFLINE", "1");
+    // Inherited SYNTHESIST_DIR / SYNTHESIST_SESSION from the user shell
+    // would punch through current_dir() and target the real estate.
+    // Strip both unconditionally; tests that need them set them back.
+    cmd.env_remove("SYNTHESIST_DIR");
+    cmd.env_remove("SYNTHESIST_SESSION");
     cmd
 }
 
@@ -229,6 +234,8 @@ fn test_data_dir_flag_resolves_remote() {
         .unwrap()
         .current_dir(&sub)
         .env("SYNTHESIST_OFFLINE", "1")
+        .env_remove("SYNTHESIST_DIR")
+        .env_remove("SYNTHESIST_SESSION")
         .args(["init"])
         .assert()
         .success();
@@ -238,6 +245,8 @@ fn test_data_dir_flag_resolves_remote() {
         .unwrap()
         .current_dir(tmp.path())
         .env("SYNTHESIST_OFFLINE", "1")
+        .env_remove("SYNTHESIST_DIR")
+        .env_remove("SYNTHESIST_SESSION")
         .args([
             "--data-dir",
             sub.to_str().unwrap(),
@@ -259,13 +268,18 @@ fn test_synthesist_dir_env_resolves_remote() {
         .unwrap()
         .current_dir(&sub)
         .env("SYNTHESIST_OFFLINE", "1")
+        .env_remove("SYNTHESIST_DIR")
+        .env_remove("SYNTHESIST_SESSION")
         .args(["init"])
         .assert()
         .success();
+    // Strip first, then deliberately set SYNTHESIST_DIR for the assertion
+    // that the env var actually resolves to the override path.
     Command::cargo_bin("synthesist")
         .unwrap()
         .current_dir(tmp.path())
         .env("SYNTHESIST_OFFLINE", "1")
+        .env_remove("SYNTHESIST_SESSION")
         .env("SYNTHESIST_DIR", sub.to_str().unwrap())
         .args(["session", "start", "s1"])
         .assert()

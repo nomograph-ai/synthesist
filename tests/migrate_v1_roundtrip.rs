@@ -258,6 +258,8 @@ fn build_v1_fixture(db_path: &Path) {
 
 fn migrate_cmd(from: &Path, to: &Path, dry_run: bool, overwrite: bool) -> Command {
     let mut cmd = Command::cargo_bin("synthesist").unwrap();
+    cmd.env_remove("SYNTHESIST_DIR");
+    cmd.env_remove("SYNTHESIST_SESSION");
     cmd.args([
         "migrate",
         "v1-to-v2",

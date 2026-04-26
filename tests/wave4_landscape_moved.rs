@@ -15,6 +15,8 @@ fn synth(dir: &TempDir) -> Command {
     let mut cmd = Command::cargo_bin("synthesist").unwrap();
     cmd.current_dir(dir.path());
     cmd.env("SYNTHESIST_OFFLINE", "1");
+    cmd.env_remove("SYNTHESIST_DIR");
+    cmd.env_remove("SYNTHESIST_SESSION");
     cmd
 }
 
