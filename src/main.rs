@@ -96,7 +96,7 @@ fn run(cli: cli::Cli) -> anyhow::Result<()> {
     let is_list_or_show = matches!(
         &cli.command,
         cli::Command::Tree {
-            cmd: cli::TreeCmd::List,
+            cmd: cli::TreeCmd::List { .. },
         } | cli::Command::Spec {
             cmd: cli::SpecCmd::Show { .. } | cli::SpecCmd::List { .. },
         } | cli::Command::Task {
@@ -271,8 +271,9 @@ fn command_path(cmd: &cli::Command) -> (&str, &str) {
             "tree",
             match cmd {
                 cli::TreeCmd::Add { .. } => "add",
-                cli::TreeCmd::List => "list",
+                cli::TreeCmd::List { .. } => "list",
                 cli::TreeCmd::Show { .. } => "show",
+                cli::TreeCmd::Close { .. } => "close",
             },
         ),
         cli::Command::Spec { cmd } => (

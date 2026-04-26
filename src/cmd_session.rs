@@ -38,7 +38,7 @@ pub fn run(cmd: &SessionCmd) -> Result<()> {
              supersede the opener non-destructively, or just stop referencing the \
              session. Run `synthesist conflicts` if supersessions diverged."
         ),
-        SessionCmd::Close { id } => cmd_session_close(id),
+        SessionCmd::Close { id, start_id } => cmd_session_close(id, start_id.as_deref()),
     }
 }
 
@@ -156,37 +156,105 @@ fn cmd_session_status(id: &str) -> Result<()> {
     }))
 }
 
-/// Reserved for when the CLI gains a `close` subcommand. Appends a
-/// superseding Session claim with the opener's props.
-///
 /// `session close <id>` — append a superseding `Session` claim marking
 /// `status = "closed"`. Non-destructive: prior claims stay in the log.
-fn cmd_session_close(id: &str) -> Result<()> {
+///
+/// When `start_id` is given, select the live opener whose claim hash
+/// (the `id` column on the `claims` table) starts with that prefix.
+/// This disambiguates when several sessions share the same display
+/// `id` — the original v1 single-id assumption that v2 doesn't enforce
+/// at write time.
+fn cmd_session_close(id: &str, start_id: Option<&str>) -> Result<()> {
     let mut store = SynthStore::discover()?;
-    let rows = store.query(
-        "SELECT id, props FROM claims \
+    // Pull every live opener (claim_type=session, supersedes IS NULL,
+    // and whose claim id is not itself superseded by a later session
+    // claim). We re-derive "live" client-side from the rows because the
+    // `supersedes IS NULL` filter alone is not enough — that yields all
+    // openers, including ones already closed by a later closer.
+    let all_rows = store.query(
+        "SELECT id, props, supersedes FROM claims \
          WHERE claim_type = 'session' \
-           AND json_extract(props, '$.id') = ?1 \
-           AND supersedes IS NULL \
-         ORDER BY asserted_at DESC LIMIT 1",
-        &[&id],
+         ORDER BY asserted_at",
+        &[],
     )?;
-    let row = rows
-        .into_iter()
-        .next()
-        .ok_or_else(|| anyhow!("session '{id}' not found"))?;
 
-    let prior_id = row
-        .get("id")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow!("session claim missing id"))?
-        .to_string();
-    let props_str = row
-        .get("props")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow!("session claim missing props"))?;
-    let props: Value = serde_json::from_str(props_str)?;
+    let mut superseded_ids = std::collections::HashSet::new();
+    for row in &all_rows {
+        if let Some(prior) = row.get("supersedes").and_then(|v| v.as_str()) {
+            superseded_ids.insert(prior.to_string());
+        }
+    }
 
-    store.append(ClaimType::Session, props, Some(prior_id))?;
-    json_out(&json!({ "closed": true, "id": id }))
+    // Live openers are rows with `supersedes IS NULL` and `id NOT IN superseded_ids`.
+    let mut live_with_matching_display_id: Vec<(String, Value)> = Vec::new();
+    for row in &all_rows {
+        let supersedes_set = row.get("supersedes").and_then(|v| v.as_str()).is_some();
+        if supersedes_set {
+            continue;
+        }
+        let claim_id = row
+            .get("id")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("session claim missing id"))?
+            .to_string();
+        if superseded_ids.contains(&claim_id) {
+            continue;
+        }
+        let props_str = row
+            .get("props")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("session claim missing props"))?;
+        let props: Value = serde_json::from_str(props_str)?;
+        let display_id = props.get("id").and_then(|v| v.as_str()).unwrap_or("");
+        if display_id == id {
+            live_with_matching_display_id.push((claim_id, props));
+        }
+    }
+
+    // Pick the target opener.
+    let (prior_id, props) = match start_id {
+        Some(needle) => {
+            let needle = needle.trim();
+            if needle.is_empty() {
+                bail!("--start-id must be a non-empty hex prefix or full hash");
+            }
+            let matches: Vec<&(String, Value)> = live_with_matching_display_id
+                .iter()
+                .filter(|(claim_id, _)| claim_id.starts_with(needle))
+                .collect();
+            match matches.len() {
+                0 => bail!(
+                    "no live session with id '{id}' has start_id starting with '{needle}'. \
+                     Candidates: [{}]",
+                    live_with_matching_display_id
+                        .iter()
+                        .map(|(c, _)| c.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+                1 => matches[0].clone(),
+                _ => bail!(
+                    "--start-id '{needle}' is ambiguous; matches: [{}]",
+                    matches
+                        .iter()
+                        .map(|(c, _)| c.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+            }
+        }
+        None => {
+            // Without --start-id, behavior is unchanged from the
+            // original `session close`: pick the most recently asserted
+            // live opener for `id`. The `all_rows` query is ordered
+            // oldest-first, so the last collected match is newest.
+            live_with_matching_display_id
+                .last()
+                .cloned()
+                .ok_or_else(|| anyhow!("session '{id}' not found"))?
+        }
+    };
+
+    store.append(ClaimType::Session, props, Some(prior_id.clone()))?;
+    json_out(&json!({ "closed": true, "id": id, "start_id": prior_id }))
 }

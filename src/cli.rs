@@ -162,12 +162,29 @@ pub enum TreeCmd {
         #[arg(long, default_value = "active")]
         status: String,
     },
-    /// List all trees in the estate.
-    List,
+    /// List all trees in the estate. Hides closed trees by default.
+    List {
+        /// Include trees whose latest claim has status "closed".
+        #[arg(long)]
+        include_closed: bool,
+    },
     /// Show a single tree's metadata: name, description, spec count.
     Show {
         /// Tree name.
         name: String,
+    },
+    /// Close a tree. Appends a superseding `Tree` claim marking the
+    /// tree `closed`. Non-destructive: prior claims, specs, and
+    /// sessions remain in the log. Hidden from `tree list` by default;
+    /// use `tree list --include-closed` to surface.
+    Close {
+        /// Tree name to close.
+        name: String,
+        /// Disambiguate by start_id (the claim hash of the original
+        /// `tree add` claim) when multiple trees share `name`. Accepts
+        /// a full 64-char hex hash or any unambiguous prefix.
+        #[arg(long)]
+        start_id: Option<String>,
     },
 }
 
@@ -483,6 +500,13 @@ pub enum SessionCmd {
     Close {
         /// Session ID to close.
         id: String,
+        /// Disambiguate by start_id (the claim hash of the opening
+        /// `Session` claim) when multiple sessions share the same
+        /// display id. Accepts a full 64-char hex hash or any
+        /// unambiguous prefix. Without this flag, behavior is
+        /// unchanged: the most recent live opener for `id` is closed.
+        #[arg(long)]
+        start_id: Option<String>,
     },
 }
 

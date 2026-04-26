@@ -156,8 +156,11 @@ synthesist skill                                 # this file
 ### Trees
 ```
 synthesist tree add <name> --description TEXT     # e.g. tree add upstream --description "GitLab"
-synthesist tree list
+synthesist tree list                              # hides closed trees
+synthesist tree list --include-closed             # include trees superseded with status=closed
 synthesist tree show <name>                       # name, description, spec_count, session_count
+synthesist tree close <name>                      # supersede with status=closed (non-destructive)
+synthesist tree close <name> --start-id <hash>    # disambiguate when multiple trees share <name>
 ```
 
 ### Specs
@@ -205,6 +208,7 @@ synthesist campaign list <tree>
 ```
 synthesist session start <id> --tree upstream --spec auth --summary "Auth work"
 synthesist session close <id>                     # append a closing supersession
+synthesist session close <id> --start-id <hash>   # disambiguate when multiple openers share <id>
 synthesist session list                           # show all sessions
 synthesist session status <id>                    # claims written in this session
 ```
