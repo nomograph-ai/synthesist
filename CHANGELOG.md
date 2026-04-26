@@ -1,5 +1,52 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- `synthesist serve` -- local HTTP dashboard for browsing the claim
+  graph in a browser. Server-rendered HTML built on axum + tokio, with
+  push-based refresh via Server-Sent Events: a filesystem watcher on
+  `claims/changes/` ticks the SSE stream and the page swaps in fresh
+  state without reload, no timed polling. Dashboard exposes a network
+  view (combined network/tree, d3-force layout) alongside the trees
+  view, with a recent activity section that shows relative timestamps
+  and a session claims drill-down. Persistent `<details>` open state
+  survives refreshes. Design pass v1 lands the nomograph palette,
+  DM Mono / DM Sans typography, the callout pattern, and the full
+  nomograph mark in the header. Default bind is `127.0.0.1:5179`;
+  `--bind-all` opens it for cross-machine review. Routes: `/`,
+  `/api/state`, `/api/graph`, `/events`.
+- `tree close <name>` closes a tree by appending a superseding claim
+  with `closed: true`. Closed trees disappear from default
+  `tree list` output.
+- `tree list --include-closed` reveals closed trees alongside open
+  ones, with their `closed: true` status.
+- `tree close --start-id <hash>` and `session close --start-id <hash>`
+  for disambiguation when multiple trees or sessions share the same
+  name. The `start-id` is the opener claim's content-addressed hash;
+  `tree list` and `session list` print it.
+- Treatment v0 surface improvements driven by the jig agent-shape
+  battery. `tree show <name>` prints a single tree's status,
+  description, and counts. `phase get` is an alias of `phase show`.
+  `spec list --tree <name>` accepts the flag form alongside the
+  positional form; both shapes appeared frequently in agent
+  invocations.
+- `agent-shape.toml` declares `[commands].top_level` so the jig
+  cross-validates the documented command surface against the binary's
+  actual top-level subcommand list.
+
+### Changed
+
+- `hero.svg` refreshed to v2 surface: the OV-1 now describes the
+  claim substrate without `lattice` references that no longer apply
+  to the synthesist scope.
+- `avatar.svg` lightly updated to render in IBM Plex Mono.
+- Test helpers strip `SYNTHESIST_DIR` and `SYNTHESIST_SESSION` from
+  the inherited environment before invoking the binary, so running
+  the test suite from inside an active session no longer pollutes
+  the caller's estate or causes spurious test failures.
+
 ## [2.1.1] (2026-04-20)
 
 ### Fixed

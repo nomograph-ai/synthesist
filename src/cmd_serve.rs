@@ -7,10 +7,12 @@
 //! state without persistent server state.
 //!
 //! Routes:
-//!   GET /             — full dashboard (trees, sessions, summary)
-//!   GET /api/state    — same data as JSON (agent-readable)
-//!   GET /events       — SSE stream that ticks on every claims/changes/
-//!                       filesystem event (push-based refresh)
+//!   GET /             -- full dashboard (trees, sessions, summary)
+//!   GET /api/state    -- same data as JSON (agent-readable)
+//!   GET /api/graph    -- network graph data as JSON (nodes + edges
+//!                        for the d3-force network view)
+//!   GET /events       -- SSE stream that ticks on every claims/changes/
+//!                        filesystem event (push-based refresh)
 //!
 //! No timed polling. The client subscribes to /events and only
 //! re-fetches when the server signals a change.
@@ -23,7 +25,7 @@ use axum::{
 };
 use futures_util::stream::Stream;
 use notify::{Event as NotifyEvent, EventKind, RecursiveMode, Watcher};
-use serde_json::{Value, json};
+use serde_json::Value;
 use std::convert::Infallible;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -74,9 +76,10 @@ async fn serve_async(port: Option<u16>, bind_all: bool) -> Result<()> {
         .with_state(tx);
 
     eprintln!("synthesist serve listening on http://{addr}");
-    eprintln!("  GET /          — dashboard");
-    eprintln!("  GET /api/state — JSON");
-    eprintln!("  GET /events    — SSE (push on fs change)");
+    eprintln!("  GET /          -- dashboard");
+    eprintln!("  GET /api/state -- state as JSON");
+    eprintln!("  GET /api/graph -- network graph as JSON");
+    eprintln!("  GET /events    -- SSE (push on fs change)");
     eprintln!("watching {} for changes", claims_changes.display());
     eprintln!("press ctrl-c to stop");
 
@@ -146,7 +149,10 @@ fn spawn_fs_watcher(target: PathBuf, tx: broadcast::Sender<()>) -> Result<()> {
 async fn handle_dashboard(
     axum::extract::Query(q): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> axum::response::Response {
-    let view = q.get("view").cloned().unwrap_or_else(|| "trees".to_string());
+    let view = q
+        .get("view")
+        .cloned()
+        .unwrap_or_else(|| "trees".to_string());
     match tokio::task::spawn_blocking(collect_state).await {
         Ok(Ok(state)) => Html(render_dashboard_with_view(&state, &view)).into_response(),
         Ok(Err(e)) => render_error(&format!("error: {e}")),
@@ -421,7 +427,11 @@ fn collect_state() -> Result<State> {
 
     let data_dir = std::env::var("SYNTHESIST_DIR")
         .ok()
-        .or_else(|| std::env::current_dir().ok().map(|p| p.display().to_string()))
+        .or_else(|| {
+            std::env::current_dir()
+                .ok()
+                .map(|p| p.display().to_string())
+        })
         .unwrap_or_else(|| "(discovered)".to_string());
 
     let recent = collect_recent_claims(&store)?;
@@ -447,10 +457,7 @@ fn collect_recent_claims(store: &SynthStore) -> Result<Vec<RecentClaim>> {
     Ok(rows
         .into_iter()
         .map(|row| {
-            let asserted_at = row
-                .get("asserted_at")
-                .and_then(|v| v.as_i64())
-                .unwrap_or(0);
+            let asserted_at = row.get("asserted_at").and_then(|v| v.as_i64()).unwrap_or(0);
             let asserted_by = row
                 .get("asserted_by")
                 .and_then(|v| v.as_str())
@@ -495,8 +502,7 @@ fn collect_specs(store: &SynthStore, tree: &str) -> Result<Vec<SpecView>> {
                 .map(String::from)
         })
         .collect();
-    let mut by_spec: std::collections::BTreeMap<String, Value> =
-        std::collections::BTreeMap::new();
+    let mut by_spec: std::collections::BTreeMap<String, Value> = std::collections::BTreeMap::new();
     for row in rows {
         let id = row
             .get("id")
@@ -560,8 +566,7 @@ fn collect_tasks(store: &SynthStore, tree: &str, spec: &str) -> Result<Vec<TaskV
                 .map(String::from)
         })
         .collect();
-    let mut by_task: std::collections::BTreeMap<String, Value> =
-        std::collections::BTreeMap::new();
+    let mut by_task: std::collections::BTreeMap<String, Value> = std::collections::BTreeMap::new();
     for row in rows {
         let id = row
             .get("id")
@@ -609,10 +614,7 @@ fn collect_tasks(store: &SynthStore, tree: &str, spec: &str) -> Result<Vec<TaskV
                         .collect()
                 })
                 .unwrap_or_default(),
-            gate: props
-                .get("gate")
-                .and_then(|v| v.as_str())
-                .map(String::from),
+            gate: props.get("gate").and_then(|v| v.as_str()).map(String::from),
         })
         .collect();
     tasks.sort_by(|a, b| natural_id_order(&a.id, &b.id));
@@ -648,10 +650,7 @@ fn collect_discoveries(store: &SynthStore, tree: &str, spec: &str) -> Result<Vec
                     .get("impact")
                     .and_then(|v| v.as_str())
                     .map(String::from),
-                date: props
-                    .get("date")
-                    .and_then(|v| v.as_str())
-                    .map(String::from),
+                date: props.get("date").and_then(|v| v.as_str()).map(String::from),
             }
         })
         .collect())
@@ -709,10 +708,7 @@ fn collect_sessions(store: &SynthStore) -> Result<Vec<SessionView>> {
         if session_id.is_empty() || by_id.contains_key(&session_id) {
             continue;
         }
-        let started = row
-            .get("asserted_at")
-            .and_then(|v| v.as_i64())
-            .unwrap_or(0);
+        let started = row.get("asserted_at").and_then(|v| v.as_i64()).unwrap_or(0);
         let is_closer = row
             .get("supersedes")
             .and_then(|v| v.as_str())
@@ -774,10 +770,7 @@ fn collect_session_claims(store: &SynthStore, session: &str) -> Result<Vec<Sessi
     Ok(rows
         .into_iter()
         .map(|row| {
-            let asserted_at = row
-                .get("asserted_at")
-                .and_then(|v| v.as_i64())
-                .unwrap_or(0);
+            let asserted_at = row.get("asserted_at").and_then(|v| v.as_i64()).unwrap_or(0);
             let claim_type = row
                 .get("claim_type")
                 .and_then(|v| v.as_str())
@@ -798,7 +791,13 @@ fn collect_session_claims(store: &SynthStore, session: &str) -> Result<Vec<Sessi
 /// matter most for that claim_type. Keeps the session drill-down
 /// scannable without dumping raw JSON.
 fn summarize_claim_props(claim_type: &str, props: &serde_json::Map<String, Value>) -> String {
-    let s = |k: &str| props.get(k).and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let s = |k: &str| {
+        props
+            .get(k)
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string()
+    };
     match claim_type {
         "task" => {
             let id = s("id");
@@ -865,8 +864,14 @@ fn parse_props(row: &Value) -> serde_json::Map<String, Value> {
 
 fn natural_id_order(a: &str, b: &str) -> std::cmp::Ordering {
     // t1, t2, ... t10 -> numeric sort by trailing number.
-    let an: Option<u64> = a.trim_start_matches(|c: char| !c.is_ascii_digit()).parse().ok();
-    let bn: Option<u64> = b.trim_start_matches(|c: char| !c.is_ascii_digit()).parse().ok();
+    let an: Option<u64> = a
+        .trim_start_matches(|c: char| !c.is_ascii_digit())
+        .parse()
+        .ok();
+    let bn: Option<u64> = b
+        .trim_start_matches(|c: char| !c.is_ascii_digit())
+        .parse()
+        .ok();
     match (an, bn) {
         (Some(x), Some(y)) => x.cmp(&y),
         _ => a.cmp(b),
@@ -908,10 +913,6 @@ fn relative_time(asserted_at_ms: i64) -> String {
     }
     let days = hours / 24;
     format!("{days}d")
-}
-
-fn render_dashboard(state: &State) -> String {
-    render_dashboard_with_view(state, "trees")
 }
 
 fn render_dashboard_with_view(state: &State, view: &str) -> String {
@@ -961,7 +962,6 @@ fn render_dashboard_with_view(state: &State, view: &str) -> String {
 }
 
 fn render_trees_view(s: &mut String, state: &State) {
-
     // Recent activity (cross-cutting)
     if !state.recent.is_empty() {
         s.push_str(&format!(
@@ -993,7 +993,11 @@ fn render_trees_view(s: &mut String, state: &State) {
     s.push_str("</details></section>");
 
     // Sessions
-    let active_n = state.sessions.iter().filter(|s| s.status == "active").count();
+    let active_n = state
+        .sessions
+        .iter()
+        .filter(|s| s.status == "active")
+        .count();
     let closed_n = state.sessions.len() - active_n;
     s.push_str(&format!(
         "<section class=\"sessions\"><details open id=\"section:sessions\"><summary><span class=\"section-title\">sessions</span> <span class=\"count\">{} <span class=\"muted\">/ {} active · {} closed</span></span></summary>",
@@ -1012,7 +1016,8 @@ fn render_trees_view(s: &mut String, state: &State) {
 }
 
 fn render_network_view(s: &mut String) {
-    s.push_str(r#"<section class="network"><div class="network-shell">
+    s.push_str(
+        r#"<section class="network"><div class="network-shell">
         <div id="graph-status" class="muted">loading graph…</div>
         <svg id="graph-canvas" viewBox="0 0 800 600" preserveAspectRatio="xMidYMid meet"></svg>
         <div class="legend">
@@ -1023,7 +1028,8 @@ fn render_network_view(s: &mut String) {
           <span class="legend-item"><span class="legend-edge edge-asserted"></span>asserted</span>
         </div>
         <div id="graph-detail" class="graph-detail"></div>
-      </div></section>"#);
+      </div></section>"#,
+    );
     s.push_str("<footer><a href=\"/api/graph\">/api/graph</a> for JSON</footer>");
 }
 
@@ -1147,7 +1153,11 @@ fn render_discovery(d: &DiscoveryView) -> String {
 
 fn render_session(sess: &SessionView) -> String {
     let scope = match (&sess.tree, &sess.spec) {
-        (Some(t), Some(s)) => format!(" <span class=\"muted\">· {}/{}</span>", html_escape(t), html_escape(s)),
+        (Some(t), Some(s)) => format!(
+            " <span class=\"muted\">· {}/{}</span>",
+            html_escape(t),
+            html_escape(s)
+        ),
         (Some(t), None) => format!(" <span class=\"muted\">· {}</span>", html_escape(t)),
         _ => String::new(),
     };
@@ -1933,8 +1943,3 @@ async function initNetwork() {
 // Run on initial load.
 initNetwork();
 </script>"#;
-
-#[allow(dead_code)]
-fn _quiet_unused_warnings() -> Value {
-    json!({})
-}

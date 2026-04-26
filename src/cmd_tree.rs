@@ -120,8 +120,7 @@ struct ResolvedTree {
 /// keeping the opener's claim id as the stable `start_id`.
 fn resolve_trees(rows: &[TreeRow]) -> Vec<ResolvedTree> {
     // Map from claim_id -> row index for chain walks.
-    let by_id: HashMap<&str, &TreeRow> =
-        rows.iter().map(|r| (r.claim_id.as_str(), r)).collect();
+    let by_id: HashMap<&str, &TreeRow> = rows.iter().map(|r| (r.claim_id.as_str(), r)).collect();
 
     // Map from `supersedes` target -> claim id of the latest claim
     // pointing at it. Picks the last one we see (asserted_at order

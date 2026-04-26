@@ -204,15 +204,24 @@ supersession conflicts surface via `synthesist conflicts`.
 
 | Area | Commands |
 |------|----------|
-| Estate | `init`, `status`, `check`, `version`, `skill` |
-| Trees | `tree add`, `tree list` |
-| Specs | `spec add`, `spec show`, `spec update`, `spec list` |
+| Estate | `init`, `status`, `check`, `version`, `skill`, `serve` |
+| Trees | `tree add`, `tree list` (`--include-closed`), `tree show`, `tree close` (`--start-id`) |
+| Specs | `spec add`, `spec show`, `spec update`, `spec list` (positional or `--tree`) |
 | Tasks | `task add`, `task list`, `task show`, `task update`, `task claim`, `task done`, `task reset`, `task block`, `task wait`, `task cancel`, `task ready`, `task acceptance` |
 | Discoveries | `discovery add`, `discovery list` |
 | Campaigns | `campaign add`, `campaign list` |
-| Sessions | `session start`, `session close`, `session list`, `session status` |
-| Phase | `phase show`, `phase set` |
+| Sessions | `session start`, `session close` (`--start-id`), `session list`, `session status` |
+| Phase | `phase show` (alias `phase get`), `phase set` |
 | Data | `export`, `import`, `sql`, `conflicts`, `migrate status`, `migrate v1-to-v2` |
+
+`synthesist serve` (new in this version) opens a local HTTP dashboard
+for browsing the claim graph. Defaults to `127.0.0.1:5179`. The page
+is server-rendered HTML with a push-based refresh: a filesystem
+watcher on `claims/changes/` drives an SSE stream, so the browser
+reflects new claims without reload and without timed polling. Two
+views: trees (the spec/task hierarchy) and network (a d3-force layout
+of trees, specs, sessions, and tasks). Pass `--bind-all` to expose
+it on the LAN for cross-machine review.
 
 Observation-layer commands (`stakeholder`, `disposition`, `signal`,
 `topic`, `stance`, `landscape`) have moved to

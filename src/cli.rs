@@ -236,7 +236,12 @@ pub enum SpecCmd {
         #[arg(value_name = "TREE")]
         tree: Option<String>,
         /// Tree name (flag form, equivalent to positional).
-        #[arg(long = "tree", value_name = "TREE", conflicts_with = "tree", id = "tree_flag")]
+        #[arg(
+            long = "tree",
+            value_name = "TREE",
+            conflicts_with = "tree",
+            id = "tree_flag"
+        )]
         tree_flag: Option<String>,
     },
 }

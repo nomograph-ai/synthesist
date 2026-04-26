@@ -280,7 +280,11 @@ fn session_close_without_start_id_preserves_v1_behavior() {
             .clone(),
     );
     assert_eq!(
-        listed.get("sessions").and_then(Value::as_array).unwrap().len(),
+        listed
+            .get("sessions")
+            .and_then(Value::as_array)
+            .unwrap()
+            .len(),
         0
     );
 }
@@ -358,10 +362,7 @@ fn tree_close_writes_superseding_claim_and_hides_from_list() {
             .clone(),
     );
     assert_eq!(closed.get("closed"), Some(&Value::Bool(true)));
-    assert_eq!(
-        closed.get("name").and_then(Value::as_str),
-        Some("keaton")
-    );
+    assert_eq!(closed.get("name").and_then(Value::as_str), Some("keaton"));
 
     // Hidden from default list.
     let after = parse(
@@ -411,10 +412,7 @@ fn tree_list_include_closed_surfaces_closed_tree() {
     );
     let trees = visible.get("trees").and_then(Value::as_array).unwrap();
     assert_eq!(trees.len(), 1, "include-closed must show closed trees");
-    assert_eq!(
-        trees[0].get("name").and_then(Value::as_str),
-        Some("keaton")
-    );
+    assert_eq!(trees[0].get("name").and_then(Value::as_str), Some("keaton"));
     assert_eq!(
         trees[0].get("status").and_then(Value::as_str),
         Some("closed")
