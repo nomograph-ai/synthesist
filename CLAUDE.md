@@ -28,9 +28,9 @@ Never read or write these files directly. All access goes through
 `synthesist` subcommands, which call into the
 [`nomograph-claim`](https://gitlab.com/nomograph/claim) substrate.
 
-The claim substrate is specified in
-`/Users/andrewdunn/gitlab.com/nomograph/keaton/research/graph-primitive/BUILDING.md`
-(decisions D1-D20, claim schema, file layout).
+The claim substrate (decisions, claim schema, file layout) is
+specified in the [nomograph-claim](https://gitlab.com/nomograph/claim)
+repo.
 
 ## Skill File
 
