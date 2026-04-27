@@ -47,6 +47,16 @@
   the test suite from inside an active session no longer pollutes
   the caller's estate or causes spurious test failures.
 
+### Fixed
+
+- `deny.toml` allow list now includes `CC0-1.0` so cargo-deny accepts
+  the `notify` crate that powers the serve dashboard's filesystem
+  watcher. Without this, the audit step rejected a valid public-domain
+  dedication.
+- `.agent/skills` symlink rewritten as relative (`../.claude/skills`)
+  so it resolves correctly when the repo is cloned to any path. The
+  prior absolute target broke the cargo publish step in CI.
+
 ## [2.1.1] (2026-04-20)
 
 ### Fixed
