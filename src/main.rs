@@ -1,3 +1,4 @@
+mod claim_compact;
 mod cli;
 mod cmd_campaign;
 mod cmd_conflicts;
