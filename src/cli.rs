@@ -34,6 +34,14 @@ pub struct Cli {
     pub command: Command,
 }
 
+/// Substrate maintenance (not typed claim appends).
+#[derive(Subcommand)]
+pub enum ClaimsCmd {
+    /// Serialize the full Automerge doc to `snapshot.amc` and delete superseded `changes/*.amc`.
+    /// Logical history is unchanged; pass `--force` if phase enforcement blocks maintenance.
+    Compact,
+}
+
 #[derive(Subcommand)]
 pub enum Command {
     /// Initialize synthesist in the current directory. Creates claims/ with genesis.amc.
@@ -144,6 +152,11 @@ pub enum Command {
         /// Bind to 0.0.0.0 instead of localhost. Off by default.
         #[arg(long)]
         bind_all: bool,
+    },
+    /// Physical compaction of the on-disk claim log (`snapshot.amc` + sweep `changes/`).
+    Claims {
+        #[command(subcommand)]
+        cmd: ClaimsCmd,
     },
 }
 

@@ -1,5 +1,6 @@
 mod claim_compact;
 mod cli;
+mod cmd_claims;
 mod cmd_campaign;
 mod cmd_conflicts;
 mod cmd_discovery;
@@ -151,6 +152,7 @@ fn run(cli: cli::Cli) -> anyhow::Result<()> {
         cli::Command::Import { file } => cmd_import::cmd_import(file),
         cli::Command::Sql { query } => cmd_sql::cmd_sql(query),
         cli::Command::Serve { port, bind_all } => cmd_serve::run(*port, *bind_all),
+        cli::Command::Claims { cmd } => cmd_claims::run(cmd, &cli.session),
         // Init, Skill, Version, and the landscape family (stakeholder,
         // disposition, signal, stance) are handled in the short-circuit
         // match above.
@@ -322,6 +324,12 @@ fn command_path(cmd: &cli::Command) -> (&str, &str) {
         ),
         cli::Command::Session { .. } => ("session", ""),
         cli::Command::Phase { .. } => ("phase", ""),
+        cli::Command::Claims { cmd } => (
+            "claims",
+            match cmd {
+                cli::ClaimsCmd::Compact => "compact",
+            },
+        ),
         _ => ("", ""),
     }
 }

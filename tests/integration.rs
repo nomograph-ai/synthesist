@@ -79,6 +79,29 @@ fn test_write_without_session_errors_clearly() {
         .stderr(predicate::str::contains("session required"));
 }
 
+#[test]
+fn test_claims_compact_requires_session() {
+    let tmp = tempfile::tempdir().unwrap();
+    synth(&tmp).args(["init"]).assert().success();
+    synth(&tmp)
+        .args(["claims", "compact"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("session required"));
+}
+
+#[test]
+fn test_claims_compact_smoke() {
+    let tmp = tempfile::tempdir().unwrap();
+    synth(&tmp).args(["init"]).assert().success();
+    synth(&tmp).args(["session", "start", "s1"]).assert().success();
+    synth(&tmp)
+        .args(["--session", "s1", "--force", "claims", "compact"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"ok\":true"));
+}
+
 // -----------------------------------------------------------------------------
 // Tree + spec + task happy path
 // -----------------------------------------------------------------------------

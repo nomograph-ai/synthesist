@@ -9,9 +9,6 @@ use anyhow::{Context, Result};
 use crate::store::SynthStore;
 
 /// Compact incremental change files into a local snapshot (see nomograph-claim docs).
-///
-/// Referenced from the CLI once `claims compact` lands; kept public for lattice/embedders.
-#[allow(dead_code)]
 pub trait ClaimCompaction {
     /// Serialize the full Automerge document to `snapshot.amc` and remove
     /// superseded `changes/*.amc` files. Concurrent [`Store::append`](nomograph_claim::Store::append)
