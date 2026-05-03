@@ -32,6 +32,14 @@ license = "MIT"
 name = "synthesist"
 path = "src/main.rs"
 
+[lib]
+name = "nomograph_synthesist"
+path = "src/lib.rs"
+
+[[bench]]
+name = "store"
+harness = false
+
 [dependencies]
 clap = { version = "4", features = ["derive", "env"] }
 rusqlite = { version = "0.39", features = ["bundled"] }
@@ -66,3 +74,4 @@ legacy-sql = []
 tempfile = "3"
 assert_cmd = "2"
 predicates = "3"
+criterion = "0.5"
