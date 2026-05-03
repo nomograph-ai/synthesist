@@ -4,6 +4,8 @@ For estates where **`claims/changes/*.amc`** are **plain Git**, write-once files
 
 This doc describes a **checkpoint workflow**: track **`snapshot.amc`** so clones can rebuild state **without** materializing every historical `.amc` at HEAD.
 
+**Quick copy-paste** (trial copy + real checkpoint): **[`claim-compaction-copy-paste.md`](claim-compaction-copy-paste.md)**
+
 ## Prerequisites
 
 - **Built synthesist** with `claims compact` (this repo: `make build` → `./synthesist` or `target/release/synthesist`).
