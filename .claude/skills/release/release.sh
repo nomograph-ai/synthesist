@@ -24,6 +24,7 @@ ESTATE=(
   "muxr:80663080:$HOME/gitlab.com/nomograph/muxr"
   "kit:81066225:$HOME/gitlab.com/nomograph/kit"
   "synthesist:80084971:$HOME/gitlab.com/nomograph/synthesist"
+  "jig:81624552:$HOME/gitlab.com/nomograph/jig"
 )
 
 ok()   { printf '  ✓ %s\n' "$*"; }
@@ -31,6 +32,38 @@ warn() { printf '  ~ %s\n' "$*"; }
 bad()  { printf '  ✗ %s\n' "$*"; }
 say()  { printf '\n── %s ──\n' "$*"; }
 fail() { printf '\n✗ %s\n' "$*" >&2; exit 1; }
+
+# Extract the body of the CHANGELOG.md section for the given version
+# to stdout — everything between "## ... <version> ..." and the next
+# "## " heading. Used for the annotated-tag message and the GitLab
+# release notes so both stay aligned with CHANGELOG.md.
+extract_changelog_section() {
+  local ver="$1"
+  python3 - "$ver" CHANGELOG.md <<'PY'
+import sys, re
+ver, path = sys.argv[1], sys.argv[2]
+try:
+    with open(path) as f:
+        lines = f.readlines()
+except FileNotFoundError:
+    sys.exit(0)
+out, in_section = [], False
+ver_re = re.compile(r'^## .*\b' + re.escape(ver) + r'\b')
+header_re = re.compile(r'^## ')
+for line in lines:
+    if header_re.match(line):
+        if in_section:
+            break
+        if ver_re.match(line):
+            in_section = True
+            continue
+    elif in_section:
+        out.append(line)
+while out and out[-1].strip() == '':
+    out.pop()
+sys.stdout.write(''.join(out))
+PY
+}
 
 # ── Audit ──────────────────────────────────────────────────────────────
 
@@ -60,13 +93,11 @@ audit_tool() {
     # the unreleased-major case (just bumped to a new major, no tags yet).
     latest_tag=$(git tag --sort=-v:refname | head -1)
   fi
+  local first_release=0
   if [[ -z "$latest_tag" ]]; then
-    bad "no tags on $name — tool is unreleased"
-    return 1
+    first_release=1
+    warn "no tags on $name — first release"
   fi
-
-  tag_cargo=$(git show "$latest_tag:Cargo.toml" 2>/dev/null \
-    | awk -F'"' '/^version = "/ {print $2; exit}')
 
   local crate_name
   crate_name=$(awk -F'"' '/^name = "/ {print $2; exit}' Cargo.toml)
@@ -79,37 +110,55 @@ audit_tool() {
 
   printf '  Cargo.toml:   %s\n' "$cargo_ver"
   printf '  Cargo.lock:   %s\n' "$lock_ver"
-  printf '  Tagged:       %s (%s)\n' "$tag_cargo" "$latest_tag"
-  printf '  Binary:       %s\n' "${binary_ver:-?}"
+
+  if [[ $first_release -eq 0 ]]; then
+    tag_cargo=$(git show "$latest_tag:Cargo.toml" 2>/dev/null \
+      | awk -F'"' '/^version = "/ {print $2; exit}')
+    printf '  Tagged:       %s (%s)\n' "$tag_cargo" "$latest_tag"
+    printf '  Binary:       %s\n' "${binary_ver:-?}"
+  else
+    printf '  Tagged:       (none)\n'
+    printf '  Binary:       %s\n' "${binary_ver:-(not installed)}"
+  fi
 
   [[ "$cargo_ver" == "$lock_ver" ]] \
     || { bad "Cargo.toml ($cargo_ver) != Cargo.lock ($lock_ver)"; issues=$((issues+1)); }
-  [[ "$cargo_ver" == "$tag_cargo" ]] \
-    || warn "Cargo.toml ($cargo_ver) != tagged Cargo.toml ($tag_cargo) — WIP ahead of tag?"
-  [[ -n "$binary_ver" && "$binary_ver" == "$tag_cargo" ]] \
-    || warn "binary ($binary_ver) != tagged ($tag_cargo) — run kit sync to align"
 
-  local tag_type
-  tag_type=$(git cat-file -t "$latest_tag" 2>/dev/null)
-  if [[ "$tag_type" == "tag" ]]; then
-    ok "tag $latest_tag is annotated"
-  else
-    bad "tag $latest_tag is lightweight — delete and recreate with git tag -a"
-    issues=$((issues+1))
-  fi
+  if [[ $first_release -eq 0 ]]; then
+    [[ "$cargo_ver" == "$tag_cargo" ]] \
+      || warn "Cargo.toml ($cargo_ver) != tagged Cargo.toml ($tag_cargo) — WIP ahead of tag?"
+    [[ -n "$binary_ver" && "$binary_ver" == "$tag_cargo" ]] \
+      || warn "binary ($binary_ver) != tagged ($tag_cargo) — run kit sync to align"
 
-  local ahead
-  ahead=$(git rev-list "$latest_tag..HEAD" --count 2>/dev/null || echo 0)
-  if [[ "$ahead" -eq 0 ]]; then
-    ok "tag $latest_tag at HEAD"
-  else
-    warn "tag $latest_tag is $ahead commits behind HEAD (WIP expected)"
+    local tag_type
+    tag_type=$(git cat-file -t "$latest_tag" 2>/dev/null)
+    if [[ "$tag_type" == "tag" ]]; then
+      ok "tag $latest_tag is annotated"
+    else
+      bad "tag $latest_tag is lightweight — delete and recreate with git tag -a"
+      issues=$((issues+1))
+    fi
+
+    local ahead
+    ahead=$(git rev-list "$latest_tag..HEAD" --count 2>/dev/null || echo 0)
+    if [[ "$ahead" -eq 0 ]]; then
+      ok "tag $latest_tag at HEAD"
+    else
+      warn "tag $latest_tag is $ahead commits behind HEAD (WIP expected)"
+    fi
   fi
 
   if [[ -f .gitlab-ci.yml ]]; then
     local ci_comp
     ci_comp=$(grep -oE 'component:.*@v?[0-9.]+' .gitlab-ci.yml | head -1 | sed 's/.*@//')
     [[ -n "$ci_comp" ]] && ok "pipeline component at $ci_comp"
+
+    if grep -qE '^notify-kits:' .gitlab-ci.yml; then
+      ok "notify-kits job present (kit auto-MR fires on tag)"
+    else
+      bad "notify-kits job missing in .gitlab-ci.yml — kit auto-MR will not open on tag"
+      issues=$((issues+1))
+    fi
   fi
 
   if [[ -f deny.toml ]]; then
@@ -118,14 +167,28 @@ audit_tool() {
     warn "deny.toml missing — cargo-audit gating may be disabled"
   fi
 
-  local pkg_url pkg_http
-  pkg_url="https://gitlab.com/api/v4/projects/$pid/packages/generic/$name/$latest_tag/$name-darwin-arm64"
-  pkg_http=$(curl -sI -o /dev/null -w '%{http_code}' "$pkg_url" 2>/dev/null || echo "000")
-  if [[ "$pkg_http" == "200" ]]; then
-    ok "package registry has $latest_tag/darwin-arm64"
+  local protected_tags
+  protected_tags=$(glab api "projects/$pid/protected_tags" 2>/dev/null \
+    | python3 -c "import json,sys; d=json.load(sys.stdin); print(','.join(t.get('name','') for t in d) if isinstance(d,list) else '')" 2>/dev/null)
+  if [[ ",$protected_tags," == *",v*,"* ]]; then
+    ok "protected tag pattern v* configured (CARGO_REGISTRY_TOKEN injected on tag)"
   else
-    bad "package registry returned $pkg_http for $latest_tag — pipeline may not have published"
+    bad "no v* protected tag pattern — group CARGO_REGISTRY_TOKEN will not inject; crates publish will fail"
     issues=$((issues+1))
+  fi
+
+  if [[ $first_release -eq 0 ]]; then
+    local pkg_url pkg_http
+    pkg_url="https://gitlab.com/api/v4/projects/$pid/packages/generic/$name/$latest_tag/$name-darwin-arm64"
+    pkg_http=$(curl -sI -o /dev/null -w '%{http_code}' "$pkg_url" 2>/dev/null || echo "000")
+    if [[ "$pkg_http" == "200" ]]; then
+      ok "package registry has $latest_tag/darwin-arm64"
+    else
+      bad "package registry returned $pkg_http for $latest_tag — pipeline may not have published"
+      issues=$((issues+1))
+    fi
+  else
+    warn "package registry check skipped — no prior tag to look up"
   fi
 
   return $issues
@@ -213,7 +276,10 @@ ship() {
   if git rev-parse --verify "refs/tags/$tag" >/dev/null 2>&1; then
     fail "$tag already exists locally"
   fi
-  git fetch --tags --quiet
+  # Refresh tag list. Tolerant of "would clobber existing tag" warnings
+  # caused by historical tag rewrites: we use ls-remote below for the
+  # actual presence check, so fetch is just opportunistic.
+  git fetch --tags --quiet 2>/dev/null || true
   if git ls-remote --tags origin "$tag" | grep -q "$tag"; then
     fail "$tag already on origin — use recovery path in SKILL.md"
   fi
@@ -246,6 +312,21 @@ ship() {
   say "cargo clippy --all-targets -- -D warnings"
   cargo clippy --all-targets --quiet -- -D warnings 2>&1 | tail -20
 
+  # Auto-rename `## [Unreleased]` to `## [<version>] (YYYY-MM-DD)` so the
+  # human-authored Added / Changed / Fixed bullets get the version
+  # heading without manual edits on every release. Keep-a-Changelog
+  # convention: a fresh empty [Unreleased] can be added after the cut
+  # when the next iteration begins.
+  if ! grep -qE "^## (v)?$version\b|\[v?$version\]" CHANGELOG.md 2>/dev/null; then
+    if grep -qE '^## \[Unreleased\]' CHANGELOG.md; then
+      local today
+      today=$(date +%Y-%m-%d)
+      sed -i.bak -E "s/^## \[Unreleased\]/## [$version] ($today)/" CHANGELOG.md
+      rm -f CHANGELOG.md.bak
+      ok "renamed [Unreleased] -> [$version] ($today) in CHANGELOG"
+    fi
+  fi
+
   grep -qE "^## (v)?$version\b|\[v?$version\]" CHANGELOG.md 2>/dev/null \
     || fail "CHANGELOG.md has no entry for $version — add one and re-run"
   ok "CHANGELOG entry for $version present"
@@ -264,7 +345,24 @@ AI-Tools: Claude Code"
   fi
 
   say "tagging $tag (annotated)"
-  git tag -a "$tag" -m "release $tag"
+  # Extract the CHANGELOG section for this version and use it as the
+  # tag annotation, so `git show v<x.y.z>` and the GitLab tag page
+  # carry the same release notes as CHANGELOG.md and the GitLab
+  # release. Falls back to a one-liner if extraction yields nothing.
+  local tag_msg_file notes_file
+  tag_msg_file=$(mktemp)
+  notes_file=$(mktemp)
+  extract_changelog_section "$version" > "$notes_file"
+  if [[ -s "$notes_file" ]]; then
+    {
+      printf 'release v%s\n\n' "$version"
+      cat "$notes_file"
+    } > "$tag_msg_file"
+    git tag -a "$tag" -F "$tag_msg_file"
+  else
+    git tag -a "$tag" -m "release $tag"
+  fi
+  rm -f "$tag_msg_file"
 
   say "pushing main + $tag"
   git push origin main
@@ -291,6 +389,30 @@ AI-Tools: Claude Code"
     [[ $i -eq 90 ]] && fail "timed out after 15 min"
   done
 
+  # --- Publish GitLab release page ----------------------------------
+  # The tag is published and the binary is in the package registry —
+  # now mirror the CHANGELOG section into a GitLab Release page so the
+  # /releases listing has notes, not just the tag. `glab release
+  # create` updates an existing release if one already exists, so this
+  # step is idempotent on retries. Defaulting --released-at to "now"
+  # keeps the /releases page sorted in tag order, since each ship runs
+  # immediately after the tag goes up.
+  say "publishing GitLab release for $tag"
+  notes_file=$(mktemp)
+  extract_changelog_section "$version" > "$notes_file"
+  if [[ -s "$notes_file" ]]; then
+    glab release create "$tag" -R "$repo_path" \
+      --name "$target $tag" \
+      --notes-file "$notes_file" 2>&1 | tail -3
+    ok "GitLab release page published with CHANGELOG notes"
+  else
+    warn "no CHANGELOG section for $version — publishing release with placeholder note"
+    glab release create "$tag" -R "$repo_path" \
+      --name "$target $tag" \
+      --notes "release $tag" 2>&1 | tail -3
+  fi
+  rm -f "$notes_file"
+
   # --- Merge kit auto-MR --------------------------------------------
   say "waiting for kit auto-MR"
   local mr_iid=""
@@ -310,7 +432,11 @@ AI-Tools: Claude Code"
 
   if [[ -n "$mr_iid" ]]; then
     say "merging kit MR !$mr_iid"
-    glab -R nomograph/kits mr merge "$mr_iid" --yes
+    # Queue auto-merge if the MR pipeline is still running; the squash
+    # commit lands when CI passes. Without this, a still-pending pipeline
+    # fails the merge command and aborts the ship.
+    glab -R nomograph/kits mr merge "$mr_iid" --yes --when-pipeline-succeeds 2>&1 \
+      || glab -R nomograph/kits mr merge "$mr_iid" --yes
     ok "merged"
   fi
 
