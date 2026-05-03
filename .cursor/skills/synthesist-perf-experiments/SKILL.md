@@ -31,10 +31,17 @@ disable-model-invocation: true
 
 If a shortcut violates any of the above, stop and document the rejection in a discovery or issue comment.
 
+## Agent perf lanes (playbook)
+
+For **worktree naming, branch conventions, verification checklist, and where to post results**, use the repo playbook — do not duplicate it here:
+
+- **[docs/agent-perf-lanes.md](../../../docs/agent-perf-lanes.md)** — full lane workflow, GitLab [#7](https://gitlab.com/nomograph/synthesist/-/work_items/7), `make test` / `make lint` / `cargo bench` guidance.
+- **`scripts/git-worktree-perf.sh`** — creates `../synthesist-perf-<slug>` with branch `perf/<slug>` (run from repo root).
+
 ## Agent iteration loop (one lane)
 
 1. **Hypothesis** — e.g. “batch sync_view after N appends” or “incremental SQL delta from last heads.”
-2. **Isolate** — `git worktree add` or a dedicated branch off `main`; one experiment per lane so agents do not stomp each other.
+2. **Isolate** — run **`scripts/git-worktree-perf.sh <hypothesis-slug>`** or hand-roll `git worktree add`; one experiment per lane so agents do not stomp each other.
 3. **Implement** — smallest diff in synthesist / workflow / claim as needed.
 4. **Measure** — run the in-repo benchmark harness once task **t5** exists (`cargo bench`, `hyperfine`, or project script). Record: hardware note, commit SHA, claims dir size (file count / bytes optional).
 5. **Verify** — `make test && make lint` (or project equivalent). For behavioral guarantees, exercise conflict/diamond scenarios if touching merge or supersession (`synthesist conflicts` on representative fixtures).
