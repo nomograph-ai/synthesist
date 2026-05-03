@@ -962,6 +962,18 @@ fn render_dashboard_with_view(state: &State, view: &str) -> String {
 }
 
 fn render_trees_view(s: &mut String, state: &State) {
+    // session_id -> tree (for tagging recent activity rows + now-band rendering)
+    let session_tree: std::collections::HashMap<&str, &str> = state
+        .sessions
+        .iter()
+        .filter_map(|s| s.tree.as_deref().map(|t| (s.id.as_str(), t)))
+        .collect();
+
+    // "Now" band — most-recently-active sessions with their last claim.
+    // Standalone humans landing on the page see what's in flight at a glance,
+    // without expanding any tree.
+    render_now_band(s, state);
+
     // Recent activity (cross-cutting)
     if !state.recent.is_empty() {
         s.push_str(&format!(
@@ -970,11 +982,21 @@ fn render_trees_view(s: &mut String, state: &State) {
         ));
         for r in &state.recent {
             let session = session_from_asserter(&r.asserted_by).unwrap_or("");
+            let tree = session_tree.get(session).copied().unwrap_or("");
             let when = relative_time(r.asserted_at);
+            let tree_tag = if tree.is_empty() {
+                String::new()
+            } else {
+                format!(
+                    " <span class=\"recent-tree\">{}</span>",
+                    html_escape(tree)
+                )
+            };
             s.push_str(&format!(
-                "<div class=\"recent-row\"><span class=\"recent-when\">{}</span> <span class=\"claim-type\">{}</span> <span class=\"recent-session muted\">@{}</span> <span class=\"claim-summary\">{}</span></div>",
+                "<div class=\"recent-row\"><span class=\"recent-when\">{}</span> <span class=\"claim-type\">{}</span>{} <span class=\"recent-session muted\">@{}</span> <span class=\"claim-summary\">{}</span></div>",
                 html_escape(&when),
                 html_escape(&r.claim_type),
+                tree_tag,
                 html_escape(session),
                 html_escape(&r.summary),
             ));
@@ -1015,6 +1037,63 @@ fn render_trees_view(s: &mut String, state: &State) {
     s.push_str(" · <a href=\"/api/state\">/api/state</a> for JSON</footer>");
 }
 
+/// "Now" band — top of dashboard, shows the N most-recently-active
+/// sessions with their scope and last claim. Optimized for a human
+/// landing on the page cold and wanting to see what's in flight.
+fn render_now_band(s: &mut String, state: &State) {
+    const NOW_LIMIT: usize = 6;
+    let mut active: Vec<&SessionView> = state
+        .sessions
+        .iter()
+        .filter(|s| s.status == "active" && !s.claims.is_empty())
+        .collect();
+    active.sort_by(|a, b| {
+        let a_at = a.claims.first().map(|c| c.asserted_at).unwrap_or(0);
+        let b_at = b.claims.first().map(|c| c.asserted_at).unwrap_or(0);
+        b_at.cmp(&a_at)
+    });
+    if active.is_empty() {
+        return;
+    }
+    let total_active = active.len();
+    let shown = active.len().min(NOW_LIMIT);
+    let overflow = total_active - shown;
+    s.push_str(&format!(
+        "<section class=\"now\"><div class=\"now-head\"><span class=\"section-title\">in flight</span> <span class=\"count\">{} active</span></div><div class=\"now-rows\">",
+        total_active,
+    ));
+    for sess in active.iter().take(NOW_LIMIT) {
+        let scope = match (&sess.tree, &sess.spec) {
+            (Some(t), Some(sp)) => format!("{}/{}", t, sp),
+            (Some(t), None) => t.clone(),
+            _ => "—".to_string(),
+        };
+        let (when, last_summary, last_type) = match sess.claims.first() {
+            Some(c) => (
+                relative_time(c.asserted_at),
+                c.summary.clone(),
+                c.claim_type.clone(),
+            ),
+            None => ("—".to_string(), String::new(), String::new()),
+        };
+        s.push_str(&format!(
+            "<a class=\"now-row\" href=\"#session:{}\"><span class=\"now-when\">{}</span> <span class=\"now-id\">{}</span> <span class=\"now-scope muted\">{}</span> <span class=\"claim-type\">{}</span> <span class=\"now-summary\">{}</span></a>",
+            html_escape(&sess.id),
+            html_escape(&when),
+            html_escape(&sess.id),
+            html_escape(&scope),
+            html_escape(&last_type),
+            html_escape(&last_summary),
+        ));
+    }
+    if overflow > 0 {
+        s.push_str(&format!(
+            "<div class=\"now-overflow muted\">+{overflow} more active sessions below</div>"
+        ));
+    }
+    s.push_str("</div></section>");
+}
+
 fn render_network_view(s: &mut String) {
     s.push_str(
         r#"<section class="network"><div class="network-shell">
@@ -1033,14 +1112,94 @@ fn render_network_view(s: &mut String) {
     s.push_str("<footer><a href=\"/api/graph\">/api/graph</a> for JSON</footer>");
 }
 
+/// Bucketed task counts for a slice of tasks. Statuses are normalized
+/// into five buckets that humans actually care about when scanning a
+/// spec or tree summary: done, in-flight (claimed/in_progress), ready
+/// (pending, no human gate), gated (pending, waiting on human), blocked.
+/// Tasks in unknown states (deferred/cancelled/superseded) are counted
+/// in `other` and only shown if non-zero.
+#[derive(Default, Debug, Clone, Copy)]
+struct TaskCounts {
+    done: usize,
+    in_flight: usize,
+    ready: usize,
+    gated: usize,
+    blocked: usize,
+    other: usize,
+}
+
+impl TaskCounts {
+    fn add(&mut self, other: TaskCounts) {
+        self.done += other.done;
+        self.in_flight += other.in_flight;
+        self.ready += other.ready;
+        self.gated += other.gated;
+        self.blocked += other.blocked;
+        self.other += other.other;
+    }
+    fn total(self) -> usize {
+        self.done + self.in_flight + self.ready + self.gated + self.blocked + self.other
+    }
+    fn render_pills(self) -> String {
+        if self.total() == 0 {
+            return "<span class=\"muted\">· 0 tasks</span>".to_string();
+        }
+        let mut out = String::new();
+        let push = |out: &mut String, n: usize, cls: &str, label: &str| {
+            if n > 0 {
+                out.push_str(&format!(
+                    " <span class=\"pill pill-{cls}\">{n} {label}</span>"
+                ));
+            }
+        };
+        push(&mut out, self.done, "done", "done");
+        push(&mut out, self.in_flight, "in-flight", "in-flight");
+        push(&mut out, self.ready, "ready", "ready");
+        push(&mut out, self.gated, "gated", "gated");
+        push(&mut out, self.blocked, "blocked", "blocked");
+        push(&mut out, self.other, "other", "other");
+        out
+    }
+}
+
+fn count_tasks(tasks: &[TaskView]) -> TaskCounts {
+    let mut c = TaskCounts::default();
+    for t in tasks {
+        match t.status.as_str() {
+            "done" | "completed" => c.done += 1,
+            "in_progress" | "claimed" | "active" => c.in_flight += 1,
+            "blocked" => c.blocked += 1,
+            "pending" => {
+                if t.gate.as_deref() == Some("human") {
+                    c.gated += 1;
+                } else {
+                    c.ready += 1;
+                }
+            }
+            _ => c.other += 1,
+        }
+    }
+    c
+}
+
+fn count_tasks_in_tree(t: &TreeView) -> TaskCounts {
+    let mut c = TaskCounts::default();
+    for sp in &t.specs {
+        c.add(count_tasks(&sp.tasks));
+    }
+    c
+}
+
 fn render_tree(t: &TreeView) -> String {
     let mut s = String::new();
+    let counts = count_tasks_in_tree(t);
     s.push_str(&format!(
-        "<details class=\"tree\" id=\"tree:{}\"><summary><span class=\"name\">{}</span> <span class=\"muted\">· {} specs · {} sessions</span></summary>",
+        "<details class=\"tree\" id=\"tree:{}\"><summary><span class=\"name\">{}</span> <span class=\"muted\">· {} specs · {} sessions</span>{}</summary>",
         html_escape(&t.name),
         html_escape(&t.name),
         t.specs.len(),
-        t.session_count
+        t.session_count,
+        counts.render_pills(),
     ));
     if !t.description.is_empty() {
         s.push_str(&format!(
@@ -1061,13 +1220,14 @@ fn render_tree(t: &TreeView) -> String {
 
 fn render_spec(sp: &SpecView) -> String {
     let mut s = String::new();
+    let counts = count_tasks(&sp.tasks);
     s.push_str(&format!(
-        "<details class=\"spec\" id=\"spec:{}\"><summary><span class=\"name\">{}</span> <span class=\"status status-{}\">{}</span> <span class=\"muted\">· {} tasks</span></summary>",
+        "<details class=\"spec\" id=\"spec:{}\"><summary><span class=\"name\">{}</span> <span class=\"status status-{}\">{}</span>{}</summary>",
         html_escape(&sp.id),
         html_escape(&sp.id),
         html_escape(&sp.status),
         html_escape(&sp.status),
-        sp.tasks.len()
+        counts.render_pills(),
     ));
     if !sp.goal.is_empty() {
         s.push_str(&format!("<p class=\"desc\">{}</p>", html_escape(&sp.goal)));
@@ -1277,6 +1437,7 @@ const STYLE: &str = r#"
     --gate: #b03a3a;
 
     /* Section accents — give each top-level section a distinct hue */
+    --accent-now: #427c50;
     --accent-recent: #8a6f3a;
     --accent-trees: var(--steel-400);
     --accent-sessions: #5e5b8a;
@@ -1299,6 +1460,7 @@ const STYLE: &str = r#"
       --accent-soft: var(--steel-500);
       --accent-mute: color-mix(in srgb, var(--steel-300) 10%, transparent);
       --accent-mute-strong: color-mix(in srgb, var(--steel-300) 22%, transparent);
+      --accent-now: #6fb38a;
       --accent-recent: #c4a26b;
       --accent-trees: var(--steel-300);
       --accent-sessions: #9b97c9;
@@ -1330,7 +1492,7 @@ const STYLE: &str = r#"
     gap: 0.85rem;
     flex-wrap: wrap;
   }
-  .nom-mark { display: inline-block; width: 22px; height: 22px; flex: 0 0 22px; align-self: center; color: var(--accent); }
+  .nom-mark { display: inline-block; width: 30px; height: 30px; flex: 0 0 30px; align-self: center; color: var(--accent); }
   .nom-mark svg { width: 100%; height: 100%; display: block; }
   h1 {
     margin: 0;
@@ -1364,9 +1526,67 @@ const STYLE: &str = r#"
     padding: 0.85rem 0.85rem 0.85rem 1rem;
     border-radius: 0 4px 4px 0;
   }
+  section.now      { --section-accent: var(--accent-now);      --section-tint: color-mix(in srgb, var(--accent-now) 8%, transparent); }
   section.recent   { --section-accent: var(--accent-recent);   --section-tint: color-mix(in srgb, var(--accent-recent) 6%, transparent); }
   section.trees    { --section-accent: var(--accent-trees);    --section-tint: color-mix(in srgb, var(--accent-trees) 6%, transparent); }
   section.sessions { --section-accent: var(--accent-sessions); --section-tint: color-mix(in srgb, var(--accent-sessions) 6%, transparent); }
+
+  /* ───────── Now band ───────────────────────────────────────── */
+  .now-head { display: flex; align-items: baseline; gap: 0.5rem; margin-bottom: 0.5rem; }
+  .now-rows { display: flex; flex-direction: column; gap: 0.2rem; }
+  .now-row {
+    display: grid;
+    grid-template-columns: 3.2rem 11rem minmax(8rem, 16rem) auto 1fr;
+    gap: 0.55rem;
+    align-items: baseline;
+    padding: 0.25rem 0.4rem;
+    border-radius: 3px;
+    font-family: var(--mono);
+    font-size: 0.82rem;
+    text-decoration: none;
+    color: var(--fg);
+    line-height: 1.4;
+  }
+  .now-row:hover { background: color-mix(in srgb, var(--accent-now) 10%, transparent); }
+  .now-when { color: var(--fg-muted); }
+  .now-id { color: var(--fg); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .now-scope { color: var(--fg-muted); font-size: 0.78rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .now-summary { color: var(--fg-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .now-overflow { font-family: var(--mono); font-size: 0.78rem; padding: 0.3rem 0.4rem 0; }
+
+  /* ───────── Status pills ───────────────────────────────────── */
+  .pill {
+    display: inline-block;
+    padding: 0.05em 0.45em;
+    margin-left: 0.25em;
+    border-radius: 9px;
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    font-weight: 500;
+    line-height: 1.4;
+    border: 1px solid color-mix(in srgb, currentColor 35%, transparent);
+    background: color-mix(in srgb, currentColor 10%, transparent);
+  }
+  .pill-done      { color: var(--status-done); }
+  .pill-in-flight { color: var(--status-in_progress); }
+  .pill-ready     { color: var(--accent); }
+  .pill-gated     { color: #8a6f3a; }
+  .pill-blocked   { color: var(--status-blocked); }
+  .pill-other     { color: var(--paper-400); }
+  @media (prefers-color-scheme: dark) {
+    .pill-gated   { color: #c4a26b; }
+  }
+
+  /* Recent-row tree tag */
+  .recent-tree {
+    display: inline-block;
+    padding: 0 0.4em;
+    border-radius: 3px;
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+    color: var(--fg-secondary);
+  }
 
   /* ───────── Disclosure ─────────────────────────────────────── */
   details { margin: 0.15rem 0; }
@@ -1680,7 +1900,11 @@ const STYLE: &str = r#"
 
 /// Inline SVG of the nomograph mark: three dashed scales plus the curve.
 /// Single-color, currentColor. Source: gitlab.com/nomograph/design/mark/mark.svg.
-const NOM_MARK: &str = r#"<span class="nom-mark" aria-hidden="true"><svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><line x1="14" y1="6" x2="14" y2="58" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="5,6"/><line x1="32" y1="6" x2="32" y2="58" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="2,3"/><line x1="50" y1="6" x2="50" y2="58" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="3.5,5"/><path d="M 14 6 C 14 10, 14 22, 22 28 S 50 38, 50 58" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg></span>"#;
+/// Stroke-width is bumped to 3.5 (vs the canonical 2.5) so the dashed scales
+/// stay legible at the small header display size — at 28px display from a
+/// 64-unit viewBox the canonical stroke renders sub-pixel and the scales
+/// disappear, leaving only the curve.
+const NOM_MARK: &str = r#"<span class="nom-mark" aria-hidden="true"><svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><line x1="14" y1="6" x2="14" y2="58" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-dasharray="6,6"/><line x1="32" y1="6" x2="32" y2="58" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-dasharray="3,4"/><line x1="50" y1="6" x2="50" y2="58" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-dasharray="4.5,5"/><path d="M 14 6 C 14 10, 14 22, 22 28 S 50 38, 50 58" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round"/></svg></span>"#;
 
 /// Client-side behavior for serve:
 ///   1. Persists `<details>` open state across refreshes to
