@@ -1,5 +1,37 @@
 # Changelog
 
+## [2.3.0] (2026-04-28)
+
+### Added
+
+- `synthesist serve` polish for the standalone-viewer use case:
+  humans landing on the dashboard cold (without an LLM session)
+  can now see what's in flight at a glance.
+  - "in flight" band at the top of the trees view lists the
+    most-recently-active sessions with their tree/spec scope, the
+    last claim's relative timestamp, claim type, and one-line
+    summary. Sessions without any claims yet are excluded so the
+    band only shows sessions that are actually doing something.
+  - Tree summary rows roll up task status across all specs in the
+    tree as colored pills (`done`, `in-flight`, `ready`, `gated`,
+    `blocked`, `other`), so progress is visible without expanding.
+    Spec summary rows show the same breakdown for that spec.
+    `gated` distinguishes pending-but-human-gated tasks from
+    pending-and-ready tasks -- both look like "pending" in raw
+    status but only one is actionable for an agent.
+  - Recent-activity rows now carry a tree tag inline next to the
+    claim type, so cross-tree action is scannable without
+    expanding the trees section.
+
+### Changed
+
+- Header mark renders the three dashed scales legibly. At the
+  prior 22px display size with stroke-width 2.5 in a 64-unit
+  viewBox, the dashed strokes rendered sub-pixel and only the
+  curve was visible. Bumped display to 30px and stroke-width to
+  3.5 with adjusted dasharrays so the full mark survives at small
+  sizes in both light and dark themes.
+
 ## [2.2.0] (2026-04-26)
 
 ### Added
