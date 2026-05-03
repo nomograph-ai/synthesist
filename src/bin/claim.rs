@@ -22,7 +22,6 @@ use std::process::ExitCode;
 use anyhow::{Context, Result, anyhow};
 use clap::{Parser, Subcommand};
 use nomograph_claim::claim::ClaimId;
-use nomograph_claim::schema::validate_claim;
 use nomograph_claim::session::SessionClaim;
 use nomograph_claim::{Claim, ClaimType, Error as ClaimError, Session, Store, View};
 use serde_json::{Value, json};
@@ -198,7 +197,7 @@ fn sys_err(err: impl Into<anyhow::Error>) -> CmdError {
 /// Route a library `Error` to the appropriate exit code.
 fn route_claim_err(err: ClaimError) -> CmdError {
     match &err {
-        ClaimError::Schema(_) => user_err(anyhow!(err)),
+        ClaimError::Invalid(_) => user_err(anyhow!(err)),
         ClaimError::Io(_)
         | ClaimError::Sqlite(_)
         | ClaimError::Automerge(_)
@@ -242,9 +241,12 @@ fn cmd_append(claim_type: &str, props_json: &str, asserted_by: &str) -> CmdResul
         .with_context(|| "parse --props as JSON; pass a JSON object matching the per-type schema")
         .map_err(user_err)?;
 
+    // The substrate is type-agnostic since v0.2.0: domain validation
+    // lives at the consumer's API boundary (synthesist, lattice).
+    // The `claim` binary is a substrate-only debug tool; it stores
+    // any well-formed claim without checking domain shape. Use a
+    // typed consumer CLI (e.g. `synthesist`) for validated appends.
     let claim = Claim::new(claim_type, props, asserted_by.to_string());
-    validate_claim(&claim).map_err(route_claim_err)?;
-
     let mut store = open_store()?;
     store.append(&claim).map_err(route_claim_err)?;
     Ok(json!({ "id": claim.id }))

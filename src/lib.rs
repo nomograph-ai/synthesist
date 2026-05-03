@@ -18,9 +18,9 @@
 pub mod claim;
 pub mod crypto;
 pub mod error;
-pub mod schema;
 pub mod session;
 pub mod store;
+pub mod validation;
 pub mod view;
 
 #[cfg(feature = "beacon")]
@@ -30,4 +30,5 @@ pub use claim::{AsserterId, Claim, ClaimId, ClaimType};
 pub use error::{Error, Result};
 pub use session::{Session, SessionHandle};
 pub use store::Store;
+pub use validation::{SchemaError, SchemaResult};
 pub use view::View;

@@ -92,7 +92,7 @@ impl Session {
     ///
     /// # Errors
     ///
-    /// Returns [`Error::Schema`] when `id` is empty or when the assembled
+    /// Returns [`Error::Invalid`] when `id` is empty or when the assembled
     /// claim fails schema validation (e.g. empty `tree` / `spec`).
     pub fn start(
         store: &mut Store,
@@ -103,12 +103,12 @@ impl Session {
         summary: Option<&str>,
     ) -> Result<SessionHandle> {
         if id.is_empty() {
-            return Err(Error::Schema(
+            return Err(Error::Invalid(
                 "Session id must be non-empty; pass e.g. `sess-2026-04-18-abc`".to_string(),
             ));
         }
         if asserter_base.is_empty() {
-            return Err(Error::Schema(
+            return Err(Error::Invalid(
                 "Session asserter_base must be non-empty; pass e.g. `user:gitlab:andunn`"
                     .to_string(),
             ));
@@ -332,7 +332,7 @@ mod tests {
         let err = Session::start(&mut store, "", "user:gitlab:andunn", None, None, None)
             .expect_err("empty id must fail");
         match err {
-            Error::Schema(msg) => assert!(msg.contains("non-empty"), "msg was: {msg}"),
+            Error::Invalid(msg) => assert!(msg.contains("non-empty"), "msg was: {msg}"),
             other => panic!("wrong variant: {other}"),
         }
     }

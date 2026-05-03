@@ -18,8 +18,12 @@ pub enum Error {
     TomlSer(#[from] toml::ser::Error),
     #[error("crypto: {0}")]
     Crypto(String),
-    #[error("schema: {0}")]
-    Schema(String),
+    /// Substrate-level argument or shape error (e.g. empty session id,
+    /// unknown claim_type string at parse time). Domain-level schema
+    /// validation lives in [`crate::validation::SchemaError`] and is
+    /// the consumer's responsibility, not the substrate's.
+    #[error("invalid: {0}")]
+    Invalid(String),
     #[error("missing genesis.amc at {0}")]
     MissingGenesis(String),
     #[error("key file not found at {0}")]

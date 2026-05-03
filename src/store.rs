@@ -431,7 +431,7 @@ fn parse_claim_type(s: &str) -> Result<ClaimType> {
         "topic" => Ok(ClaimType::Topic),
         "signal" => Ok(ClaimType::Signal),
         "disposition" => Ok(ClaimType::Disposition),
-        other => Err(Error::Schema(format!(
+        other => Err(Error::Invalid(format!(
             "unknown claim_type `{}`; use one of tree/spec/task/discovery/campaign/session/phase/intent/heartbeat/outcome/directive/stakeholder/topic/signal/disposition",
             other
         ))),
@@ -640,6 +640,6 @@ mod tests {
     #[test]
     fn parse_claim_type_rejects_unknown() {
         let err = parse_claim_type("bogus").unwrap_err();
-        assert!(matches!(err, Error::Schema(_)));
+        assert!(matches!(err, Error::Invalid(_)));
     }
 }
