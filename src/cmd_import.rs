@@ -72,14 +72,14 @@ pub fn cmd_import(file: &Option<String>) -> Result<()> {
         // of pre-existing claims (often including lattice or
         // coordination types written by other consumers) and must
         // not be gated by the synthesist-side write validator. See
-        // `SynthStore::append_unvalidated` for the policy.
+        // `SynthStore::append_replay` for the policy.
         for (bucket, claim_type) in TYPED_BUCKETS {
             let Some(rows) = obj.get(*bucket).and_then(Value::as_array) else {
                 continue;
             };
             for row in rows {
                 if store
-                    .append_unvalidated(claim_type.clone(), row.clone(), None)
+                    .append_replay(claim_type.clone(), row.clone(), None)
                     .is_ok()
                 {
                     imported += 1;

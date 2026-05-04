@@ -93,21 +93,30 @@ impl SynthStore {
         self.inner.append(claim_type, props, supersedes)
     }
 
-    /// Append without running synthesist's per-type validator.
+    /// Replay an existing claim into the store without running
+    /// synthesist's per-type validator.
     ///
-    /// For migration and import paths that move existing claims
-    /// (typically from a v1 SQLite estate or a JSON export) without
-    /// re-validating semantics. The substrate's structural checks
-    /// (content hash, append lock, IO durability) still apply, so
-    /// this is "skip domain validation," not "skip all validation."
+    /// **Use this only for migration and import paths** — moving
+    /// existing claims (from a v1 SQLite estate via `cmd_migrate`,
+    /// from a JSON export via `cmd_import`) into the new store. New
+    /// consumer-driven writes must go through [`Self::append`]
+    /// instead, which is the strict-on-write boundary that defends
+    /// against agents hallucinating fake claim types.
+    ///
+    /// The name carries the warning: this is replay, not creation.
+    /// The substrate's structural checks (content hash, append
+    /// lock, IO durability) still apply, so this is "skip domain
+    /// validation," not "skip all validation."
+    ///
+    /// Visibility is `pub(crate)` to keep the bypass within
+    /// synthesist's own modules — no external consumer should ever
+    /// hold a `SynthStore` and reach for this.
     ///
     /// Per the claims-forward compat policy: new binaries must be
     /// able to read existing claim logs (including lattice and
     /// coordination types written by other consumers or migrated
-    /// from v1). The strict per-type validator on
-    /// [`Self::append`] is the gate for fresh consumer-driven
-    /// writes; this method is the gate for replay.
-    pub fn append_unvalidated(
+    /// from v1). This is that read path's write side.
+    pub(crate) fn append_replay(
         &mut self,
         claim_type: ClaimType,
         props: Value,
@@ -202,14 +211,14 @@ mod tests {
         }
     }
 
-    /// `append_unvalidated` deliberately bypasses the synthesist
+    /// `append_replay` deliberately bypasses the synthesist
     /// validator for migration / import paths. The structural checks
     /// in the substrate (content hash, append lock) still run, but
     /// per-type schema validation is skipped. Verifying that the
     /// bypass actually bypasses, so we can move existing claims of
     /// any type without the strict-on-write gate.
     #[test]
-    fn append_unvalidated_skips_synthesist_validator() {
+    fn append_replay_skips_synthesist_validator() {
         let dir = tempdir().unwrap();
         let claims = dir.path().join("claims");
         let mut store = SynthStore::init_at(&claims)
@@ -220,7 +229,7 @@ mod tests {
         // future lattice validator (missing required fields). The
         // unvalidated path just stores it, which is what import wants.
         let id = store
-            .append_unvalidated(ClaimType::Stakeholder, json!({"id": "alice"}), None)
+            .append_replay(ClaimType::Stakeholder, json!({"id": "alice"}), None)
             .expect("unvalidated append accepts unowned types");
         assert!(!id.is_empty());
     }
