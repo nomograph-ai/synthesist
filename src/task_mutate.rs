@@ -84,7 +84,7 @@ pub fn load_current(
 
 /// Load every current (non-superseded) task head for a `(tree, spec)`
 /// as a `Vec<Value>`. Used by callers that need to operate over the
-/// full DAG (`task::dag::TaskDag`, `task ready`, dep validation).
+/// full DAG (`crate::task_dag::TaskDag`, `task ready`, dep validation).
 pub fn load_all_current(store: &SynthStore, tree: &str, spec: &str) -> Result<Vec<Value>> {
     let rows = store.query(
         "SELECT id, props, supersedes FROM claims \

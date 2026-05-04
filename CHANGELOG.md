@@ -54,12 +54,12 @@ Josh's reference implementation in MR !8.
   `PossibleValuesParser`, so CLI-accepts-iff-schema-accepts is
   structural — drift between CLI and validator is no longer
   possible because there is only one definition.
-- **`task::dag` module** — pure-function DAG operations (cycle
+- **`task_dag` module** — pure-function DAG operations (cycle
   detection, ready set, dependents-of, dep validation). Replaces the
   inline DFS walks that were scattered across command files. The
   same primitive serves `task ready`, `task update --depends-on`,
   and any future cross-task command (rename, split, reparent in v2.5).
-- **`task::mutate` module** — unified supersession helper for task
+- **`task_mutate` module** — unified supersession helper for task
   state transitions. Future task commands compose mutation closures
   over this helper rather than re-implementing the load-mutate-
   append pattern.
