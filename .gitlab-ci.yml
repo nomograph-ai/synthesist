@@ -6,6 +6,9 @@
 # deps-scan), agent-shape check, build matrix, cosign signing, package
 # registry upload, crates.io publish, GitLab release, notify-kits.
 
+default:
+  tags: [storr]
+
 include:
   - template: Jobs/Secret-Detection.gitlab-ci.yml
   - component: gitlab.com/nomograph/pipeline/tool-rust@v4.1.2
