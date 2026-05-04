@@ -12,7 +12,8 @@
 use std::collections::{HashMap, HashSet};
 
 use anyhow::{Context, Result};
-use nomograph_claim::{Session, schema::validate_claim};
+use crate::schema::{ValidationOutcome, validate_claim};
+use nomograph_claim::Session;
 use serde_json::{Value, json};
 
 use crate::store::{CLAIMS_DIR, SynthStore, find_legacy_v1_db, json_out, legacy_migration_error};
@@ -156,14 +157,22 @@ pub fn cmd_check() -> Result<()> {
     let known_ids: HashSet<String> = claims.iter().map(|c| c.id.clone()).collect();
 
     for c in &claims {
-        if let Err(e) = validate_claim(c) {
-            issues.push(json!({
+        match validate_claim(c) {
+            ValidationOutcome::Ok => {}
+            ValidationOutcome::SchemaFail(e) => issues.push(json!({
                 "level": "error",
                 "kind": "schema",
                 "claim_id": c.id,
                 "claim_type": c.claim_type.as_str(),
                 "message": format!("{e}"),
-            }));
+            })),
+            ValidationOutcome::NotOwnedBySynthesist => issues.push(json!({
+                "level": "warn",
+                "kind": "no_validator",
+                "claim_id": c.id,
+                "claim_type": c.claim_type.as_str(),
+                "message": "claim type not validated by synthesist; may be written by another consumer (lattice, coordination protocol)",
+            })),
         }
         if let Some(prior) = &c.supersedes
             && !known_ids.contains(prior)

@@ -145,6 +145,74 @@ pub enum Command {
         #[arg(long)]
         bind_all: bool,
     },
+    /// Substrate maintenance commands: compaction, future verify/gc/
+    /// snapshot operations. Distinct from typed-append commands —
+    /// these operate on the on-disk store directly.
+    Claims {
+        #[command(subcommand)]
+        cmd: ClaimsCmd,
+    },
+    /// Record what happened to a spec (completed, abandoned, deferred,
+    /// or absorbed by another spec). Distinct from Spec status, which
+    /// expresses the spec's current state. Each Outcome is an
+    /// independent claim with its own asserter and timestamp.
+    Outcome {
+        #[command(subcommand)]
+        cmd: OutcomeCmd,
+    },
+}
+
+// --- Claims (substrate maintenance) ---
+
+#[derive(Subcommand)]
+pub enum ClaimsCmd {
+    /// Serialize the full Automerge document to `snapshot.amc` and
+    /// remove superseded `changes/*.amc` files. Logical claim history
+    /// is unchanged; this is a physical re-encoding that shrinks
+    /// future `Store::open` cost by collapsing many incremental files
+    /// into one snapshot.
+    Compact {
+        /// Print what would be compacted without making changes.
+        #[arg(long)]
+        dry_run: bool,
+        /// Skip the interactive confirmation prompt. Required for
+        /// non-interactive use (CI, scripts).
+        #[arg(long)]
+        yes: bool,
+    },
+}
+
+// --- Outcome ---
+
+#[derive(Subcommand)]
+pub enum OutcomeCmd {
+    /// Record a new Outcome claim against a spec.
+    Add {
+        /// Path in tree/spec format.
+        tree_spec: String,
+        /// Outcome status: completed, abandoned, deferred, superseded_by.
+        #[arg(
+            long,
+            value_parser = clap::builder::PossibleValuesParser::new(crate::schema::outcome::STATUSES)
+        )]
+        status: String,
+        /// Optional note explaining the outcome.
+        #[arg(long)]
+        note: Option<String>,
+        /// Required when --status is `superseded_by`. Names the
+        /// absorbing spec (tree/id form). Schema rejects the claim
+        /// if missing for that status; harmless for other statuses.
+        #[arg(long)]
+        linked_spec: Option<String>,
+        /// ISO date (YYYY-MM-DD); defaults to today.
+        #[arg(long)]
+        date: Option<String>,
+    },
+    /// List Outcome claims recorded against a spec.
+    List {
+        /// Path in tree/spec format.
+        tree_spec: String,
+    },
 }
 
 // --- Tree ---
@@ -221,8 +289,12 @@ pub enum SpecCmd {
         constraints: Option<String>,
         #[arg(long)]
         decisions: Option<String>,
-        /// Spec status: active, completed, abandoned, superseded, deferred.
-        #[arg(long)]
+        /// Spec status. Allowed values come from the same constant
+        /// the schema validator uses, so CLI accepts iff schema
+        /// accepts. To record completed / abandoned / deferred,
+        /// use `synthesist outcome add`; those are Outcome claim
+        /// values, not Spec status values.
+        #[arg(long, value_parser = parse_spec_status)]
         status: Option<String>,
         /// What happened (set when completing or archiving).
         #[arg(long)]
@@ -290,7 +362,7 @@ pub enum TaskCmd {
         /// Task ID (e.g. "t1").
         task_id: String,
     },
-    /// Update task summary, description, or files.
+    /// Update task summary, description, files, or dependencies.
     Update {
         /// Path in tree/spec format.
         tree_spec: String,
@@ -303,6 +375,15 @@ pub enum TaskCmd {
         /// Replace file list (comma-separated).
         #[arg(long, value_delimiter = ',')]
         files: Option<Vec<String>>,
+        /// Replace dependency list (comma-separated task IDs in the
+        /// same spec). Pass an empty string to clear deps. Validates:
+        /// no self-dependency, no cycles, every referenced ID must
+        /// exist in the same spec. A new dep that is itself in
+        /// `cancelled` status is allowed (rewiring away from
+        /// cancelled predecessors is the use case) and surfaces as a
+        /// warning in the JSON output.
+        #[arg(long, value_delimiter = ',')]
+        depends_on: Option<Vec<String>>,
     },
     /// Claim a task: pending -> in_progress. Sets owner to session ID.
     Claim {
@@ -557,4 +638,40 @@ pub enum PhaseCmd {
     /// agents that reach for the get/set verb pairing.
     #[command(alias = "get")]
     Show,
+}
+
+/// Custom value parser for `spec update --status`.
+///
+/// Optimized for LLM ergonomics: when an agent passes a value that
+/// is conceptually a spec disposition (`completed`, `abandoned`,
+/// `deferred`) but isn't in the Spec status enum, the rejection
+/// message names the right surface (`synthesist outcome add`)
+/// inline so the agent can recover without round-tripping through
+/// docs. Other invalid values get the standard expected-set message.
+///
+/// Strict-on-write: synthesist's API boundary rejects everything
+/// not in `crate::schema::spec::STATUSES`. The single source of
+/// truth is the const referenced here and by the validator.
+fn parse_spec_status(s: &str) -> Result<String, String> {
+    if crate::schema::spec::STATUSES.contains(&s) {
+        return Ok(s.to_string());
+    }
+    let msg = match s {
+        "completed" | "abandoned" | "deferred" => format!(
+            "`{s}` is an Outcome value, not a Spec status. To record this disposition, run \
+             `synthesist outcome add <tree>/<spec> --status {s} [--note \"...\"]`. Spec status \
+             accepts: {}",
+            crate::schema::spec::STATUSES.join(", ")
+        ),
+        "superseded_by" => format!(
+            "`superseded_by` is an Outcome status (use `synthesist outcome add ... --status \
+             superseded_by --linked-spec <tree>/<spec>`). Spec status accepts: {}",
+            crate::schema::spec::STATUSES.join(", ")
+        ),
+        _ => format!(
+            "`{s}` is not a valid Spec status. Accepts: {}",
+            crate::schema::spec::STATUSES.join(", ")
+        ),
+    };
+    Err(msg)
 }
