@@ -2,12 +2,15 @@
 
 include:
   - template: Jobs/Secret-Detection.gitlab-ci.yml
-  - component: gitlab.com/nomograph/pipeline/rust-cli@v2.4.6
+  - component: gitlab.com/nomograph/pipeline/rust-cli@v2.6.0
     inputs:
       binary_name: synthesist
       project_description: "Specification graph manager for AI-augmented projects, on the nomograph-claim substrate."
       audit_allow_failure: false
       crates_publish: true
+  - component: gitlab.com/nomograph/pipeline/agent-shape@v2.6.0
+    inputs:
+      binary_name: synthesist
 
 stages: [test, build, sign, publish, release, notify]
 
@@ -22,23 +25,6 @@ check-symlinks:
     - apk add --no-cache bash git
   script:
     - bash scripts/check-symlinks.sh
-
-# Agent-shape contract check. `jig` cross-references the rubric in
-# agent-shape.toml against the binary's --help surface, catching
-# drift between documented commands and what's actually shipped.
-# Same drift class as the schema-CLI parity rule, applied to the
-# top-level command surface. CARGO_HOME is set to .cargo/ at the
-# CI project root (see `variables`), so cargo-installed binaries
-# land at $CI_PROJECT_DIR/.cargo/bin/ and we invoke jig by full
-# path rather than relying on PATH manipulation.
-check-agent-shape:
-  stage: build
-  image: registry.gitlab.com/nomograph/pipeline/rust-cli:latest
-  needs: []
-  script:
-    - cargo build --release --quiet
-    - cargo install --quiet nomograph-jig
-    - "$CARGO_HOME/bin/jig check --binary target/release/synthesist"
 
 # Nudge the kits registry to re-sense on tag push (kit-registry@v3.1.0+).
 notify-kits:
