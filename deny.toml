@@ -1,4 +1,4 @@
-# cargo-deny configuration for synthesist
+# cargo-deny configuration for nomograph-claim
 # https://embarkstudios.github.io/cargo-deny/
 
 [advisories]

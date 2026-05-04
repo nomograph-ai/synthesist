@@ -34,7 +34,7 @@ Requires Rust 1.88+. No system dependencies beyond a C compiler.
 
 ```toml
 [dependencies]
-nomograph-claim = "0.1"
+nomograph-claim = "0.2"
 ```
 
 ## Quickstart
@@ -119,6 +119,16 @@ cargo clippy -- -D warnings
 cargo doc --no-deps --open
 ```
 
+## Relationship to `nomograph-workflow`
+
+`nomograph-claim` is the storage substrate. `nomograph-workflow` is the
+thin shared logic layer that sits on top (Store adapter, phase state
+machine, helpers shared by `synthesist` and `lattice`). They are
+released independently because their consumers and cadences differ:
+substrate changes ripple through every tool that writes state, while
+workflow changes affect only the binaries that share workflow logic.
+Keep them as two crates.
+
 ## License
 
-Dual-licensed under [MIT](LICENSE) or Apache-2.0 at your option.
+MIT. See [LICENSE](LICENSE).
