@@ -1,6 +1,6 @@
 # gitlab.com/nomograph/synthesist .gitlab-ci.yml
 #
-# Pipeline structure provided by nomograph/pipeline tool-rust@v4.1.0:
+# Pipeline structure provided by nomograph/pipeline tool-rust@v4.1.7:
 # stages, default policy (retry/timeout/interruptible), gates (hygiene,
 # license-policy, readme-shape, release-discipline, registry-coherence,
 # deps-scan), agent-shape check, build matrix, cosign signing, package
@@ -11,7 +11,7 @@ default:
 
 include:
   - template: Jobs/Secret-Detection.gitlab-ci.yml
-  - component: gitlab.com/nomograph/pipeline/tool-rust@v4.1.2
+  - component: gitlab.com/nomograph/pipeline/tool-rust@v4.1.7
     inputs:
       binary_name: synthesist
       project_description: "Specification graph manager for AI-augmented projects, on the nomograph-claim substrate."
