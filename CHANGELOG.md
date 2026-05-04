@@ -70,6 +70,14 @@ Josh's reference implementation in MR !8.
 - **`scripts/check-symlinks.sh` + CI gate** — fails any commit that
   introduces an absolute-path symlink. Backstop against the
   `.agent/skills` recurrence class.
+- **Agent-shape CI gate** via the new `agent-shape` component in
+  `nomograph/pipeline@v2.6.0`. Every push runs `jig check
+  --binary` to cross-reference `agent-shape.toml` against the
+  built binary's `--help` surface, catching CLI drift between
+  documented commands and what's actually shipped. Same drift
+  class as the schema-CLI parity rule applied at the top-level
+  command surface. `nomograph-jig` is now baked into the rust-cli
+  image so consumers don't repeat the install on every run.
 - **`CONTRIBUTING.md` back-compat policy** — three-layer policy
   (claim format strict, CLI additive within a major, library
   semver) committed to the repo.
@@ -96,6 +104,13 @@ Josh's reference implementation in MR !8.
   form (`../.claude/skills`) on every build/install, so external
   tools that rewrite symlinks cannot commit a broken absolute
   target. The CI symlink gate enforces the rule.
+- `.claude/skills/` is no longer git-tracked either, for the same
+  drift class. Skills are materialized by `rune sync` from
+  `nomograph/runes` (the source of truth); tracking the synced
+  copy created a "rune sync" commit-class where the committed
+  copy could drift between syncs. `.claude/rune.lock` (which
+  pins versions) stays tracked. Aligns with the pattern rune
+  itself uses.
 
 ### Changed
 
