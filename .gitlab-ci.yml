@@ -8,7 +8,7 @@
 
 include:
   - template: Jobs/Secret-Detection.gitlab-ci.yml
-  - component: gitlab.com/nomograph/pipeline/tool-rust@v4.1.1
+  - component: gitlab.com/nomograph/pipeline/tool-rust@v4.1.2
     inputs:
       binary_name: synthesist
       project_description: "Specification graph manager for AI-augmented projects, on the nomograph-claim substrate."
