@@ -1,11 +1,13 @@
 mod cli;
 mod cmd_campaign;
+mod cmd_claims;
 mod cmd_conflicts;
 mod cmd_discovery;
 mod cmd_export;
 mod cmd_import;
 mod cmd_init;
 mod cmd_migrate;
+mod cmd_outcome;
 mod cmd_phase;
 mod cmd_serve;
 mod cmd_session;
@@ -13,9 +15,13 @@ mod cmd_spec;
 mod cmd_sql;
 mod cmd_task;
 mod cmd_tree;
+mod compaction;
+mod output;
 mod schema;
 mod skill;
 mod store;
+mod task_dag;
+mod task_mutate;
 
 use clap::Parser;
 
@@ -23,7 +29,19 @@ fn main() {
     let cli = cli::Cli::parse();
 
     if let Err(e) = run(cli) {
-        eprintln!("error: {e}");
+        // Walk the anyhow chain so structured causes (e.g. SchemaError
+        // from synthesist::schema) reach the user instead of just the
+        // top context. Without this, "validate claim before append" is
+        // all the operator sees; with it, they see the full diagnosis
+        // ("spec field 'status' is 'completed' but must be one of:
+        // draft, active, done, superseded").
+        eprint!("error: {e}");
+        let mut source = e.source();
+        while let Some(cause) = source {
+            eprint!(": {cause}");
+            source = cause.source();
+        }
+        eprintln!();
         std::process::exit(1);
     }
 }
@@ -150,6 +168,8 @@ fn run(cli: cli::Cli) -> anyhow::Result<()> {
         cli::Command::Import { file } => cmd_import::cmd_import(file),
         cli::Command::Sql { query } => cmd_sql::cmd_sql(query),
         cli::Command::Serve { port, bind_all } => cmd_serve::run(*port, *bind_all),
+        cli::Command::Claims { cmd } => cmd_claims::run(cmd, &cli.session),
+        cli::Command::Outcome { cmd } => cmd_outcome::run(cmd, &cli.session),
         // Init, Skill, Version, and the landscape family (stakeholder,
         // disposition, signal, stance) are handled in the short-circuit
         // match above.

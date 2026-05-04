@@ -167,11 +167,15 @@ synthesist tree close <name> --start-id <hash>    # disambiguate when multiple t
 ```
 synthesist spec add <tree/spec> --goal TEXT        # e.g. spec add upstream/auth --goal "Migrate v2->v3"
 synthesist spec show <tree/spec>
-synthesist spec update <tree/spec> --status completed --outcome "Shipped in MR !500"
+synthesist spec update <tree/spec> --status done   # work delivered; spec moves to terminal state
 synthesist spec list <tree>                       # positional form, e.g. spec list upstream
 synthesist spec list --tree <name>                # flag form (same effect)
 ```
-Status values: active, completed, abandoned, superseded, deferred.
+Status values: `draft`, `active`, `done`, `superseded`. To record
+how a spec was disposed of (`completed`, `abandoned`, `deferred`,
+`superseded_by`), use `synthesist outcome add` — those are
+Outcome claim values, not Spec status values, and the CLI rejects
+them at parse time with a redirect message.
 
 ### Tasks
 IDs auto-generate as t1, t2, ... unless --id is provided.
@@ -180,6 +184,8 @@ synthesist task add <tree/spec> "summary" --depends-on t1,t2 --gate human --file
 synthesist task list <tree/spec> --active          # hide cancelled tasks
 synthesist task show <tree/spec> <id>              # full detail with deps, files, criteria
 synthesist task update <tree/spec> <id> --summary "revised summary"
+synthesist task update <tree/spec> <id> --depends-on t4,t5   # replace dep list (validates cycle/self/unknown)
+synthesist task update <tree/spec> <id> --depends-on ""      # clear dep list
 synthesist task claim <tree/spec> <id>             # pending -> in_progress (sets owner)
 synthesist task done <tree/spec> <id>              # in_progress -> done (runs acceptance criteria)
 synthesist task reset <tree/spec> <id>             # in_progress -> pending (crash recovery)
@@ -196,6 +202,37 @@ synthesist task acceptance <tree/spec> <id> --criterion "tests pass" --verify "c
 synthesist discovery add <tree/spec> --finding "SQLite outperforms DuckDB for this workload" --impact high
 synthesist discovery list <tree/spec>
 ```
+
+### Outcomes
+Outcome claims express *what happened* to a spec (distinct from
+Spec status, which expresses *what state the spec is in*). Each
+Outcome is its own claim with its own asserter and timestamp;
+multiple Outcomes against the same spec form a history.
+```
+synthesist outcome add <tree/spec> --status completed --note "shipped in MR !500"
+synthesist outcome add <tree/spec> --status abandoned --note "scope folded into auth-v3"
+synthesist outcome add <tree/spec> --status deferred --note "blocked by upstream"
+synthesist outcome add <tree/spec> --status superseded_by --linked-spec other/spec --note "absorbed"
+synthesist outcome list <tree/spec>
+```
+Status values: `completed`, `abandoned`, `deferred`,
+`superseded_by`. The `superseded_by` status requires
+`--linked-spec` (the schema rejects it without).
+
+### Substrate maintenance (`claims`)
+Operations on the on-disk claim store, distinct from typed
+appends. Compaction re-encodes incremental `changes/*.amc` files
+into a single `snapshot.amc` under the substrate lock; logical
+history is unchanged. Large estates have observed ~1300x
+working-tree shrink. Heavy operation; schedule during quiet
+windows.
+```
+synthesist claims compact --dry-run               # preview without writing
+synthesist claims compact --yes                   # required for non-interactive
+```
+Without `--yes`, interactive callers see a confirmation prompt;
+non-interactive callers (agents, CI) get an error directing them
+to pass `--yes` rather than hanging on stdin.
 
 ### Campaigns
 ```
@@ -263,8 +300,38 @@ error: invalid phase transition: plan -> execute (valid: agree)
 error: invalid session ID '../main': must not contain path separators or '..'
 ```
 
+Schema errors carry full diagnostic detail: claim type, field
+name, actual value, and expected enum set. The `--status
+completed` / `abandoned` / `deferred` family on `spec update`
+rejects with an inline redirect at parse time:
+
+```
+error: invalid value 'completed' for '--status <STATUS>':
+       `completed` is an Outcome value, not a Spec status.
+       To record this disposition, run
+       `synthesist outcome add <tree>/<spec> --status completed [--note "..."]`.
+       Spec status accepts: draft, active, done, superseded
+```
+
 On error: read the message, diagnose the root cause, fix it.
 Do not retry the identical command blindly.
+
+### `synthesist check` errors on existing data after upgrading from v2.3.x
+
+Estates upgrading from v2.3 may surface schema errors for spec
+claims with `status: "completed"`, `"abandoned"`, or `"deferred"`.
+v2.3's CLI advertised those values in `--help` even though the
+schema rejected them; users sometimes wrote them via `--force`.
+v2.4.0 surfaces those claims as schema errors during `check`.
+The estate is still usable — errors are advisory.
+
+To clean, record the disposition as an `Outcome` claim and reset
+the spec status to a valid terminal value:
+
+```
+synthesist outcome add <tree>/<spec> --status completed --note "what shipped"
+synthesist --force spec update <tree>/<spec> --status done
+```
 
 ## Storage
 

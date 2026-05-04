@@ -55,6 +55,7 @@ pub fn run(cmd: &TaskCmd, session: &Option<String>) -> Result<()> {
             summary,
             description,
             files,
+            depends_on,
         } => {
             let (tree, spec) = parse_tree_spec(tree_spec)?;
             cmd_task_update(
@@ -64,6 +65,7 @@ pub fn run(cmd: &TaskCmd, session: &Option<String>) -> Result<()> {
                 summary.as_deref(),
                 description.as_deref(),
                 files.as_ref(),
+                depends_on.as_ref(),
                 session,
             )
         }
@@ -298,6 +300,7 @@ fn cmd_task_show(tree: &str, spec: &str, task_id: &str, session: &Option<String>
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn cmd_task_update(
     tree: &str,
     spec: &str,
@@ -305,6 +308,7 @@ fn cmd_task_update(
     summary: Option<&str>,
     description: Option<&str>,
     files: Option<&Vec<String>>,
+    depends_on: Option<&Vec<String>>,
     session: &Option<String>,
 ) -> Result<()> {
     let mut store = SynthStore::discover_for(session)?;
@@ -319,8 +323,29 @@ fn cmd_task_update(
     if let Some(f) = files {
         props["files"] = json!(f);
     }
+    let mut warnings: Vec<String> = Vec::new();
+    if let Some(deps_raw) = depends_on {
+        // value_delimiter = ',' yields [""] for an empty value; treat
+        // that as "clear deps" rather than a one-element [""] list.
+        let deps: Vec<String> = deps_raw
+            .iter()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+        let snapshot = crate::task_mutate::load_all_current(&store, tree, spec)?;
+        let dag = crate::task_dag::TaskDag::from_snapshot(&snapshot);
+        let validation = dag
+            .validate_proposed_deps(task_id, &deps, tree, spec)
+            .map_err(|e| anyhow::anyhow!("{}", e))?;
+        for dep in &validation.cancelled_deps {
+            warnings.push(format!(
+                "depending on cancelled task {dep}; the new dep will be a dead node in the DAG"
+            ));
+        }
+        props["depends_on"] = json!(deps);
+    }
     store.append(ClaimType::Task, props.clone(), Some(prior_id))?;
-    json_out(&props)
+    crate::output::emit(crate::output::Output::new(props).warns(warnings))
 }
 
 fn cmd_task_claim(tree: &str, spec: &str, task_id: &str, session: &Option<String>) -> Result<()> {

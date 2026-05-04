@@ -183,4 +183,6 @@ top_level = [
   "version",
   "sql",
   "serve",
+  "claims",        # substrate maintenance (compact, etc.) since v2.4
+  "outcome",       # first-class Outcome claim CLI since v2.4
 ]
