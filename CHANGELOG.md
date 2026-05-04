@@ -1,5 +1,133 @@
 # Changelog
 
+## [2.4.0] (2026-04-28)
+
+This release is a cohesive architectural pass driven by community
+feedback (issues #5, #6, #7 from
+[Josh Meekhof](https://gitlab.com/jmeekhof)). Rather than patch each
+issue at the symptom, v2.4.0 addresses the underlying classes:
+substrate type-agnosticism, single-source-of-truth schemas with
+structured validation errors, a real DAG primitive and unified task
+mutation surface, and operator-grade compaction tooling drawn from
+Josh's reference implementation in MR !8.
+
+### Breaking dependencies
+
+- Bumps `nomograph-claim` to `0.2` and `nomograph-workflow` to `0.2`.
+  Both crates dropped per-type validators from their public surface;
+  validation responsibility now lives at the synthesist API boundary.
+  The on-disk claim format is unchanged. Existing estates upgrade
+  in place without migration.
+
+### Added
+
+- **`synthesist outcome add` and `synthesist outcome list`** — first-
+  class CLI surface for the Outcome claim type. Records "what
+  happened to a spec" (`completed`, `abandoned`, `deferred`,
+  `superseded_by`) as a separate timestamped, asserter-attributed
+  claim, distinct from Spec status (which expresses "what state the
+  spec is in"). Closes the discoverability gap behind issue #6: the
+  workflow that previously required disassembling the binary
+  (`strings synthesist`) to find the right enum is now `synthesist
+  outcome add k/spec --status completed --note "..."`.
+- **`synthesist claims compact`** — physical compaction of the on-
+  disk claim log. Re-encodes incremental `changes/*.amc` files into
+  a single `snapshot.amc` under the substrate lock. Logical claim
+  history is unchanged; the size benefit is the encoding difference
+  (large estates have observed ~1300x working-tree shrink). Ships
+  with `--dry-run` and `--yes` safety belts. Reference implementation
+  and trial methodology by Josh Meekhof
+  ([MR !8](https://gitlab.com/nomograph/synthesist/-/merge_requests/8),
+  [issue #7](https://gitlab.com/nomograph/synthesist/-/issues/7));
+  re-implemented here against the cohesive architectural pass.
+- **`task update --depends-on`** — replace a task's dependency list
+  with comma-separated IDs. Validates: no self-dependency, no
+  cycles in the resulting DAG, every referenced ID exists in the
+  same spec. New deps that are themselves in `cancelled` status
+  surface as a JSON `warnings` field rather than blocking the
+  update — the entire purpose of editing deps is to repair away from
+  cancelled predecessors. Closes [issue #5](https://gitlab.com/nomograph/synthesist/-/issues/5).
+- **`synthesist::schema` module** — single source of truth for every
+  claim type synthesist owns (Tree, Spec, Task, Discovery, Campaign,
+  Session, Phase, Outcome). Each type's enum constants are `pub
+  const` slices referenced by both the validator and clap's
+  `PossibleValuesParser`, so CLI-accepts-iff-schema-accepts is
+  structural — drift between CLI and validator is no longer
+  possible because there is only one definition.
+- **`task::dag` module** — pure-function DAG operations (cycle
+  detection, ready set, dependents-of, dep validation). Replaces the
+  inline DFS walks that were scattered across command files. The
+  same primitive serves `task ready`, `task update --depends-on`,
+  and any future cross-task command (rename, split, reparent in v2.5).
+- **`task::mutate` module** — unified supersession helper for task
+  state transitions. Future task commands compose mutation closures
+  over this helper rather than re-implementing the load-mutate-
+  append pattern.
+- **JSON `warnings: []` output convention** — soft warnings (e.g.
+  depending on a cancelled task) surface as a structured field in
+  the JSON output rather than going to stderr. Aligns with the
+  documented all-output-is-JSON contract.
+- **`scripts/check-symlinks.sh` + CI gate** — fails any commit that
+  introduces an absolute-path symlink. Backstop against the
+  `.agent/skills` recurrence class.
+- **`CONTRIBUTING.md` back-compat policy** — three-layer policy
+  (claim format strict, CLI additive within a major, library
+  semver) committed to the repo.
+
+### Fixed
+
+- Validator errors now reach the user with structured detail
+  (claim type, field name, actual value, expected enum set) instead
+  of the opaque `validate claim before append`. The error chain in
+  `synthesist`'s top-level handler walks every `source()` so the
+  full diagnosis surfaces. The reporter on issue #6 had to run
+  `strings` on the v2.1.1 binary to find the schema enums; that
+  diagnostic cost should never have been necessary, and now isn't.
+  See `nomograph_claim::SchemaError` for the structured variants;
+  see `synthesist::schema` for how the consumer-side validator
+  composes them.
+- `spec update --status` rejects out-of-enum values at clap-parse
+  time with a message naming the four schema-permitted values
+  (`draft`, `active`, `done`, `superseded`). Issue #6's specific
+  symptom (`completed` accepted by CLI, rejected by validator) is
+  now a structural impossibility — both reference the same const.
+- `.agent/skills` symlink is no longer git-tracked. The
+  `make agent-skills-symlink` build step regenerates the relative
+  form (`../.claude/skills`) on every build/install, so external
+  tools that rewrite symlinks cannot commit a broken absolute
+  target. The CI symlink gate enforces the rule.
+
+### Changed
+
+- The substrate crates (`nomograph-claim`, `nomograph-workflow`)
+  are now type-agnostic for validation. Domain schemas live with
+  their owners; substrate stores any well-formed claim regardless
+  of `claim_type`. This unlocks future consumers (lattice when
+  patent hold lifts; possibly others) defining their own claim
+  types without coordinated substrate releases.
+- `synthesist::SynthStore` now wraps `nomograph_workflow::Store`
+  with a synthesist-side validating `append`. Existing call sites
+  that did `store.append(...)` continue to work unchanged through
+  inherent method resolution; read-only operations transparently
+  delegate via `Deref`. The pre-flight validation runs on every
+  append, with structured `SchemaError` propagating up the anyhow
+  chain to the operator.
+
+### Attribution
+
+The performance analysis (`docs/perf-{baseline, hot-paths,
+options-matrix, recommendation}.md`) and the compaction reference
+implementation that drove this release came from Josh Meekhof. The
+`claims compact` operator surface, the trial-on-a-copy methodology
+that proved compaction safety, and the architectural framing that
+distinguishes physical compaction from semantic GC are his work.
+The deeper substrate-side performance items in his ranked
+recommendation (instrumentation in `nomograph_claim::Store::open`
+and `View::rebuild`; batched-write API at the workflow layer;
+incremental view materialization with the correctness proof he
+flagged as load-bearing) are designed and shipped together with
+him in the v2.5 cycle.
+
 ## [2.3.0] (2026-04-28)
 
 ### Added

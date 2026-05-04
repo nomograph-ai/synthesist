@@ -43,7 +43,7 @@ pub fn run(cmd: &CampaignCmd, session: &Option<String>) -> Result<()> {
 
 /// Append a new `Campaign` claim (either `active` or `backlog`).
 ///
-/// The `Campaign` props shape (per `nomograph_claim::schema::validate_campaign`):
+/// The `Campaign` props shape (per `crate::schema::campaign::validate`):
 /// ```json
 /// { "tree": "...", "spec": "...", "kind": "active"|"backlog",
 ///   "summary": "...", "title": "...", "blocked_by": ["..."] }

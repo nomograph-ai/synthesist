@@ -41,8 +41,8 @@ anyhow = "1"
 time = { version = "0.3", features = ["local-offset", "formatting", "macros"] }
 chrono = { version = "0.4", features = ["serde"] }
 thiserror = "1"
-nomograph-claim = "0.1"
-nomograph-workflow = "0.1"
+nomograph-claim = "0.2"
+nomograph-workflow = "0.2"
 # `serve` uses async axum + a fs watcher. See src/cmd_serve.rs.
 # Replaced rouille (sync, smaller deps) with axum because axum has
 # the bigger community trajectory (tokio + tower) and natively

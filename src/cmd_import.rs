@@ -68,12 +68,20 @@ pub fn cmd_import(file: &Option<String>) -> Result<()> {
         store.sync_view().context("sync view after raw import")?;
     } else {
         // Typed path: walk each bucket, wrap props in a fresh Claim.
+        // Bypass synthesist's per-type validator: import is a replay
+        // of pre-existing claims (often including lattice or
+        // coordination types written by other consumers) and must
+        // not be gated by the synthesist-side write validator. See
+        // `SynthStore::append_unvalidated` for the policy.
         for (bucket, claim_type) in TYPED_BUCKETS {
             let Some(rows) = obj.get(*bucket).and_then(Value::as_array) else {
                 continue;
             };
             for row in rows {
-                if store.append(claim_type.clone(), row.clone(), None).is_ok() {
+                if store
+                    .append_unvalidated(claim_type.clone(), row.clone(), None)
+                    .is_ok()
+                {
                     imported += 1;
                 } else {
                     skipped += 1;
