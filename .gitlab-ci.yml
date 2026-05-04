@@ -27,7 +27,10 @@ check-symlinks:
 # agent-shape.toml against the binary's --help surface, catching
 # drift between documented commands and what's actually shipped.
 # Same drift class as the schema-CLI parity rule, applied to the
-# top-level command surface.
+# top-level command surface. CARGO_HOME is set to .cargo/ at the
+# CI project root (see `variables`), so cargo-installed binaries
+# land at $CI_PROJECT_DIR/.cargo/bin/ and we invoke jig by full
+# path rather than relying on PATH manipulation.
 check-agent-shape:
   stage: build
   image: registry.gitlab.com/nomograph/pipeline/rust-cli:latest
@@ -35,7 +38,7 @@ check-agent-shape:
   script:
     - cargo build --release --quiet
     - cargo install --quiet nomograph-jig
-    - jig check --binary target/release/synthesist
+    - "$CARGO_HOME/bin/jig check --binary target/release/synthesist"
 
 # Nudge the kits registry to re-sense on tag push (kit-registry@v3.1.0+).
 notify-kits:
