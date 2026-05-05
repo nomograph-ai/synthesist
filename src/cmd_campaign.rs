@@ -21,7 +21,6 @@ pub fn run(cmd: &CampaignCmd, session: &Option<String>) -> Result<()> {
             tree,
             spec_id,
             summary,
-            phase: _phase,
             backlog,
             title,
             blocked_by,
@@ -37,7 +36,7 @@ pub fn run(cmd: &CampaignCmd, session: &Option<String>) -> Result<()> {
                 session,
             )
         }
-        CampaignCmd::List { tree } => cmd_list(tree, session),
+        CampaignCmd::List { tree } => cmd_list(tree),
     }
 }
 
@@ -101,8 +100,8 @@ fn cmd_add(
 /// re-adds over time), the most recent `asserted_at` wins. This preserves
 /// the v1 INSERT-OR-REPLACE semantic without requiring explicit
 /// supersession claims.
-fn cmd_list(tree: &str, session: &Option<String>) -> Result<()> {
-    let store = SynthStore::discover_for(session)?;
+fn cmd_list(tree: &str) -> Result<()> {
+    let store = SynthStore::discover()?;
 
     // Latest-per-spec via GROUP BY + MAX(asserted_at). SQLite's "bare
     // columns from aggregate" rule returns the row matching the MAX per

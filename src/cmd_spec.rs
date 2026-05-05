@@ -42,7 +42,7 @@ pub fn run(cmd: &SpecCmd, session: &Option<String>) -> Result<()> {
         }
         SpecCmd::Show { tree_spec } => {
             let (tree, spec) = parse_tree_spec(tree_spec)?;
-            cmd_spec_show(tree, spec, session)
+            cmd_spec_show(tree, spec)
         }
         SpecCmd::Update {
             tree_spec,
@@ -71,7 +71,7 @@ pub fn run(cmd: &SpecCmd, session: &Option<String>) -> Result<()> {
                 .ok_or_else(|| anyhow::anyhow!(
                     "tree required: pass as positional `synthesist spec list <tree>` or as flag `synthesist spec list --tree <tree>`"
                 ))?;
-            cmd_spec_list(resolved, session)
+            cmd_spec_list(resolved)
         }
     }
 }
@@ -138,8 +138,8 @@ fn cmd_spec_add(
 }
 
 /// Show the current `Spec` claim for `tree/id`, or error when absent.
-fn cmd_spec_show(tree: &str, spec: &str, session: &Option<String>) -> Result<()> {
-    let store = SynthStore::discover_for(session)?;
+fn cmd_spec_show(tree: &str, spec: &str) -> Result<()> {
+    let store = SynthStore::discover()?;
     let rows = query_spec_heads(&store, tree)?;
     match rows.into_iter().find(|p| spec_id(p) == spec) {
         Some(props) => json_out(&json!({
@@ -241,8 +241,8 @@ fn cmd_spec_update(
 /// Heads are deduped per (tree, id) keeping the most recent non-
 /// superseded asserted_at. The view's `supersedes` column lets us
 /// exclude any claim whose id was superseded by a later one.
-fn cmd_spec_list(tree: &str, session: &Option<String>) -> Result<()> {
-    let store = SynthStore::discover_for(session)?;
+fn cmd_spec_list(tree: &str) -> Result<()> {
+    let store = SynthStore::discover()?;
     let heads = query_spec_heads(&store, tree)?;
     let mut specs: Vec<Value> = heads
         .into_iter()

@@ -65,12 +65,15 @@ The LLM follows a 7-phase state machine: ORIENT -> PLAN -> AGREE -> EXECUTE
 <-> REFLECT -> REPORT (with REPLAN looping back to AGREE).
 
 Key rules:
-- Declare phase with `synthesist phase set <phase>`
+- Declare phase with `synthesist phase set <phase> --session=<id>`
+  (or set `SYNTHESIST_SESSION` and omit the flag).
 - Cannot claim tasks in PLAN. Cannot create tasks in EXECUTE.
 - PLAN -> EXECUTE must pass through AGREE (explicit human approval).
 - After each task in EXECUTE, enter REFLECT to assess plan validity.
 - If the plan changes, REPLAN -> AGREE before resuming EXECUTE.
 - Phase is per-session. Different sessions may be in different phases.
+  `phase show`/`phase set` require an explicit session id; sessionless
+  invocations error rather than fall back to a global default.
 
 ## Conventions
 

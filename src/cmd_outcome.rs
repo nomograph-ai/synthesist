@@ -40,7 +40,7 @@ pub fn run(cmd: &OutcomeCmd, session: &Option<String>) -> Result<()> {
         }
         OutcomeCmd::List { tree_spec } => {
             let (tree, spec) = parse_tree_spec(tree_spec)?;
-            cmd_list(&tree, &spec, session)
+            cmd_list(&tree, &spec)
         }
     }
 }
@@ -86,8 +86,8 @@ fn cmd_add(
     })))
 }
 
-fn cmd_list(tree: &str, spec: &str, session: &Option<String>) -> Result<()> {
-    let store = SynthStore::discover_for(session)?;
+fn cmd_list(tree: &str, spec: &str) -> Result<()> {
+    let store = SynthStore::discover()?;
     let rows = store.query(
         "SELECT id, asserted_by, asserted_at, props FROM claims \
          WHERE claim_type = 'outcome' \

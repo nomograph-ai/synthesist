@@ -141,13 +141,15 @@ pub enum Command {
         /// Port to listen on (default 5179).
         #[arg(long)]
         port: Option<u16>,
-        /// Bind to 0.0.0.0 instead of localhost. Off by default.
+        /// Bind to 0.0.0.0 instead of localhost. Allows external
+        /// connections; default is localhost-only.
         #[arg(long)]
         bind_all: bool,
     },
     /// Substrate maintenance commands: compaction, future verify/gc/
-    /// snapshot operations. Distinct from typed-append commands —
-    /// these operate on the on-disk store directly.
+    /// snapshot operations. Distinct from typed-append commands;
+    /// these operate on the on-disk store directly and do not record
+    /// attribution, so no `--session` or phase gate applies.
     Claims {
         #[command(subcommand)]
         cmd: ClaimsCmd,
@@ -202,7 +204,7 @@ pub enum OutcomeCmd {
         /// Required when --status is `superseded_by`. Names the
         /// absorbing spec (tree/id form). Schema rejects the claim
         /// if missing for that status; harmless for other statuses.
-        #[arg(long)]
+        #[arg(long, required_if_eq("status", "superseded_by"))]
         linked_spec: Option<String>,
         /// ISO date (YYYY-MM-DD); defaults to today.
         #[arg(long)]
@@ -226,7 +228,7 @@ pub enum TreeCmd {
         /// Human-readable description.
         #[arg(long, default_value = "")]
         description: String,
-        /// Tree status (default: "active").
+        /// Tree status (e.g. "active" or "closed").
         #[arg(long, default_value = "active")]
         status: String,
     },
@@ -512,9 +514,6 @@ pub enum CampaignCmd {
         /// Campaign summary for this spec.
         #[arg(long, default_value = "")]
         summary: String,
-        /// Current phase of this spec in the campaign.
-        #[arg(long)]
-        phase: Option<String>,
         /// Add to backlog instead of active list.
         #[arg(long)]
         backlog: bool,
