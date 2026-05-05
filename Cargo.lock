@@ -1201,6 +1201,8 @@ dependencies = [
 [[package]]
 name = "nomograph-workflow"
 version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eb81a22c44bbd5598b8d3f57229a190b3af42f2c74c79f2b4edc0369232ca58f"
 dependencies = [
  "anyhow",
  "blake3",
