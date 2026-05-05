@@ -8,6 +8,8 @@
 
 Bi-temporal CRDT claim substrate with asserter attribution and E2EE.
 
+## What it is
+
 `nomograph-claim` is the storage primitive shared by every nomograph tool
 that writes state: synthesist (workflow), lattice (observation), seer
 (propagation). It gives each tool a single append-only log of typed
