@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.5.1] (unreleased)
+
+### Fixed
+
+- **ci: bump `tool-rust` to v4.1.10**. The v4.1.10 release of the
+  pipeline component fixes a `registry-coherence` gate bug where
+  the runner's cached `.git/` directory carried tags that had
+  been deleted on origin, causing the gate to read a stale
+  "highest tag" and fail the tag pipeline. Synthesist's v2.5.0
+  tag pipeline tripped this; v2.5.1 is the first release with
+  the fixed gate. No code or behavior change in this version
+  beyond the CI reference.
+
 ## [2.5.0] (unreleased)
 
 Shape conformity pass. The v2 phase doctrine (per-session, not a
