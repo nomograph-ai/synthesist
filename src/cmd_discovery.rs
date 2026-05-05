@@ -39,7 +39,7 @@ pub fn run(cmd: &DiscoveryCmd, session: &Option<String>) -> Result<()> {
         }
         DiscoveryCmd::List { tree_spec } => {
             let (tree, spec) = parse_tree_spec(tree_spec)?;
-            cmd_list(&tree, &spec, session)
+            cmd_list(&tree, &spec)
         }
     }
 }
@@ -98,8 +98,8 @@ fn cmd_add(
 ///
 /// Results are ordered by `asserted_at` descending so the most recently
 /// appended discovery appears first. JSON output shape matches v1.
-fn cmd_list(tree: &str, spec: &str, session: &Option<String>) -> Result<()> {
-    let store = SynthStore::discover_for(session)?;
+fn cmd_list(tree: &str, spec: &str) -> Result<()> {
+    let store = SynthStore::discover()?;
     let rows = store.query(
         "SELECT \
              json_extract(props, '$.id')       AS id, \

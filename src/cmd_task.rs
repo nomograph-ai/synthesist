@@ -43,11 +43,11 @@ pub fn run(cmd: &TaskCmd, session: &Option<String>) -> Result<()> {
             active,
         } => {
             let (tree, spec) = parse_tree_spec(tree_spec)?;
-            cmd_task_list(&tree, &spec, *active, session)
+            cmd_task_list(&tree, &spec, *active)
         }
         TaskCmd::Show { tree_spec, task_id } => {
             let (tree, spec) = parse_tree_spec(tree_spec)?;
-            cmd_task_show(&tree, &spec, task_id, session)
+            cmd_task_show(&tree, &spec, task_id)
         }
         TaskCmd::Update {
             tree_spec,
@@ -133,7 +133,7 @@ pub fn run(cmd: &TaskCmd, session: &Option<String>) -> Result<()> {
         }
         TaskCmd::Ready { tree_spec } => {
             let (tree, spec) = parse_tree_spec(tree_spec)?;
-            cmd_task_ready(&tree, &spec, session)
+            cmd_task_ready(&tree, &spec)
         }
         TaskCmd::Acceptance {
             tree_spec,
@@ -275,8 +275,8 @@ fn cmd_task_add(
     json_out(&props)
 }
 
-fn cmd_task_list(tree: &str, spec: &str, active: bool, session: &Option<String>) -> Result<()> {
-    let store = SynthStore::discover_for(session)?;
+fn cmd_task_list(tree: &str, spec: &str, active: bool) -> Result<()> {
+    let store = SynthStore::discover()?;
     let tasks = list_current_tasks(&store, tree, spec)?;
     let filtered: Vec<Value> = if active {
         tasks
@@ -292,8 +292,8 @@ fn cmd_task_list(tree: &str, spec: &str, active: bool, session: &Option<String>)
     json_out(&json!({ "tasks": filtered }))
 }
 
-fn cmd_task_show(tree: &str, spec: &str, task_id: &str, session: &Option<String>) -> Result<()> {
-    let store = SynthStore::discover_for(session)?;
+fn cmd_task_show(tree: &str, spec: &str, task_id: &str) -> Result<()> {
+    let store = SynthStore::discover()?;
     match current_task(&store, tree, spec, task_id)? {
         Some((_id, props)) => json_out(&props),
         None => bail!("task {tree}/{spec}/{task_id} not found"),
@@ -446,8 +446,8 @@ fn cmd_task_status_transition(
     json_out(&props)
 }
 
-fn cmd_task_ready(tree: &str, spec: &str, session: &Option<String>) -> Result<()> {
-    let store = SynthStore::discover_for(session)?;
+fn cmd_task_ready(tree: &str, spec: &str) -> Result<()> {
+    let store = SynthStore::discover()?;
     let tasks = list_current_tasks(&store, tree, spec)?;
     // Build id → status map
     let status_by_id: std::collections::HashMap<String, String> = tasks

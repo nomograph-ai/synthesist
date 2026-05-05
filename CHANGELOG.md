@@ -1,5 +1,136 @@
 # Changelog
 
+## [2.5.0] (unreleased)
+
+Shape conformity pass. The v2 phase doctrine (per-session, not a
+global singleton) was half-implemented in 2.4.x: sessionless
+`phase set` and `phase show` silently fell back to a sentinel
+session called `"global-migrated"`, and `synthesist status`
+reported a single estate-wide `phase` field that grabbed the
+latest Phase claim across all sessions. The mismatch between
+documented intent and runtime behavior produced two visible
+papercuts: (a) `synthesist claims compact` rejected its
+canonical worked-example invocation because it was wrongly
+gated as a write that needed `--session` and a writeable phase
+([#8](https://gitlab.com/nomograph/synthesist/-/issues/8) by
+[Josh Meekhof](https://gitlab.com/jmeekhof)), and (b) the
+top-level `phase` in `status` could mislead callers about the
+state of their own work. v2.5.0 closes both holes by treating
+phase as truly per-session and by exempting substrate-maintenance
+operations from attribution gates.
+
+### Upgrading from v2.4.x
+
+This release tightens two contracts that were ambiguous in
+2.4.x. Two changes can affect callers:
+
+1. **`synthesist phase set` and `synthesist phase show` now
+   require an explicit session.** Pass `--session=<id>` or set
+   `SYNTHESIST_SESSION=<id>` in the environment. There is no
+   estate-wide phase fallback. Sessionless invocations error
+   with a discoverable message that points at `synthesist
+   session start <id>`, the env var, and `synthesist status`
+   (which lists every live session's phase). Migrated v1 phase
+   data still lives under the `"global-migrated"` synthetic
+   session id; recover it with
+   `synthesist phase show --session=global-migrated` if needed.
+
+2. **`synthesist status` no longer emits a top-level `phase`
+   field.** Each entry in `sessions[]` now carries its own
+   `phase` (defaulting to `"orient"` when no Phase claim has
+   been recorded for the session). Tooling that read
+   `status.phase` should switch to iterating `status.sessions[]`
+   and reading per-entry `phase`. Within the nomograph estate
+   no internal consumers parsed the dropped field.
+
+`claims compact` no longer requires `--session` or `--force`.
+The canonical worked-example invocation in `synthesist skill`
+now matches the binary.
+
+### Closed
+
+- [#8](https://gitlab.com/nomograph/synthesist/-/issues/8) —
+  `claims compact` requires `--session` and `--force` from
+  ORIENT, contradicting the substrate-maintenance framing in
+  `synthesist skill`. Reported by Josh Meekhof. Path A
+  resolution as suggested in the issue: substrate maintenance
+  operations record no attribution, so they are exempt from
+  both the session-required gate and the phase gate.
+
+### Changed
+
+- **Phase is honestly per-session.** Removed the
+  `GLOBAL_SESSION_ID` fallback in
+  `nomograph_workflow::phase::check_phase` and in
+  `synthesist`'s `cmd_phase`. The constant remains in the
+  workflow crate, renamed to `MIGRATED_V1_SESSION_ID` to reflect
+  its sole remaining role: marking the synthetic session id
+  used by the v1 → v2 migrator. New sessionless `phase set` /
+  `phase show` calls fail fast with a discoverable error.
+- **`synthesist status` exposes phase per session.** Top-level
+  `phase` field removed. Each `sessions[]` entry carries
+  `phase`. The serve dashboard renderer for Phase claims now
+  reads the correct prop names (`name`, `session_id`); prior
+  versions silently rendered empty values.
+- **Substrate maintenance is sessionless.** `claims compact`,
+  `outcome list`, `tree show`, and the existing list/show
+  family are unified under a single `no_attribution` gate that
+  skips both the session-required check and the phase check.
+  These commands appended no claims, so the gating was always
+  spurious. The session-required error message has been updated
+  to "session required to record attribution on this write" and
+  now mentions `SYNTHESIST_SESSION`. (Incidental fix: `tree show`
+  was missing from the prior list/show bucket and required
+  `--session`; that asymmetry is gone.)
+- **`serve` dashboard renders Phase claims correctly.** Prior
+  versions read prop keys named `phase` and `session` while the
+  actual claim shape uses `name` and `session_id`, so phase
+  rows in the dashboard rendered as empty values. Now reads the
+  correct keys.
+- **`outcome add` is exempt from phase enforcement.** Recording
+  an outcome captures attribution about a spec's fate
+  (completed/abandoned/deferred/superseded_by); it is not a
+  workflow transition. It is now writable in any phase.
+- **`outcome add --status superseded_by` requires
+  `--linked-spec` at clap parse time** via `required_if_eq`.
+  Previously the schema validator caught the omission; the
+  rejection now lands earlier with a clearer error.
+### Removed
+
+- **`synthesist campaign add --phase`.** Flag was silently
+  discarded (destructured as `_phase` and never persisted). If
+  per-spec phase tracking on campaigns is wanted, it should be
+  designed against the schema explicitly rather than ride along
+  as a no-op flag.
+- **Dead `session` parameter** from read-only command bodies
+  (`tree list/show`, `spec list/show`, `task list/show/ready`,
+  `discovery list`, `campaign list`, `outcome list`). The
+  global `--session` flag still exists for write commands;
+  reads now call `discover()` directly.
+
+### Help text
+
+- `tree add --status` description no longer duplicates clap's
+  default rendering.
+- `serve --bind-all` description names the effect (allows
+  external connections) rather than only "off by default".
+- `claims` subcommand-group description states explicitly that
+  these operate on the on-disk store and record no attribution,
+  so neither `--session` nor phase gates apply.
+
+### Breaking dependencies
+
+- Bumps `nomograph-workflow` to `0.3.0`. Two breaking changes:
+  (a) `pub const GLOBAL_SESSION_ID` is removed from the public
+  surface entirely; the synthetic session id used by the v1 → v2
+  migrator (`"global-migrated"`) is now a private const inside
+  the migrator, the only code that writes it. Recovery from
+  migrated estates still works via
+  `synthesist phase show --session=global-migrated`. (b)
+  `check_phase` now returns an error when called without a
+  session id rather than falling back to the migrated sentinel.
+  The on-disk claim format is unchanged.
+
 ## [2.4.0] (2026-04-28)
 
 This release is a cohesive architectural pass driven by community

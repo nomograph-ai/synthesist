@@ -331,6 +331,9 @@ fn outcome_add_unknown_status_rejected_at_parse() {
 fn outcome_superseded_by_requires_linked_spec() {
     let tmp = tempfile::tempdir().unwrap();
     bootstrap(&tmp);
+    // v2.5.0: clap enforces this at parse time via required_if_eq,
+    // so the rejection lands before the schema validator runs. The
+    // schema-level coupling still exists as a backstop.
     synth(&tmp)
         .args([
             "--session",
@@ -343,7 +346,7 @@ fn outcome_superseded_by_requires_linked_spec() {
         ])
         .assert()
         .failure()
-        .stderr(predicate::str::contains("linked_spec"));
+        .stderr(predicate::str::contains("--linked-spec"));
 }
 
 #[test]
@@ -430,5 +433,109 @@ fn claims_compact_yes_skips_prompt() {
     let listed = String::from_utf8(listed).unwrap();
     for id in ["t1", "t2", "t3"] {
         assert!(listed.contains(&format!("\"id\":\"{id}\"")), "{listed}");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// v2.5.0: shape conformity pass.
+// - claims compact, outcome list, tree show: sessionless and phase-free.
+// - phase set / phase show: per-session, no global fallback.
+// - status: top-level `phase` removed, per-session phase in sessions[].
+// ---------------------------------------------------------------------------
+
+#[test]
+fn claims_compact_runs_without_session_or_force() {
+    let tmp = tempfile::tempdir().unwrap();
+    bootstrap(&tmp);
+    synth(&tmp)
+        .args(["claims", "compact", "--dry-run"])
+        .assert()
+        .success();
+}
+
+#[test]
+fn outcome_list_runs_without_session() {
+    let tmp = tempfile::tempdir().unwrap();
+    bootstrap(&tmp);
+    synth(&tmp)
+        .args(["outcome", "list", "k/sample"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"outcomes\""));
+}
+
+#[test]
+fn tree_show_runs_without_session() {
+    let tmp = tempfile::tempdir().unwrap();
+    bootstrap(&tmp);
+    synth(&tmp)
+        .args(["tree", "show", "k"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"name\":\"k\""));
+}
+
+#[test]
+fn phase_show_without_session_errors_with_guidance() {
+    let tmp = tempfile::tempdir().unwrap();
+    bootstrap(&tmp);
+    synth(&tmp)
+        .args(["phase", "show"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("per-session"))
+        .stderr(predicate::str::contains("--session"));
+}
+
+#[test]
+fn phase_set_without_session_errors_with_guidance() {
+    let tmp = tempfile::tempdir().unwrap();
+    bootstrap(&tmp);
+    synth(&tmp)
+        .args(["phase", "set", "agree"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("per-session"));
+}
+
+#[test]
+fn phase_show_with_session_returns_session_phase() {
+    let tmp = tempfile::tempdir().unwrap();
+    bootstrap(&tmp);
+    let out = synth(&tmp)
+        .args(["phase", "show", "--session", "s1"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let s = String::from_utf8(out).unwrap();
+    assert!(s.contains("\"session_id\":\"s1\""), "{s}");
+    assert!(s.contains("\"phase\":\"plan\""), "{s}");
+}
+
+#[test]
+fn status_drops_top_level_phase_and_embeds_per_session() {
+    let tmp = tempfile::tempdir().unwrap();
+    bootstrap(&tmp);
+    let out = synth(&tmp)
+        .args(["status"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    assert!(
+        v.get("phase").is_none(),
+        "status must not emit a top-level `phase` field; got {v}"
+    );
+    let sessions = v.get("sessions").and_then(|s| s.as_array()).unwrap();
+    assert!(!sessions.is_empty(), "expected at least one live session");
+    for s in sessions {
+        assert!(
+            s.get("phase").is_some(),
+            "every session entry must carry its own phase: {s}"
+        );
     }
 }

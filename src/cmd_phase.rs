@@ -8,7 +8,7 @@
 use anyhow::{Result, anyhow, bail};
 use nomograph_claim::ClaimType;
 use nomograph_workflow::Phase;
-use nomograph_workflow::phase::{GLOBAL_SESSION_ID, current_phase_claim};
+use nomograph_workflow::phase::current_phase_claim;
 use serde_json::json;
 
 use crate::cli::PhaseCmd;
@@ -32,11 +32,16 @@ pub fn run(cmd: &PhaseCmd, session: &Option<String>, force: bool) -> Result<()> 
     }
 }
 
-fn resolve_session(explicit: Option<&str>) -> String {
+fn resolve_session(explicit: Option<&str>) -> Result<String> {
     explicit
         .filter(|s| !s.is_empty())
         .map(String::from)
-        .unwrap_or_else(|| GLOBAL_SESSION_ID.to_string())
+        .ok_or_else(|| anyhow!(
+            "phase is per-session in v2; pass --session=<id> or set SYNTHESIST_SESSION.\n\
+             \n  start one:    synthesist session start <id>\
+             \n  show all:     synthesist status   (lists phase per live session)\
+             \n  show one:     synthesist phase show --session=<id>"
+        ))
 }
 
 fn cmd_phase_set(name: &str, session: Option<&str>, force: bool) -> Result<()> {
@@ -46,7 +51,7 @@ fn cmd_phase_set(name: &str, session: Option<&str>, force: bool) -> Result<()> {
         )
     })?;
 
-    let session_id = resolve_session(session);
+    let session_id = resolve_session(session)?;
     let mut store = SynthStore::discover()?;
 
     let prior = current_phase_claim(&store, &session_id)?;
@@ -80,7 +85,7 @@ fn cmd_phase_set(name: &str, session: Option<&str>, force: bool) -> Result<()> {
 }
 
 fn cmd_phase_show(session: Option<&str>) -> Result<()> {
-    let session_id = resolve_session(session);
+    let session_id = resolve_session(session)?;
     let store = SynthStore::discover()?;
     let phase = current_phase_claim(&store, &session_id)?
         .map(|(_, name)| name)
