@@ -45,7 +45,7 @@ synthesist session start research --tree upstream --spec auth \
 
 # 2. Set phase and create the work plan
 export SYNTHESIST_SESSION=research
-synthesist --force phase set plan
+synthesist phase set plan                            # orient -> plan for this session
 synthesist tree add upstream --description "GitLab upstream project"
 synthesist spec add upstream/auth --goal "Migrate auth API from v2 to v3"
 synthesist task add upstream/auth "Research API versioning strategy"
@@ -102,13 +102,22 @@ operations that violate the current phase. Transitions are validated.
 | REPORT | Summarize outcomes, record discoveries. Session close. | (end) |
 
 Use `--force` to override phase enforcement when necessary.
-The system starts in ORIENT after init. Use `--force phase set plan`
-before your first write.
+Every fresh session starts in ORIENT and must transition to PLAN
+before its first write. The orient -> plan transition is valid by
+default, so `synthesist phase set plan --session=<id>` (or with
+`SYNTHESIST_SESSION` set) works without `--force`.
 
-**Phase is per-session** (stored as a Phase claim scoped to the
-active session). Concurrent sessions can be in different phases
-without interfering. After closing a session, start a fresh one
-to begin a new cycle.
+**Phase is per-session.** Each Phase claim is scoped to the
+session id of the writing session. There is no estate-wide phase;
+concurrent sessions can sit in different phases without
+interfering. `synthesist phase show` and `synthesist phase set`
+both require `--session=<id>` (or `SYNTHESIST_SESSION`); a missing
+session fails with a discoverable error pointing at the
+resolution.
+
+To inspect every live session's phase at once, use
+`synthesist status` (each entry in `sessions[]` carries its
+current phase).
 
 ### Session Protocol
 
@@ -226,6 +235,10 @@ into a single `snapshot.amc` under the substrate lock; logical
 history is unchanged. Large estates have observed ~1300x
 working-tree shrink. Heavy operation; schedule during quiet
 windows.
+
+`claims compact` does not append a typed claim and records no
+attribution. It does not require `--session` and is not subject
+to phase enforcement; it can run in any phase from any context.
 ```
 synthesist claims compact --dry-run               # preview without writing
 synthesist claims compact --yes                   # required for non-interactive
@@ -236,7 +249,7 @@ to pass `--yes` rather than hanging on stdin.
 
 ### Campaigns
 ```
-synthesist campaign add <tree> <spec-id> --summary "Auth migration" --phase execute
+synthesist campaign add <tree> <spec-id> --summary "Auth migration"
 synthesist campaign add <tree> <spec-id> --backlog --title "Future: OAuth2 support"
 synthesist campaign list <tree>
 ```
@@ -254,12 +267,15 @@ Multi-user writes merge automatically via CRDT. Run
 `synthesist conflicts` to surface unresolved supersessions.
 
 ### Phase
+Phase is per-session in v2. Both `phase show` and `phase set`
+require `--session=<id>` or `SYNTHESIST_SESSION`. To see every
+live session's phase at once, use `synthesist status`.
 ```
-synthesist phase show                              # current phase (for active session)
-synthesist phase get                               # alias of `phase show`
-synthesist phase set plan                          # orient -> plan (validated)
-synthesist phase set execute                       # fails if not in agree
-synthesist --force phase set execute               # override transition validation
+synthesist phase show --session=<id>               # current phase for one session
+synthesist phase show                              # ERROR if SYNTHESIST_SESSION unset
+synthesist phase set plan --session=<id>           # orient -> plan (validated)
+synthesist phase set execute --session=<id>        # fails if not in agree
+synthesist --force phase set execute --session=<id> # override transition validation
 ```
 
 ### Data Management

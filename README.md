@@ -72,7 +72,7 @@ synthesist session start work             # appends a Session claim
 export SYNTHESIST_SESSION=work
 
 # Orient: read the landscape
-synthesist --force phase set plan
+synthesist phase set plan                 # session-scoped via SYNTHESIST_SESSION
 synthesist status
 
 # Plan: model the work
