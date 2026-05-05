@@ -1,6 +1,6 @@
 [package]
 name = "nomograph-synthesist"
-version = "2.4.0"
+version = "2.5.0"
 edition = "2024"
 rust-version = "1.88"
 description = "Specification graph manager"
@@ -47,7 +47,9 @@ time = { version = "0.3", features = ["local-offset", "formatting", "macros"] }
 chrono = { version = "0.4", features = ["serde"] }
 thiserror = "1"
 nomograph-claim = "0.2"
-nomograph-workflow = "0.2"
+# Local path lets unreleased workflow changes compile here in
+# coordinated releases; cargo strips the path on publish.
+nomograph-workflow = { version = "0.3", path = "../workflow" }
 # `serve` uses async axum + a fs watcher. See src/cmd_serve.rs.
 # Replaced rouille (sync, smaller deps) with axum because axum has
 # the bigger community trajectory (tokio + tower) and natively

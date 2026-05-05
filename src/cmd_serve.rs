@@ -832,8 +832,8 @@ fn summarize_claim_props(claim_type: &str, props: &serde_json::Map<String, Value
             format!("{id}: {summary}")
         }
         "phase" => {
-            let phase = s("phase");
-            let session = s("session");
+            let phase = s("name");
+            let session = s("session_id");
             format!("phase={phase} session={session}")
         }
         "campaign" => {

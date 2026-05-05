@@ -809,12 +809,14 @@ fn migrate_phase(conn: &Connection, store: &mut Store, s: &mut MigrationSummary)
         })
         .ok();
     if let Some(name) = name {
-        // Must match workflow::phase::GLOBAL_SESSION_ID. `synthesist
-        // phase show` (no --session) reads the phase claim with this
-        // exact session_id; a mismatch silently loses the migrated
-        // phase state.
+        // The migrated v1 phase is recorded under a synthetic session
+        // id so the per-session model in v2 stays internally
+        // consistent. The literal lives only here because the migrator
+        // is the only writer; recovery is by querying:
+        //   synthesist phase show --session=global-migrated
+        const MIGRATION_SESSION_ID: &str = "global-migrated";
         let props = json!({
-            "session_id": nomograph_workflow::phase::GLOBAL_SESSION_ID,
+            "session_id": MIGRATION_SESSION_ID,
             "name": name,
         });
         let claim = build_claim(ClaimType::Phase, props, Utc::now(), None);

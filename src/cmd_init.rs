@@ -14,6 +14,7 @@ use std::collections::{HashMap, HashSet};
 use anyhow::{Context, Result};
 use crate::schema::{ValidationOutcome, validate_claim};
 use nomograph_claim::Session;
+use nomograph_workflow::phase::current_phase_name;
 use serde_json::{Value, json};
 
 use crate::store::{CLAIMS_DIR, SynthStore, find_legacy_v1_db, json_out, legacy_migration_error};
@@ -50,12 +51,14 @@ pub fn cmd_init() -> Result<()> {
 
 /// `synthesist status`: estate overview.
 ///
-/// Output shape (parallel to v1 where possible):
+/// Output shape:
 /// - `total_claims`, `claim_counts` (by type)
 /// - `trees` (name + status)
 /// - `ready_tasks` (pending + all deps done, aggregated across all trees)
-/// - `sessions` (live Session claims)
-/// - `phase` (latest Phase claim's name, or null)
+/// - `sessions` (live Session claims, each carrying its current `phase`)
+///
+/// Phase is per-session in v2; there is no estate-wide phase field.
+/// To inspect a single session's phase use `phase show --session=<id>`.
 pub fn cmd_status() -> Result<()> {
     let mut store = SynthStore::discover()?;
 
@@ -90,41 +93,22 @@ pub fn cmd_status() -> Result<()> {
     // Ready tasks: aggregate across every (tree, spec).
     let ready = ready_tasks_all(&store)?;
 
-    // Active sessions via the Session API.
-    let sessions: Vec<Value> = Session::list_live(store.inner())
-        .context("list live sessions")?
-        .into_iter()
-        .map(|s| {
-            json!({
-                "id": s.id,
-                "tree": s.tree,
-                "spec": s.spec,
-                "summary": s.summary,
-            })
-        })
-        .collect();
-
-    // Current phase: latest Phase claim, if any.
-    let phase_rows = store.query(
-        "SELECT props FROM claims \
-         WHERE claim_type = 'phase' \
-         ORDER BY asserted_at DESC LIMIT 1",
-        &[],
-    )?;
-    let phase = phase_rows
-        .into_iter()
-        .next()
-        .and_then(|row| {
-            row.get("props")
-                .and_then(|v| v.as_str())
-                .and_then(|s| serde_json::from_str::<Value>(s).ok())
-        })
-        .and_then(|props| {
-            props
-                .get("name")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string())
-        });
+    // Active sessions via the Session API. Each session carries its
+    // current phase (defaulting to "orient" when no Phase claim yet
+    // exists for the session id).
+    let live = Session::list_live(store.inner()).context("list live sessions")?;
+    let mut sessions: Vec<Value> = Vec::with_capacity(live.len());
+    for s in live {
+        let phase = current_phase_name(&store, &s.id)?
+            .unwrap_or_else(|| "orient".to_string());
+        sessions.push(json!({
+            "id": s.id,
+            "tree": s.tree,
+            "spec": s.spec,
+            "summary": s.summary,
+            "phase": phase,
+        }));
+    }
 
     json_out(&json!({
         "total_claims": total,
@@ -132,7 +116,6 @@ pub fn cmd_status() -> Result<()> {
         "trees": trees,
         "ready_tasks": ready,
         "sessions": sessions,
-        "phase": phase,
     }))
 }
 

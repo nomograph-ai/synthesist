@@ -1176,7 +1176,7 @@ dependencies = [
 
 [[package]]
 name = "nomograph-synthesist"
-version = "2.4.0"
+version = "2.5.0"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -1200,9 +1200,7 @@ dependencies = [
 
 [[package]]
 name = "nomograph-workflow"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eb10e50cbb212e0ad279efaac047f31a1056b7e4da4a0cb22a550cbe00792604"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "blake3",
