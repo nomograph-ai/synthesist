@@ -9,6 +9,8 @@
 Specification graph manager for AI-augmented collaborative development.
 Claim-based storage over an append-only CRDT log.
 
+## What it is
+
 AI coding agents produce technically correct contributions that get
 rejected. Studies of agent-authored pull requests find that a third of
 rejections are driven by workflow constraints -- scope violations,
