@@ -91,8 +91,16 @@ fn run(cli: cli::Cli) -> anyhow::Result<()> {
         _ => {}
     }
 
-    // Read-only commands (no session required, no phase check)
-    let read_only = matches!(
+    // Commands that do not append attributable claims:
+    //   - reads (status, check, conflicts, sql, serve, export, lists/shows)
+    //   - substrate maintenance (claims compact, future verify/gc/snapshot)
+    //   - outcome list (queries Outcome claims; appends nothing)
+    //
+    // Both the session-required gate and the phase gate skip these.
+    // The landscape family (stakeholder/disposition/signal/stance)
+    // moved to `lattice` and short-circuits above, so it is not
+    // considered here.
+    let no_attribution = matches!(
         &cli.command,
         cli::Command::Status
             | cli::Command::Check
@@ -101,51 +109,55 @@ fn run(cli: cli::Cli) -> anyhow::Result<()> {
             | cli::Command::Export
             | cli::Command::Sql { .. }
             | cli::Command::Serve { .. }
+            | cli::Command::Claims { .. }
             | cli::Command::Phase {
                 cmd: cli::PhaseCmd::Show
             }
             | cli::Command::Session {
-                cmd: cli::SessionCmd::List
+                cmd: cli::SessionCmd::List | cli::SessionCmd::Status { .. },
+            }
+            | cli::Command::Tree {
+                cmd: cli::TreeCmd::List { .. } | cli::TreeCmd::Show { .. },
+            }
+            | cli::Command::Spec {
+                cmd: cli::SpecCmd::Show { .. } | cli::SpecCmd::List { .. },
+            }
+            | cli::Command::Task {
+                cmd: cli::TaskCmd::List { .. } | cli::TaskCmd::Show { .. } | cli::TaskCmd::Ready { .. },
+            }
+            | cli::Command::Discovery {
+                cmd: cli::DiscoveryCmd::List { .. },
+            }
+            | cli::Command::Campaign {
+                cmd: cli::CampaignCmd::List { .. },
+            }
+            | cli::Command::Outcome {
+                cmd: cli::OutcomeCmd::List { .. },
             }
     );
 
-    // The landscape family (stakeholder/disposition/signal/stance) moved to
-    // `lattice` and short-circuits above, so it is not considered here.
-    let is_list_or_show = matches!(
-        &cli.command,
-        cli::Command::Tree {
-            cmd: cli::TreeCmd::List { .. },
-        } | cli::Command::Spec {
-            cmd: cli::SpecCmd::Show { .. } | cli::SpecCmd::List { .. },
-        } | cli::Command::Task {
-            cmd: cli::TaskCmd::List { .. } | cli::TaskCmd::Show { .. } | cli::TaskCmd::Ready { .. },
-        } | cli::Command::Discovery {
-            cmd: cli::DiscoveryCmd::List { .. },
-        } | cli::Command::Campaign {
-            cmd: cli::CampaignCmd::List { .. },
-        } | cli::Command::Session {
-            cmd: cli::SessionCmd::Status { .. },
-        }
-    );
-
-    // Session enforcement for write operations
-    if !read_only && !is_list_or_show {
+    // Session enforcement for write operations.
+    if !no_attribution {
         let is_session_cmd = matches!(&cli.command, cli::Command::Session { .. });
         let is_phase_cmd = matches!(&cli.command, cli::Command::Phase { .. });
         let is_import = matches!(&cli.command, cli::Command::Import { .. });
 
         if !is_session_cmd && !is_phase_cmd && !is_import && cli.session.is_none() {
-            eprintln!("error: session required for write operations");
+            eprintln!("error: session required to record attribution on this write");
             eprintln!("  start new: synthesist session start <name>");
             eprintln!("  then:      synthesist --session=<name> ...");
+            eprintln!("  or set:    SYNTHESIST_SESSION=<name>");
             std::process::exit(1);
         }
     }
 
-    // Phase enforcement for write operations
-    if !read_only && !is_list_or_show && !cli.force {
+    // Phase enforcement for write operations. `outcome` is exempted
+    // because outcomes record attribution about a spec's fate
+    // (completed/abandoned/deferred/superseded_by) and are not a
+    // workflow transition; they should be writable in any phase.
+    if !no_attribution && !cli.force {
         let (top, sub) = command_path(&cli.command);
-        if !matches!(top, "session" | "phase" | "import") {
+        if !matches!(top, "session" | "phase" | "import" | "outcome") {
             let store = store::Store::discover()?;
             cmd_phase::check_phase(&store, cli.session.as_deref(), top, sub, cli.force)?;
         }

@@ -16,8 +16,8 @@ pub fn run(cmd: &TreeCmd, session: &Option<String>) -> Result<()> {
             description,
             status,
         } => cmd_tree_add(name, description, status, session),
-        TreeCmd::List { include_closed } => cmd_tree_list(*include_closed, session),
-        TreeCmd::Show { name } => cmd_tree_show(name, session),
+        TreeCmd::List { include_closed } => cmd_tree_list(*include_closed),
+        TreeCmd::Show { name } => cmd_tree_show(name),
         TreeCmd::Close { name, start_id } => cmd_tree_close(name, start_id.as_deref(), session),
     }
 }
@@ -158,8 +158,8 @@ fn resolve_trees(rows: &[TreeRow]) -> Vec<ResolvedTree> {
     out
 }
 
-fn cmd_tree_list(include_closed: bool, session: &Option<String>) -> Result<()> {
-    let store = SynthStore::discover_for(session)?;
+fn cmd_tree_list(include_closed: bool) -> Result<()> {
+    let store = SynthStore::discover()?;
     let rows = load_tree_rows(&store)?;
     let resolved = resolve_trees(&rows);
     let trees: Vec<Value> = resolved
@@ -177,8 +177,8 @@ fn cmd_tree_list(include_closed: bool, session: &Option<String>) -> Result<()> {
     json_out(&json!({ "trees": trees }))
 }
 
-fn cmd_tree_show(name: &str, session: &Option<String>) -> Result<()> {
-    let store = SynthStore::discover_for(session)?;
+fn cmd_tree_show(name: &str) -> Result<()> {
+    let store = SynthStore::discover()?;
 
     let tree_rows = store.query(
         "SELECT props FROM claims \
