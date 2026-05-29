@@ -1,3 +1,4 @@
+pub mod migrations;
 pub mod overlay;
 pub mod schema;
 pub mod surface;
