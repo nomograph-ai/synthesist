@@ -1,5 +1,107 @@
 # Changelog
 
+## [3.0.0-pre.1] - 2026-05-29
+
+v3 thesis validation release. The operator surface gains a dual-write
+SynthStore, an overlay framework with a plan-at-risk overlay, a
+manifest mechanism, SPARQL query and overlay subcommands, jig harness
+integration, telemetry scaffolding, an engineered migrations module,
+and a SHACL emitter binary. Empirical storage numbers from the storr
+corpus (143 claims): v2 footprint 35.1 MB, v3 footprint 100.9 KB,
+compression ratio 348x, mean 705.8 B per v3 claim.
+
+### Upgrading from v2.5.x
+
+This is a pre-release. The v2 `.amc` write path is still active; v3
+is dual-written alongside it for thesis validation. The v2 path drops
+in 3.0.0 final. See `MIGRATION-v2-to-v3.md` for the step-by-step
+operator playbook.
+
+### Added
+
+- **Dual-write `SynthStore`.** The `SynthStore` wrapper now writes
+  every claim twice: once to the v2 `.amc` log (still the source of
+  truth for pre.1) and once to the per-asserter JSON-LD log at
+  `claims/<asserter>/log.jsonl`. Both writes happen under the same
+  substrate lock; no interleaving is possible. The dual-write and
+  the v2-to-v3 migration produce byte-compatible v3 documents
+  (alignment landed in commit 5d7ae69).
+- **Overlay framework.** A composable overlay layer sits above the
+  graph view. Overlays receive a SPARQL result set and return a
+  structured analysis; they are registered by name and dispatched
+  from the CLI. The framework is designed for additive extension:
+  new overlays land without touching existing dispatch paths.
+- **Plan-at-risk overlay.** First shipped overlay. Fires when a
+  spec's task graph has a critical-path task in `in-progress` or
+  `blocked` state beyond a configurable horizon. The overlay is
+  validated end-to-end through the binary in `tests/plan_at_risk_e2e.rs`,
+  which drives the full CLI scenario and asserts the overlay fires.
+- **Manifest mechanism.** Surface manifests (in `surface/`) declare
+  which claim types and predicates a named surface exposes. The
+  parser-side filter routes incoming claims to named graphs using
+  the manifest declarations; manifests are also the documentation
+  artifact for operator-facing surface contracts.
+- **`synthesist query` subcommand.** Runs an ad-hoc SPARQL query
+  against the Oxigraph graph view and emits results as JSON. Useful
+  for one-off inspection and for scripting overlay inputs without
+  writing a Rust overlay.
+- **`synthesist overlay` subcommand.** Dispatches a named overlay
+  against the current graph view and emits the structured result as
+  JSON. `synthesist overlay plan-at-risk` is the canonical invocation
+  for the first overlay.
+- **Engineered migrations module.** `src/migrations/` is the new
+  home for forward-only, versioned store migrations. Four subcommands:
+  `synthesist migrate list` (enumerate available migrations),
+  `synthesist migrate status` (report current store schema version),
+  `synthesist migrate run` (run all pending migrations),
+  `synthesist migrate v2-to-v3` (the explicit v2-to-v3 migration,
+  which was a standalone binary in v2.5 and is now in-tree). The
+  module replaces the standalone `claim-migrate` binary.
+- **`synthesist emit-shacl` binary.** Emits the embedded nomograph
+  base ontology as SHACL Turtle to stdout. Useful for external
+  validator tooling and as a documentation artifact. The shapes are
+  schema-stable as of pre.1; format stability across pre releases
+  is not guaranteed.
+- **Jig harness integration.** The `jig/` directory wires the
+  synthesist command surface into `nomograph-jig` scenario tests.
+  `agent-shape.toml` is cross-referenced against the built binary's
+  `--help` surface on every push via the CI agent-shape gate.
+- **Telemetry scaffolding.** Structured span events are emitted at
+  key points in the dual-write path, migration, and overlay
+  dispatch. The telemetry surface is internal for pre.1; the
+  operator-facing `--trace` flag and subscriber configuration are
+  under consideration for pre.2.
+- **Storage empirics (storr corpus, n=143 claims).** Per-type mean
+  bytes in the v3 JSON-LD format: Task 756.6 B (n=107), Phase
+  343.8 B (n=16), Spec 537.3 B (n=6), Campaign 428.0 B (n=4),
+  Discovery 1900.5 B (n=4), Session 311.5 B (n=4), Tree 349.5 B
+  (n=2). Estate-wide: v2 35.1 MB, v3 100.9 KB, ratio 348x. Numbers
+  reflect inline `@context` overhead included in every document; the
+  context will be deduplicatable in a later release.
+
+### Known issues
+
+- **macOS ARM: Oxigraph `Store::open` panics (RocksDB
+  `TryFromIntError`).** The persistent Oxigraph store panics on
+  macOS ARM under oxigraph 0.4.11. The `cmd_overlay` handler
+  catches the panic and falls back to an in-memory graph rebuild;
+  the fallback is transparent to the operator and no data is lost.
+  Root cause investigation is tracked under Phase C.1 of the v3
+  integration plan. macOS ARM is the supported target for pre.1;
+  a fix is expected before 3.0.0 final.
+- **200-300 deprecation warnings on `cargo build`.** The v2 `.amc`
+  surface is annotated `#[deprecated]` in `nomograph-claim`. Because
+  synthesist and workflow consume the v2 surface for the duration of
+  the dual-write cycle, every build of synthesist 3.0.0-pre.1
+  produces a deprecation warning spray. This is intentional. The
+  deprecated APIs are scheduled for removal at 3.0.0 final once the
+  dual-write cycle ends.
+- **Runtime manifest dispatch is parser-side filtering only.**
+  Manifests currently filter at parse time; the runtime rejection
+  layer that refuses writes for claims routed to the wrong named
+  graph is not yet active. Phase D (rejection layer) targets
+  3.0.0-pre.2 if not landed before the pre.1 tag.
+
 ## [2.5.1] (unreleased)
 
 ### Fixed
