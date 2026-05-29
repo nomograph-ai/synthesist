@@ -1,6 +1,6 @@
 [package]
 name = "nomograph-synthesist"
-version = "2.5.1"
+version = "3.0.0-pre.1"
 edition = "2024"
 rust-version = "1.88"
 description = "Specification graph manager"
@@ -56,8 +56,8 @@ thiserror = "1"
 # branch also path-deps claim. This is the temporary integration
 # wiring; eventual T3.x folds workflow into synthesist and removes
 # the workflow crate dependency entirely.
-nomograph-claim = { path = "/Users/agd/gitlab.com/nomograph/claim" }
-nomograph-workflow = { path = "/Users/agd/gitlab.com/nomograph/workflow" }
+nomograph-claim = { path = "../claim", version = "3.0.0-pre.1" }
+nomograph-workflow = { path = "../workflow", version = "3.0.0-pre.1" }
 # `serve` uses async axum + a fs watcher. See src/cmd_serve.rs.
 # Replaced rouille (sync, smaller deps) with axum because axum has
 # the bigger community trajectory (tokio + tower) and natively
