@@ -183,6 +183,13 @@ pub enum Command {
         #[command(subcommand)]
         cmd: OutcomeCmd,
     },
+    /// Named analysis passes over the graph view. Each overlay runs a
+    /// SPARQL query and returns structured hits. Read-only; no session
+    /// or phase gate applies.
+    Overlay {
+        #[command(subcommand)]
+        cmd: OverlayCmd,
+    },
 }
 
 // --- Claims (substrate maintenance) ---
@@ -658,6 +665,19 @@ pub enum PhaseCmd {
     /// agents that reach for the get/set verb pairing.
     #[command(alias = "get")]
     Show,
+}
+
+// --- Overlay ---
+
+#[derive(Subcommand)]
+pub enum OverlayCmd {
+    /// List all registered overlays with their names and descriptions.
+    List,
+    /// Run a named overlay against the current graph view and print hits as JSON.
+    Run {
+        /// Overlay name (see `overlay list` for available names).
+        name: String,
+    },
 }
 
 /// Custom value parser for `spec update --status`.
