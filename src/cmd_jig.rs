@@ -1,6 +1,6 @@
 //! `synthesist jig` subcommand.
 //!
-//! Provides three subcommands:
+//! Provides four subcommands:
 //!
 //! - `jig run --scenario <name> --manifest <name>` -- resolve, parse, and
 //!   record a jig run setup. For v3-alpha the actual LLM session is future
@@ -10,6 +10,9 @@
 //! - `jig list-scenarios` -- print available scenarios from `jig/scenarios/`.
 //!
 //! - `jig list-manifests` -- print available manifests from `surface/`.
+//!
+//! - `jig aggregate [--format md|csv|json]` -- read all `claims/_jig/*.json`
+//!   files and produce a comparison table grouped by (scenario, manifest).
 //!
 //! ## Result file layout
 //!
@@ -22,6 +25,7 @@
 //! - `manifest`: `{ name, description }` only (not include/exclude/add lists).
 //! - `outcome`: `null` (filled in by a future post-run command).
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -132,6 +136,7 @@ pub fn run(cmd: &JigCmd) -> Result<()> {
         JigCmd::Run { scenario, manifest } => cmd_run(scenario, manifest),
         JigCmd::ListScenarios => cmd_list_scenarios(),
         JigCmd::ListManifests => cmd_list_manifests(),
+        JigCmd::Aggregate { format } => cmd_aggregate(format),
     }
 }
 
@@ -149,16 +154,10 @@ fn cmd_run(scenario_name: &str, manifest_name: &str) -> Result<()> {
 
     // Parse scenario TOML.
     let scenario_text = fs::read_to_string(&scenario_path).with_context(|| {
-        format!(
-            "reading scenario file {}",
-            scenario_path.display()
-        )
+        format!("reading scenario file {}", scenario_path.display())
     })?;
     let scenario_file: ScenarioFile = toml::from_str(&scenario_text).with_context(|| {
-        format!(
-            "parsing scenario TOML at {}",
-            scenario_path.display()
-        )
+        format!("parsing scenario TOML at {}", scenario_path.display())
     })?;
 
     // Parse manifest TOML.
@@ -237,6 +236,178 @@ fn cmd_list_manifests() -> Result<()> {
     let surface_dir = find_surface_dir()?;
     let entries = read_toml_stems(&surface_dir, "")?;
     crate::store::json_out(&json!({ "manifests": entries }))
+}
+
+// ---------------------------------------------------------------------------
+// `jig aggregate`
+// ---------------------------------------------------------------------------
+
+/// One row in the aggregate table.
+#[derive(Debug, Serialize)]
+struct AggRow {
+    scenario: String,
+    manifest: String,
+    runs: u64,
+    latest_started_at: String,
+}
+
+fn cmd_aggregate(format: &str) -> Result<()> {
+    let rows = build_aggregate_rows()?;
+
+    match format {
+        "csv" => {
+            println!("scenario,manifest,runs,latest_started_at");
+            for row in &rows {
+                println!(
+                    "{},{},{},{}",
+                    csv_escape(&row.scenario),
+                    csv_escape(&row.manifest),
+                    row.runs,
+                    csv_escape(&row.latest_started_at),
+                );
+            }
+        }
+        "json" => {
+            let out = json!({ "scenarios": rows });
+            crate::store::json_out(&out)?;
+        }
+        _ => {
+            // md (default)
+            println!("| scenario | manifest | runs | latest_started_at |");
+            println!("|---|---|---|---|");
+            for row in &rows {
+                println!(
+                    "| {} | {} | {} | {} |",
+                    row.scenario, row.manifest, row.runs, row.latest_started_at
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Read all `claims/_jig/*.json` files, group by (scenario_name, manifest_name),
+/// count runs, and record the latest started_at per group.
+///
+/// Malformed JSON files emit a stderr warning and are skipped.
+fn build_aggregate_rows() -> Result<Vec<AggRow>> {
+    // Locate the _jig directory. If it does not exist, return an empty table.
+    let claims_dir = match find_claims_dir_opt() {
+        Some(d) => d,
+        None => return Ok(Vec::new()),
+    };
+    let jig_dir = claims_dir.join("_jig");
+    if !jig_dir.exists() {
+        return Ok(Vec::new());
+    }
+
+    // Key: (scenario_name, manifest_name) -> (runs, latest_started_at)
+    let mut groups: BTreeMap<(String, String), (u64, String)> = BTreeMap::new();
+
+    let read_dir = fs::read_dir(&jig_dir)
+        .with_context(|| format!("reading jig dir {}", jig_dir.display()))?;
+
+    for entry_result in read_dir {
+        let entry = match entry_result {
+            Ok(e) => e,
+            Err(e) => {
+                eprintln!(
+                    "warning: could not read directory entry in {}: {e}",
+                    jig_dir.display()
+                );
+                continue;
+            }
+        };
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("json") {
+            continue;
+        }
+
+        let text = match fs::read_to_string(&path) {
+            Ok(t) => t,
+            Err(e) => {
+                eprintln!(
+                    "warning: skipping {}: could not read file: {e}",
+                    path.display()
+                );
+                continue;
+            }
+        };
+
+        let v: Value = match serde_json::from_str(&text) {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!(
+                    "warning: skipping {}: malformed JSON: {e}",
+                    path.display()
+                );
+                continue;
+            }
+        };
+
+        let scenario_name = match v.get("scenario_name").and_then(|s| s.as_str()) {
+            Some(s) => s.to_string(),
+            None => {
+                eprintln!(
+                    "warning: skipping {}: missing or non-string 'scenario_name'",
+                    path.display()
+                );
+                continue;
+            }
+        };
+        let manifest_name = match v.get("manifest_name").and_then(|s| s.as_str()) {
+            Some(s) => s.to_string(),
+            None => {
+                eprintln!(
+                    "warning: skipping {}: missing or non-string 'manifest_name'",
+                    path.display()
+                );
+                continue;
+            }
+        };
+        let started_at = v
+            .get("started_at")
+            .and_then(|s| s.as_str())
+            .unwrap_or("")
+            .to_string();
+
+        let slot = groups
+            .entry((scenario_name, manifest_name))
+            .or_insert((0, String::new()));
+        slot.0 += 1;
+        // Keep the lexicographically latest started_at (RFC 3339 sorts correctly).
+        if started_at > slot.1 {
+            slot.1 = started_at;
+        }
+    }
+
+    let rows: Vec<AggRow> = groups
+        .into_iter()
+        .map(|((scenario, manifest), (runs, latest_started_at))| AggRow {
+            scenario,
+            manifest,
+            runs,
+            latest_started_at,
+        })
+        .collect();
+
+    Ok(rows)
+}
+
+/// Escape a string for CSV: wrap in quotes if it contains comma, quote, or newline.
+fn csv_escape(s: &str) -> String {
+    if s.contains(',') || s.contains('"') || s.contains('\n') {
+        format!("\"{}\"", s.replace('"', "\"\""))
+    } else {
+        s.to_string()
+    }
+}
+
+/// Like `find_claims_dir` but returns `None` instead of an error when the
+/// directory cannot be found. Used by aggregate so that running from outside
+/// a workspace produces an empty table rather than an error.
+fn find_claims_dir_opt() -> Option<PathBuf> {
+    find_claims_dir().ok()
 }
 
 // ---------------------------------------------------------------------------
@@ -566,5 +737,167 @@ mod tests {
         // (and harmless) coincidence.
         assert!(h1.chars().all(|c| c.is_ascii_hexdigit()));
         assert!(h2.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    // ---------------------------------------------------------------------------
+    // Aggregate tests (T7.4)
+    // ---------------------------------------------------------------------------
+
+    fn make_result_json(
+        scenario_name: &str,
+        manifest_name: &str,
+        started_at: &str,
+    ) -> serde_json::Value {
+        json!({
+            "run_id": format!("{}-abcd1234", started_at.replace([':', '-', 'T', 'Z', '.'], "")),
+            "scenario_name": scenario_name,
+            "manifest_name": manifest_name,
+            "started_at": started_at,
+            "finished_at": started_at,
+            "status": "pending",
+            "scenario": {},
+            "manifest": { "name": manifest_name, "description": "" },
+            "outcome": null
+        })
+    }
+
+    /// Helper: create `claims/_jig/` inside `base`, write result JSON files.
+    fn setup_jig_dir(base: &std::path::Path, entries: &[(&str, &str, &str)]) {
+        let claims_dir = base.join("claims");
+        let jig_dir = claims_dir.join("_jig");
+        fs::create_dir_all(&jig_dir).unwrap();
+        for (i, (scenario, manifest, started_at)) in entries.iter().enumerate() {
+            let v = make_result_json(scenario, manifest, started_at);
+            let path = jig_dir.join(format!("{i:04}.json"));
+            fs::write(&path, serde_json::to_string_pretty(&v).unwrap()).unwrap();
+        }
+    }
+
+    /// Mutex to serialise tests that mutate SYNTHESIST_DIR. Without this,
+    /// parallel test threads can stomp on each other's env-var values.
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// Call `build_aggregate_rows` with SYNTHESIST_DIR pointed at a temp dir
+    /// that contains `claims/`. Serialises env-var mutation across tests.
+    fn aggregate_rows_in(synthesist_dir: &std::path::Path) -> Vec<AggRow> {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        unsafe { std::env::set_var("SYNTHESIST_DIR", synthesist_dir) };
+        let rows = build_aggregate_rows().unwrap();
+        unsafe { std::env::remove_var("SYNTHESIST_DIR") };
+        rows
+    }
+
+    #[test]
+    fn aggregate_empty_dir_produces_no_rows() {
+        let tmp = TempDir::new().unwrap();
+        let jig_dir = tmp.path().join("claims").join("_jig");
+        fs::create_dir_all(&jig_dir).unwrap();
+
+        let rows = aggregate_rows_in(tmp.path());
+        assert!(rows.is_empty(), "empty _jig dir should produce zero rows");
+    }
+
+    #[test]
+    fn aggregate_groups_multiple_runs() {
+        let tmp = TempDir::new().unwrap();
+        setup_jig_dir(
+            tmp.path(),
+            &[
+                ("plan-a-spec", "baseline-v25", "2024-01-01T10:00:00.000Z"),
+                ("plan-a-spec", "baseline-v25", "2024-01-02T10:00:00.000Z"),
+                ("execute-a-task", "baseline-v25", "2024-01-01T11:00:00.000Z"),
+            ],
+        );
+
+        let rows = aggregate_rows_in(tmp.path());
+
+        assert_eq!(rows.len(), 2, "expected 2 aggregate rows");
+
+        let plan = rows
+            .iter()
+            .find(|r| r.scenario == "plan-a-spec")
+            .expect("plan-a-spec row must exist");
+        assert_eq!(plan.runs, 2, "plan-a-spec should have 2 runs");
+        assert_eq!(
+            plan.latest_started_at, "2024-01-02T10:00:00.000Z",
+            "latest_started_at must be the later timestamp"
+        );
+
+        let exec = rows
+            .iter()
+            .find(|r| r.scenario == "execute-a-task")
+            .expect("execute-a-task row must exist");
+        assert_eq!(exec.runs, 1);
+    }
+
+    #[test]
+    fn aggregate_skips_malformed_json() {
+        let tmp = TempDir::new().unwrap();
+        let claims_dir = tmp.path().join("claims");
+        let jig_dir = claims_dir.join("_jig");
+        fs::create_dir_all(&jig_dir).unwrap();
+
+        let valid = make_result_json("plan-a-spec", "baseline-v25", "2024-01-01T10:00:00.000Z");
+        fs::write(
+            jig_dir.join("0001.json"),
+            serde_json::to_string_pretty(&valid).unwrap(),
+        )
+        .unwrap();
+        fs::write(jig_dir.join("0002.json"), b"not valid json {{{").unwrap();
+
+        let rows = aggregate_rows_in(tmp.path());
+        assert_eq!(rows.len(), 1, "only the valid file should contribute a row");
+        assert_eq!(rows[0].scenario, "plan-a-spec");
+        assert_eq!(rows[0].runs, 1);
+    }
+
+    #[test]
+    fn aggregate_csv_format() {
+        let tmp = TempDir::new().unwrap();
+        setup_jig_dir(
+            tmp.path(),
+            &[("plan-a-spec", "baseline-v25", "2024-01-01T10:00:00.000Z")],
+        );
+
+        let rows = aggregate_rows_in(tmp.path());
+        assert_eq!(rows.len(), 1);
+        let row = &rows[0];
+        let csv_line = format!(
+            "{},{},{},{}",
+            csv_escape(&row.scenario),
+            csv_escape(&row.manifest),
+            row.runs,
+            csv_escape(&row.latest_started_at)
+        );
+        assert_eq!(
+            csv_line,
+            "plan-a-spec,baseline-v25,1,2024-01-01T10:00:00.000Z"
+        );
+    }
+
+    #[test]
+    fn aggregate_json_format() {
+        let tmp = TempDir::new().unwrap();
+        setup_jig_dir(
+            tmp.path(),
+            &[
+                ("plan-a-spec", "baseline-v25", "2024-01-01T10:00:00.000Z"),
+                ("plan-a-spec", "sparql-v26", "2024-01-03T10:00:00.000Z"),
+            ],
+        );
+
+        let rows = aggregate_rows_in(tmp.path());
+        let out = json!({ "scenarios": rows });
+        let s = serde_json::to_string(&out).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&s).unwrap();
+
+        let scenarios = parsed["scenarios"].as_array().unwrap();
+        assert_eq!(scenarios.len(), 2);
+        for row in scenarios {
+            assert!(row.get("scenario").is_some());
+            assert!(row.get("manifest").is_some());
+            assert!(row.get("runs").is_some());
+            assert!(row.get("latest_started_at").is_some());
+        }
     }
 }
