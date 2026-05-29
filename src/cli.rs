@@ -358,6 +358,13 @@ pub enum SpecCmd {
         /// What happened (set when completing or archiving).
         #[arg(long)]
         outcome: Option<String>,
+        /// Pin the agree-time plan snapshot. Comma-separated claim
+        /// IDs of the Task claims that constitute the agreed plan.
+        /// Drives the `plan-at-risk` overlay: when any of these
+        /// claims is later superseded, the spec is flagged. Pass an
+        /// empty string to clear.
+        #[arg(long, value_delimiter = ',')]
+        agree_snapshot: Option<Vec<String>>,
     },
     /// List all specs in a tree. Tree may be passed as positional or
     /// via `--tree <name>`. Agents reach for both shapes; jig surfaced

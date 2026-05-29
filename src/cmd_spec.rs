@@ -51,6 +51,7 @@ pub fn run(cmd: &SpecCmd, session: &Option<String>) -> Result<()> {
             decisions,
             status,
             outcome,
+            agree_snapshot,
         } => {
             let (tree, spec) = parse_tree_spec(tree_spec)?;
             cmd_spec_update(
@@ -61,6 +62,7 @@ pub fn run(cmd: &SpecCmd, session: &Option<String>) -> Result<()> {
                 decisions.as_deref(),
                 status.as_deref(),
                 outcome.as_deref(),
+                agree_snapshot.as_deref(),
                 session,
             )
         }
@@ -166,6 +168,7 @@ fn cmd_spec_update(
     decisions: Option<&str>,
     status: Option<&str>,
     outcome: Option<&str>,
+    agree_snapshot: Option<&[String]>,
     session: &Option<String>,
 ) -> Result<()> {
     if goal.is_none()
@@ -173,6 +176,7 @@ fn cmd_spec_update(
         && decisions.is_none()
         && status.is_none()
         && outcome.is_none()
+        && agree_snapshot.is_none()
     {
         bail!("no fields to update");
     }
@@ -223,6 +227,14 @@ fn cmd_spec_update(
     }
     if let Some(v) = outcome {
         props.insert("outcome".into(), Value::from(v));
+    }
+    if let Some(snap) = agree_snapshot {
+        let arr: Vec<Value> = snap
+            .iter()
+            .filter(|s| !s.is_empty())
+            .map(|s| Value::from(s.as_str()))
+            .collect();
+        props.insert("agree_snapshot".into(), Value::Array(arr));
     }
 
     // Preserve tree/id/topics invariants in case prior was malformed.

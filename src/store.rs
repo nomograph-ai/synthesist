@@ -241,6 +241,57 @@ fn camel_case(s: &str) -> String {
     out
 }
 
+/// Inline @context for synthesist v3 JSON-LD docs.
+///
+/// Declares the `synthesist`, `nomograph`, `prov`, `xsd` prefixes plus
+/// IRI-reference typing for substrate-level reference predicates
+/// (`supersedes`, `agreeSnapshot`). Without these declarations a
+/// SPARQL query that does `PREFIX synthesist: <https://nomograph.org/synthesist/>`
+/// would not match the produced IRIs, because oxjsonld would treat
+/// `synthesist:Spec` as the URI `<synthesist:Spec>` rather than as the
+/// expanded `<https://nomograph.org/synthesist/Spec>`.
+fn synthesist_jsonld_context() -> serde_json::Value {
+    use serde_json::json;
+    json!({
+        "nomograph":  "https://nomograph.org/v3/",
+        "synthesist": "https://nomograph.org/synthesist/",
+        "prov":       "http://www.w3.org/ns/prov#",
+        "xsd":        "http://www.w3.org/2001/XMLSchema#",
+        "prov:generatedAtTime": {"@type": "xsd:dateTime"},
+        "prov:wasAttributedTo": {"@type": "@id"},
+        "prov:wasRevisionOf":   {"@type": "@id"},
+        "nomograph:parentAsserter": {"@type": "@id"},
+        "synthesist:supersedes":    {"@type": "@id"},
+        "synthesist:agreeSnapshot": {"@type": "@id", "@container": "@set"}
+    })
+}
+
+/// Convert a `snake_case` or `kebab-case` string to `lowerCamelCase`.
+///
+/// Used to align v3 JSON-LD predicate names with the SHACL ontology
+/// (e.g. `agree_snapshot` -> `agreeSnapshot`). Single-word inputs are
+/// unchanged.
+///
+/// Examples: `id` -> `id`, `agree_snapshot` -> `agreeSnapshot`,
+/// `depends_on` -> `dependsOn`.
+fn lower_camel_case(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut capitalize_next = false;
+    for c in s.chars() {
+        if c == '_' || c == '-' {
+            capitalize_next = true;
+            continue;
+        }
+        if capitalize_next {
+            out.extend(c.to_uppercase());
+            capitalize_next = false;
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
 /// Format the current wall-clock time as RFC 3339 with millisecond
 /// precision and a `Z` suffix.
 fn format_now() -> String {
@@ -263,10 +314,16 @@ fn v3_dual_write(
     let type_camel = camel_case(claim_type.as_str());
 
     let mut doc: Map<String, V> = Map::new();
-    doc.insert(
-        "@context".into(),
-        V::String(nomograph_claim::jsonld::BASE_CONTEXT_URI.to_string()),
-    );
+    // Inline @context: declare the synthesist prefix so JSON-LD parsers
+    // expand `synthesist:Spec` to `<https://nomograph.org/synthesist/Spec>`
+    // and SPARQL queries that `PREFIX synthesist: <...synthesist/>` match
+    // the produced IRIs. `supersedes` and `agreeSnapshot` are typed as
+    // IRI references so superseding-claim and snapshot triples bind to
+    // node IRIs (matching `@id` of the target claim) rather than literals.
+    // graph_view::rebuild's inject_inline_context respects an inline
+    // @context object and overrides only the bare-URI form, so this
+    // survives the rebuild round-trip.
+    doc.insert("@context".into(), synthesist_jsonld_context());
     doc.insert(
         "@id".into(),
         V::String(format!("synthesist:claim/{}", id_short)),
@@ -289,10 +346,14 @@ fn v3_dual_write(
         );
     }
 
-    // Expand props as synthesist:<key> predicates.
+    // Expand props as synthesist:<lowerCamelCase(key)> predicates.
+    // Snake_case is synthesist's internal convention (v2 era); the v3
+    // ontology uses lowerCamelCase to align with SHACL shapes and the
+    // overlay SPARQL prefixes (e.g. synthesist:agreeSnapshot,
+    // synthesist:dependsOn). Single-word keys pass through unchanged.
     if let Some(props_map) = props.as_object() {
         for (k, v) in props_map {
-            doc.insert(format!("synthesist:{}", k), v.clone());
+            doc.insert(format!("synthesist:{}", lower_camel_case(k)), v.clone());
         }
     }
 
