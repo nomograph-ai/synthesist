@@ -1,11 +1,23 @@
-//! CLI type definitions (clap derive).
+//! CLI type definitions (clap derive) and manifest-filtered builder.
 //!
 //! Every argument and option has a help string. These descriptions are the
 //! LLM's first contact with the tool when it runs `--help`.
+//!
+//! # Manifest-filtered builder
+//!
+//! `build_app(manifest)` constructs an equivalent `clap::Command` tree using
+//! the builder API. Each subcommand is registered with a manifest key (the
+//! string used in `[commands] include = [...]` in surface manifest TOML files).
+//! Commands not permitted by the manifest are omitted from the returned
+//! `clap::Command`.
+//!
+//! The derive-based `Cli` / `Command` enums are kept so that `Cli::parse()`
+//! (used in `main.rs`) continues to compile and dispatch correctly. The
+//! manifest-aware builder is for skill emission and manifest introspection.
 
 use std::path::PathBuf;
 
-use clap::{Parser, Subcommand};
+use clap::{Arg, Parser, Subcommand};
 
 #[derive(Parser)]
 #[command(
@@ -708,7 +720,212 @@ pub enum JigCmd {
     /// List available manifests found in `surface/`.
     #[command(name = "list-manifests")]
     ListManifests,
+    /// Aggregate all `claims/_jig/*.json` result files into a comparison
+    /// table grouped by (scenario, manifest). Counts runs and records the
+    /// latest started_at per group. Pure read: no result files are modified.
+    /// Malformed JSON files emit a stderr warning and are skipped.
+    Aggregate {
+        /// Output format: md (default), csv, or json.
+        #[arg(long, default_value = "md", value_parser = ["md", "csv", "json"])]
+        format: String,
+    },
 }
+
+// ---------------------------------------------------------------------------
+// Manifest-filtered builder
+// ---------------------------------------------------------------------------
+
+/// All manifest keys recognised by this registry.
+///
+/// Each entry is a `(key, is_v25_baseline)` pair. The `key` matches the
+/// strings used in surface manifest TOML files (`[commands] include = [...]`).
+/// Keys not in the baseline require an explicit `add` entry in the manifest.
+///
+/// Sub-commands that were retired or are internal-only (stakeholder,
+/// disposition, signal, stance) are intentionally absent: they were removed
+/// from the user-facing surface in v2.1 and are not registered in manifests.
+const REGISTRY: &[(&str, bool)] = &[
+    // --- top-level read/utility ---
+    ("status",             true),
+    ("check",              true),
+    ("conflicts",          true),
+    ("init",               true),
+    ("export",             true),
+    ("import",             true),
+    ("sql",                true),
+    ("skill",              true),
+    ("version",            true),
+    ("serve",              true),
+    // --- tree ---
+    ("tree add",           true),
+    ("tree list",          true),
+    ("tree show",          true),
+    ("tree close",         true),
+    // --- spec ---
+    ("spec add",           true),
+    ("spec show",          true),
+    ("spec update",        true),
+    ("spec list",          true),
+    // --- task ---
+    ("task add",           true),
+    ("task list",          true),
+    ("task show",          true),
+    ("task update",        true),
+    ("task claim",         true),
+    ("task done",          true),
+    ("task reset",         true),
+    ("task block",         true),
+    ("task wait",          true),
+    ("task cancel",        true),
+    ("task ready",         true),
+    ("task acceptance",    true),
+    // --- discovery ---
+    ("discovery add",      true),
+    ("discovery list",     true),
+    // --- campaign ---
+    ("campaign add",       true),
+    ("campaign list",      true),
+    // --- session ---
+    ("session start",      true),
+    ("session close",      true),
+    ("session list",       true),
+    ("session status",     true),
+    // --- phase ---
+    ("phase show",         true),
+    ("phase set",          true),
+    // --- migrate ---
+    ("migrate status",     true),
+    ("migrate v1-to-v2",   true),
+    // --- claims substrate ---
+    ("claims compact",     true),
+    // --- outcome ---
+    ("outcome add",        true),
+    ("outcome list",       true),
+    // --- v3-alpha additions (not in v2.5 baseline) ---
+    ("query",              false),
+    ("overlay list",       false),
+    ("overlay run",        false),
+    ("jig run",            false),
+    ("jig list-scenarios", false),
+    ("jig list-manifests", false),
+];
+
+/// Determine whether a command key is permitted by the manifest.
+///
+/// Logic (applied in order):
+/// 1. If the key is in `exclude`, it is always hidden.
+/// 2. If `include` is non-empty, the key must appear in `include` OR in `add`.
+/// 3. If `include` is empty, the key is permitted when it is a v2.5 baseline
+///    command OR it appears in `add`.
+fn key_permitted(key: &str, manifest: &crate::surface::manifest::Manifest) -> bool {
+    // Rule 1: explicit exclusion always wins.
+    if manifest.exclude.iter().any(|e| e == key) {
+        return false;
+    }
+
+    // Rule 2/3: check include / add.
+    let in_add = manifest.add.iter().any(|a| a == key);
+    if !manifest.include.is_empty() {
+        manifest.include.iter().any(|i| i == key) || in_add
+    } else {
+        // Empty include means "all baseline commands" plus anything in add.
+        let is_baseline = REGISTRY
+            .iter()
+            .any(|(k, baseline)| *k == key && *baseline);
+        is_baseline || in_add
+    }
+}
+
+/// Derive the top-level command name from a registry key.
+///
+/// `"task add"` -> `"task"`, `"status"` -> `"status"`.
+#[allow(dead_code)]
+fn top_cmd(key: &str) -> &str {
+    key.split_whitespace().next().unwrap_or(key)
+}
+
+/// Build a manifest-filtered `clap::Command`.
+///
+/// The returned `clap::Command` contains only the subcommands (and sub-
+/// subcommands) that the manifest permits. Argument definitions are
+/// intentionally minimal: they are sufficient for `--help` inspection and
+/// for presence/absence tests; full argument schemas remain in the derive-
+/// based `Cli` / `Command` enums used by `main.rs`.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// let manifest = surface::manifest::load(Path::new("surface/baseline-v25.toml"))?;
+/// let app = cli::build_app(&manifest);
+/// // app.find_subcommand("task") is Some(_) for the baseline manifest.
+/// ```
+pub fn build_app(manifest: &crate::surface::manifest::Manifest) -> clap::Command {
+    // Collect permitted keys for quick lookup.
+    let permitted: Vec<&str> = REGISTRY
+        .iter()
+        .filter(|(key, _)| key_permitted(key, manifest))
+        .map(|(key, _)| *key)
+        .collect();
+
+    // Group sub-sub-commands by their parent.
+    // e.g. "task add", "task list" -> parent "task", children ["add", "list"].
+    use std::collections::BTreeMap;
+    let mut parents: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
+    for key in &permitted {
+        let mut parts = key.splitn(2, ' ');
+        let parent = parts.next().unwrap();
+        match parts.next() {
+            Some(child) => parents.entry(parent).or_default().push(child),
+            None => {
+                // Top-level (no parent): insert with empty child list if absent.
+                parents.entry(parent).or_default();
+            }
+        }
+    }
+
+    let mut app = clap::Command::new("synthesist")
+        .version(env!("CARGO_PKG_VERSION"))
+        .about("Specification graph manager for AI-augmented projects")
+        .after_help(
+            "All output is JSON. Run 'synthesist skill' for the full behavioral contract.",
+        )
+        .arg(
+            Arg::new("session")
+                .long("session")
+                .env("SYNTHESIST_SESSION")
+                .global(true)
+                .value_name("SESSION")
+                .help("Session ID for write operations"),
+        )
+        .arg(
+            Arg::new("data_dir")
+                .long("data-dir")
+                .global(true)
+                .value_name("PATH")
+                .help("Path to synthesist data directory"),
+        )
+        .arg(
+            Arg::new("force")
+                .long("force")
+                .global(true)
+                .action(clap::ArgAction::SetTrue)
+                .help("Skip phase enforcement and transition validation"),
+        );
+
+    for (parent, children) in &parents {
+        let mut sub = clap::Command::new(*parent);
+        for child in children {
+            sub = sub.subcommand(clap::Command::new(*child));
+        }
+        app = app.subcommand(sub);
+    }
+
+    app
+}
+
+// ---------------------------------------------------------------------------
+// Custom value parser for `spec update --status`
+// ---------------------------------------------------------------------------
 
 /// Custom value parser for `spec update --status`.
 ///
@@ -744,4 +961,276 @@ fn parse_spec_status(s: &str) -> Result<String, String> {
         ),
     };
     Err(msg)
+}
+
+// ---------------------------------------------------------------------------
+// Tests for build_app
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod build_app_tests {
+    use super::*;
+
+    /// Helper: collect every subcommand name (and sub-subcommand name as
+    /// "parent sub") from the built `clap::Command`.
+    fn collect_keys(app: &clap::Command) -> Vec<String> {
+        let mut keys = Vec::new();
+        for sub in app.get_subcommands() {
+            let parent = sub.get_name();
+            let has_children = sub.get_subcommands().next().is_some();
+            if has_children {
+                for child in sub.get_subcommands() {
+                    keys.push(format!("{} {}", parent, child.get_name()));
+                }
+            } else {
+                keys.push(parent.to_string());
+            }
+        }
+        keys
+    }
+
+    /// Baseline manifest: include list with all v2.5 commands, no exclude, no add.
+    fn baseline_manifest() -> crate::surface::manifest::Manifest {
+        // Parse the actual baseline-v25.toml content inline so tests do not
+        // depend on the file path being present at test time.
+        let toml = r#"
+[manifest]
+name        = "baseline-v25"
+description = "v2.5-identical surface; all commands that shipped in synthesist 2.5.x"
+
+[commands]
+include = [
+    "status",
+    "tree add", "tree list", "tree show", "tree close",
+    "spec add", "spec show", "spec update", "spec list",
+    "task add", "task list", "task show", "task update",
+    "task claim", "task done", "task reset", "task block",
+    "task wait", "task cancel", "task ready", "task acceptance",
+    "discovery add", "discovery list",
+    "campaign add", "campaign list",
+    "session start", "session close", "session list", "session status",
+    "phase show", "phase set",
+    "export", "import", "sql",
+    "conflicts", "migrate status", "migrate v1-to-v2",
+    "init", "check", "version", "skill", "serve",
+    "claims compact",
+    "outcome add", "outcome list",
+]
+exclude = []
+add     = []
+"#;
+        crate::surface::manifest::parse_str(toml, "<test:baseline>").unwrap()
+    }
+
+    #[test]
+    fn baseline_manifest_has_all_v25_commands() {
+        let manifest = baseline_manifest();
+        let app = build_app(&manifest);
+        let keys = collect_keys(&app);
+
+        // Spot-check a representative cross-section.
+        let expected = [
+            "status",
+            "init",
+            "check",
+            "conflicts",
+            "export",
+            "import",
+            "sql",
+            "skill",
+            "version",
+            "serve",
+            "tree add",
+            "tree list",
+            "tree show",
+            "tree close",
+            "spec add",
+            "spec show",
+            "spec update",
+            "spec list",
+            "task add",
+            "task list",
+            "task show",
+            "task update",
+            "task claim",
+            "task done",
+            "task reset",
+            "task block",
+            "task wait",
+            "task cancel",
+            "task ready",
+            "task acceptance",
+            "discovery add",
+            "discovery list",
+            "campaign add",
+            "campaign list",
+            "session start",
+            "session close",
+            "session list",
+            "session status",
+            "phase show",
+            "phase set",
+            "migrate status",
+            "migrate v1-to-v2",
+            "claims compact",
+            "outcome add",
+            "outcome list",
+        ];
+
+        for cmd in &expected {
+            assert!(
+                keys.iter().any(|k| k == *cmd),
+                "baseline manifest: expected command '{cmd}' but it was not present; got: {keys:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn baseline_manifest_excludes_non_baseline_commands() {
+        // Commands like "query", "overlay run", "jig run" are NOT in the
+        // v2.5 baseline and must not appear when add is empty.
+        let manifest = baseline_manifest();
+        let app = build_app(&manifest);
+        let keys = collect_keys(&app);
+
+        let non_baseline = ["query", "overlay list", "overlay run", "jig run"];
+        for cmd in &non_baseline {
+            assert!(
+                !keys.iter().any(|k| k == *cmd),
+                "baseline manifest should not expose '{cmd}' but it was present"
+            );
+        }
+    }
+
+    #[test]
+    fn pruned_manifest_omits_excluded_commands() {
+        // A pruned manifest that removes task wait, task block, and task cancel.
+        let toml = r#"
+[manifest]
+name        = "pruned"
+description = "minimal surface for constrained agents"
+
+[commands]
+include = [
+    "status", "init", "check",
+    "task add", "task list", "task show", "task done", "task ready",
+    "spec add", "spec show",
+    "session start", "session close",
+    "phase show", "phase set",
+    "skill",
+]
+exclude = ["task wait", "task block", "task cancel"]
+add     = []
+"#;
+        let manifest = crate::surface::manifest::parse_str(toml, "<test:pruned>").unwrap();
+        let app = build_app(&manifest);
+        let keys = collect_keys(&app);
+
+        // These must be absent.
+        let excluded = ["task wait", "task block", "task cancel"];
+        for cmd in &excluded {
+            assert!(
+                !keys.iter().any(|k| k == *cmd),
+                "pruned manifest should not expose '{cmd}' but it was present"
+            );
+        }
+
+        // Basic commands must still be present.
+        let required = ["status", "task add", "task ready", "task done"];
+        for cmd in &required {
+            assert!(
+                keys.iter().any(|k| k == *cmd),
+                "pruned manifest must expose '{cmd}' but it was absent"
+            );
+        }
+    }
+
+    #[test]
+    fn add_list_enables_non_baseline_commands() {
+        // A manifest with an empty include (all baseline present) plus add = ["query"].
+        let toml = r#"
+[manifest]
+name        = "sparql-exposed"
+description = "baseline plus query"
+
+[commands]
+include = []
+exclude = []
+add     = ["query", "overlay run", "overlay list"]
+"#;
+        let manifest = crate::surface::manifest::parse_str(toml, "<test:sparql>").unwrap();
+        let app = build_app(&manifest);
+        let keys = collect_keys(&app);
+
+        // Added commands must be present.
+        for cmd in &["query", "overlay run", "overlay list"] {
+            assert!(
+                keys.iter().any(|k| k == *cmd),
+                "sparql manifest must expose '{cmd}' but it was absent"
+            );
+        }
+
+        // Baseline commands must also be present (include is empty = all baseline).
+        for cmd in &["status", "task add", "task ready"] {
+            assert!(
+                keys.iter().any(|k| k == *cmd),
+                "baseline command '{cmd}' should be present with empty include, but was absent"
+            );
+        }
+    }
+
+    #[test]
+    fn exclude_always_wins_over_include_and_add() {
+        let toml = r#"
+[manifest]
+name        = "conflict-test"
+description = "exclude beats include"
+
+[commands]
+include = ["status", "query", "task add"]
+exclude = ["query", "task add"]
+add     = ["query"]
+"#;
+        let manifest = crate::surface::manifest::parse_str(toml, "<test:conflict>").unwrap();
+        let app = build_app(&manifest);
+        let keys = collect_keys(&app);
+
+        // "query" is in both include, add, AND exclude -- exclude wins.
+        assert!(
+            !keys.iter().any(|k| k == "query"),
+            "'query' is excluded and must not appear even though it is also in include and add"
+        );
+        // "task add" is excluded.
+        assert!(
+            !keys.iter().any(|k| k == "task add"),
+            "'task add' is excluded and must not appear"
+        );
+        // "status" is only in include, not excluded.
+        assert!(
+            keys.iter().any(|k| k == "status"),
+            "'status' is in include and not excluded, must be present"
+        );
+    }
+
+    #[test]
+    fn empty_manifest_exposes_only_baseline() {
+        // A manifest with all lists empty means: all v2.5 baseline commands,
+        // nothing extra.
+        let toml = r#"
+[manifest]
+name        = "empty-lists"
+description = "all lists empty"
+"#;
+        let manifest = crate::surface::manifest::parse_str(toml, "<test:empty>").unwrap();
+        let app = build_app(&manifest);
+        let keys = collect_keys(&app);
+
+        // Baseline commands present.
+        assert!(keys.iter().any(|k| k == "status"));
+        assert!(keys.iter().any(|k| k == "task add"));
+
+        // Non-baseline absent.
+        assert!(!keys.iter().any(|k| k == "query"));
+        assert!(!keys.iter().any(|k| k == "overlay run"));
+    }
 }
