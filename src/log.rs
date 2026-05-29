@@ -252,11 +252,189 @@ impl LogWriter {
 /// - `user:local:agd:edc-bootstrap` -> `user-local-agd-edc-bootstrap`
 /// - `agent:claude-opus-4-7:sess-abc` -> `agent-claude-opus-4-7-sess-abc`
 ///
-/// TODO: move this function to `src/asserter.rs` as `Asserter::dir_name`
-/// once T1.4 (per-asserter routing) lands. The `LogWriter` call site
-/// should then delegate to `Asserter::dir_name(&self)`.
+/// Kept as a free function for ergonomic call sites that have only the
+/// raw asserter string. Parsed asserters should prefer
+/// [`crate::asserter::Asserter::dir_name`] which validates the format
+/// before returning the directory name.
 pub fn dir_name_for_asserter(asserter: &str) -> String {
     asserter.replace(':', "-")
+}
+
+//
+// LogReader: walk the union of per-asserter log files.
+//
+
+/// One claim materialized from a log line.
+///
+/// `id` is the claim's `@id` value pulled from the parsed document.
+/// `raw` is the full JSON-LD doc as a `serde_json::Value`. Callers that
+/// want typed access against a module schema (e.g., synth:Task) walk
+/// the raw value themselves.
+#[derive(Debug, Clone)]
+pub struct Claim {
+    pub id: ClaimId,
+    pub raw: Value,
+}
+
+/// Iterates the union of all asserter logs under a claims directory.
+///
+/// Order is deterministic: asserter directories are sorted
+/// lexicographically by name; within each, lines are yielded in file
+/// order. The pseudo-asserter `bootstrap` (for `genesis.jsonld` at the
+/// top level of `claims/`) is yielded first if the file exists.
+///
+/// Order across asserters is NOT time-sorted; callers that need
+/// `prov:generatedAtTime` ordering must sort the yielded claims after
+/// the fact (cheap on Oxigraph; less so when iterating raw).
+pub struct LogReader {
+    claims_dir: PathBuf,
+}
+
+impl LogReader {
+    /// Open the claims directory for reading.
+    ///
+    /// The directory does not have to exist; an empty or missing
+    /// directory yields zero claims with no error.
+    pub fn new(claims_dir: &Path) -> Result<Self> {
+        Ok(Self {
+            claims_dir: claims_dir.to_path_buf(),
+        })
+    }
+
+    /// Return the root claims directory this reader iterates.
+    pub fn claims_dir(&self) -> &Path {
+        &self.claims_dir
+    }
+
+    /// Yield claims one at a time, in the order described above.
+    ///
+    /// Each item is a `Result` so the iteration can continue past a
+    /// malformed line. The caller can `filter_map(Result::ok)` to skip
+    /// errors, or collect and inspect them.
+    pub fn iter_claims(&self) -> ClaimIter {
+        ClaimIter::new(&self.claims_dir)
+    }
+}
+
+/// Iterator over claims in a [`LogReader`].
+///
+/// Implements two-tier iteration: outer over (genesis + asserter
+/// directories), inner over lines within each log file.
+pub struct ClaimIter {
+    sources: std::vec::IntoIter<PathBuf>,
+    current_lines: Option<std::io::Lines<std::io::BufReader<fs::File>>>,
+}
+
+impl ClaimIter {
+    fn new(claims_dir: &Path) -> Self {
+        let sources = enumerate_log_sources(claims_dir);
+        Self {
+            sources: sources.into_iter(),
+            current_lines: None,
+        }
+    }
+
+    fn open_next(&mut self) -> Option<()> {
+        let path = self.sources.next()?;
+        match fs::File::open(&path) {
+            Ok(f) => {
+                use std::io::BufRead;
+                let reader = std::io::BufReader::new(f);
+                self.current_lines = Some(reader.lines());
+                Some(())
+            }
+            Err(_) => {
+                // File disappeared between enumeration and open. Skip
+                // it and try the next source.
+                self.open_next()
+            }
+        }
+    }
+}
+
+impl Iterator for ClaimIter {
+    type Item = Result<Claim>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            if let Some(ref mut lines) = self.current_lines {
+                match lines.next() {
+                    Some(Ok(line)) => {
+                        if line.trim().is_empty() {
+                            continue;
+                        }
+                        return Some(parse_line(&line));
+                    }
+                    Some(Err(e)) => {
+                        return Some(Err(anyhow::anyhow!("read line: {}", e)));
+                    }
+                    None => {
+                        self.current_lines = None;
+                    }
+                }
+            } else if self.open_next().is_none() {
+                return None;
+            }
+        }
+    }
+}
+
+/// Enumerate the log files to read, in canonical order.
+///
+/// The genesis file `claims/genesis.jsonld` is first if it exists, then
+/// the per-asserter `claims/<asserter-dir>/log.jsonl` files in
+/// lexicographic order of asserter directory name.
+fn enumerate_log_sources(claims_dir: &Path) -> Vec<PathBuf> {
+    let mut sources = Vec::new();
+
+    let genesis = claims_dir.join("genesis.jsonld");
+    if genesis.exists() {
+        sources.push(genesis);
+    }
+
+    let entries = match fs::read_dir(claims_dir) {
+        Ok(e) => e,
+        Err(_) => return sources,
+    };
+
+    let mut asserter_dirs: Vec<PathBuf> = entries
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| p.is_dir())
+        .filter(|p| {
+            // Skip the gitignored view and telemetry directories.
+            !p.file_name()
+                .map(|n| {
+                    let s = n.to_string_lossy();
+                    s.starts_with('_') || s.starts_with('.')
+                })
+                .unwrap_or(false)
+        })
+        .collect();
+    asserter_dirs.sort();
+
+    for dir in asserter_dirs {
+        let log = dir.join("log.jsonl");
+        if log.exists() {
+            sources.push(log);
+        }
+    }
+
+    sources
+}
+
+fn parse_line(line: &str) -> Result<Claim> {
+    let raw: Value = serde_json::from_str(line)
+        .with_context(|| "parse JSON-LD line")?;
+    let id = raw
+        .get("@id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("line missing @id"))?
+        .to_string();
+    Ok(Claim {
+        id: ClaimId(id),
+        raw,
+    })
 }
 
 #[cfg(test)]
@@ -510,5 +688,220 @@ mod tests {
         let id = ClaimId("synth:claim/abc".to_owned());
         assert_eq!(id.as_str(), "synth:claim/abc");
         assert_eq!(id.to_string(), "synth:claim/abc");
+    }
+
+    //
+    // LogReader tests (T1.3).
+    //
+
+    fn write_log_line(path: &Path, doc: &Value) {
+        use std::io::Write;
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let mut file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+            .unwrap();
+        let bytes = serde_json::to_vec(doc).unwrap();
+        file.write_all(&bytes).unwrap();
+        file.write_all(b"\n").unwrap();
+    }
+
+    #[test]
+    fn reader_yields_50_claims_across_3_asserters() {
+        let tmp = TempDir::new().unwrap();
+        let writer = LogWriter::new(tmp.path()).unwrap();
+
+        for i in 0..20 {
+            let doc = make_claim(
+                &format!("synth:claim/a{:02}", i),
+                "asserter:user:local:agd",
+            );
+            writer.append("user:local:agd", &doc).unwrap();
+        }
+        for i in 0..15 {
+            let doc = make_claim(
+                &format!("synth:claim/b{:02}", i),
+                "asserter:user:local:jkolb",
+            );
+            writer.append("user:local:jkolb", &doc).unwrap();
+        }
+        for i in 0..15 {
+            let doc = make_claim(
+                &format!("synth:claim/c{:02}", i),
+                "asserter:agent:claude:sess1",
+            );
+            writer.append("agent:claude:sess1", &doc).unwrap();
+        }
+
+        let reader = LogReader::new(tmp.path()).unwrap();
+        let mut ids: Vec<String> = Vec::new();
+        for item in reader.iter_claims() {
+            let claim = item.unwrap();
+            ids.push(claim.id.as_str().to_string());
+        }
+
+        assert_eq!(ids.len(), 50);
+
+        // Verify no duplicates.
+        let mut sorted = ids.clone();
+        sorted.sort();
+        sorted.dedup();
+        assert_eq!(sorted.len(), 50);
+    }
+
+    #[test]
+    fn reader_includes_genesis_first() {
+        let tmp = TempDir::new().unwrap();
+        let writer = LogWriter::new(tmp.path()).unwrap();
+
+        // Write a genesis claim manually.
+        let genesis = json!({
+            "@context": "https://nomograph.org/v3/context.jsonld",
+            "@id": "nomograph:claim/genesis",
+            "@type": "nomograph:Genesis",
+            "prov:generatedAtTime": "2026-01-01T00:00:00.000Z",
+            "prov:wasAttributedTo": "asserter:bootstrap"
+        });
+        write_log_line(&tmp.path().join("genesis.jsonld"), &genesis);
+
+        // Write some normal claims.
+        for i in 0..3 {
+            let doc = make_claim(
+                &format!("synth:claim/n{}", i),
+                "asserter:user:local:agd",
+            );
+            writer.append("user:local:agd", &doc).unwrap();
+        }
+
+        let reader = LogReader::new(tmp.path()).unwrap();
+        let first = reader.iter_claims().next().unwrap().unwrap();
+        assert_eq!(first.id.as_str(), "nomograph:claim/genesis");
+    }
+
+    #[test]
+    fn reader_on_empty_dir_yields_zero_claims() {
+        let tmp = TempDir::new().unwrap();
+        let reader = LogReader::new(tmp.path()).unwrap();
+        let count = reader.iter_claims().count();
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn reader_on_missing_dir_yields_zero_claims() {
+        let tmp = TempDir::new().unwrap();
+        let missing = tmp.path().join("does-not-exist");
+        let reader = LogReader::new(&missing).unwrap();
+        let count = reader.iter_claims().count();
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn reader_continues_past_malformed_line() {
+        let tmp = TempDir::new().unwrap();
+
+        // Manually write a log with one good line, one bad line,
+        // one good line.
+        let asserter_dir = tmp.path().join("user-local-agd");
+        std::fs::create_dir_all(&asserter_dir).unwrap();
+        let log_path = asserter_dir.join("log.jsonl");
+        let good_a = serde_json::to_string(&make_claim(
+            "synth:claim/good_a",
+            "asserter:user:local:agd",
+        ))
+        .unwrap();
+        let good_b = serde_json::to_string(&make_claim(
+            "synth:claim/good_b",
+            "asserter:user:local:agd",
+        ))
+        .unwrap();
+        let content = format!("{}\n{{ this is not valid json\n{}\n", good_a, good_b);
+        std::fs::write(&log_path, content).unwrap();
+
+        let reader = LogReader::new(tmp.path()).unwrap();
+        let results: Vec<Result<Claim>> = reader.iter_claims().collect();
+
+        // 3 results: good, error, good.
+        assert_eq!(results.len(), 3);
+        assert!(results[0].is_ok());
+        assert!(results[1].is_err());
+        assert!(results[2].is_ok());
+    }
+
+    #[test]
+    fn reader_skips_blank_lines() {
+        let tmp = TempDir::new().unwrap();
+        let asserter_dir = tmp.path().join("user-local-agd");
+        std::fs::create_dir_all(&asserter_dir).unwrap();
+        let log_path = asserter_dir.join("log.jsonl");
+        let good = serde_json::to_string(&make_claim(
+            "synth:claim/x",
+            "asserter:user:local:agd",
+        ))
+        .unwrap();
+        // Empty line at the top, then a good claim, then an empty line.
+        let content = format!("\n{}\n\n", good);
+        std::fs::write(&log_path, content).unwrap();
+
+        let reader = LogReader::new(tmp.path()).unwrap();
+        let count = reader.iter_claims().filter(|r| r.is_ok()).count();
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn reader_skips_underscore_prefixed_dirs() {
+        let tmp = TempDir::new().unwrap();
+        let writer = LogWriter::new(tmp.path()).unwrap();
+
+        // Create a fake _view and _telemetry dir with bogus log files.
+        std::fs::create_dir_all(tmp.path().join("_view")).unwrap();
+        std::fs::write(tmp.path().join("_view/log.jsonl"), "garbage\n").unwrap();
+        std::fs::create_dir_all(tmp.path().join("_telemetry")).unwrap();
+        std::fs::write(
+            tmp.path().join("_telemetry/log.jsonl"),
+            "also garbage\n",
+        )
+        .unwrap();
+
+        // Write a real claim.
+        let doc = make_claim("synth:claim/real", "asserter:user:local:agd");
+        writer.append("user:local:agd", &doc).unwrap();
+
+        let reader = LogReader::new(tmp.path()).unwrap();
+        let results: Vec<_> = reader.iter_claims().collect();
+        assert_eq!(results.len(), 1, "_view and _telemetry should be skipped");
+    }
+
+    #[test]
+    fn reader_orders_asserters_lexicographically() {
+        let tmp = TempDir::new().unwrap();
+        let writer = LogWriter::new(tmp.path()).unwrap();
+
+        // Append in NON-lexicographic order.
+        let doc_z = make_claim("synth:claim/from_zulu", "asserter:user:local:zulu");
+        writer.append("user:local:zulu", &doc_z).unwrap();
+
+        let doc_a = make_claim("synth:claim/from_alpha", "asserter:user:local:alpha");
+        writer.append("user:local:alpha", &doc_a).unwrap();
+
+        let doc_m = make_claim("synth:claim/from_mike", "asserter:user:local:mike");
+        writer.append("user:local:mike", &doc_m).unwrap();
+
+        let reader = LogReader::new(tmp.path()).unwrap();
+        let ids: Vec<String> = reader
+            .iter_claims()
+            .filter_map(|r| r.ok())
+            .map(|c| c.id.as_str().to_string())
+            .collect();
+
+        // Alpha < mike < zulu lexicographically.
+        assert_eq!(
+            ids,
+            vec![
+                "synth:claim/from_alpha",
+                "synth:claim/from_mike",
+                "synth:claim/from_zulu",
+            ]
+        );
     }
 }
