@@ -558,16 +558,16 @@ mod sparql_tests {
                 "nomograph": "https://nomograph.org/v3/",
                 "prov":      "http://www.w3.org/ns/prov#",
                 "xsd":       "http://www.w3.org/2001/XMLSchema#",
-                "synth":     "https://nomograph.org/synth/",
+                "synthesist": "https://nomograph.org/synthesist/",
                 "prov:generatedAtTime": {"@type": "xsd:dateTime"},
                 "prov:wasAttributedTo": {"@type": "@id"}
             },
-            "@id": format!("synth:claim/{}", id_suffix),
-            "@type": "synth:Task",
+            "@id": format!("synthesist:claim/{}", id_suffix),
+            "@type": "synthesist:Task",
             "prov:generatedAtTime": "2026-05-29T00:00:00.000Z",
             "prov:wasAttributedTo": "asserter:user:local:agd",
-            "synth:summary": format!("Task {}", id_suffix),
-            "synth:status":  status,
+            "synthesist:summary": format!("Task {}", id_suffix),
+            "synthesist:status":  status,
         })
     }
 
@@ -654,8 +654,8 @@ mod sparql_tests {
         let (_tmp, view) = build_test_view(3);
         let results = nomograph_claim::graph_view::select(
             &view,
-            "PREFIX synth: <https://nomograph.org/synth/> \
-             SELECT ?c ?summary WHERE { GRAPH ?g { ?c synth:summary ?summary } } ORDER BY ?c",
+            "PREFIX synthesist: <https://nomograph.org/synthesist/> \
+             SELECT ?c ?summary WHERE { GRAPH ?g { ?c synthesist:summary ?summary } } ORDER BY ?c",
         )
         .unwrap();
         let json_str = serialize_sparql_json_results(&results);
@@ -699,8 +699,8 @@ mod sparql_tests {
         let (_tmp, view) = build_test_view(3);
         let results = nomograph_claim::graph_view::select(
             &view,
-            "PREFIX synth: <https://nomograph.org/synth/> \
-             SELECT ?c WHERE { GRAPH ?g { ?c synth:status \"pending\" } }",
+            "PREFIX synthesist: <https://nomograph.org/synthesist/> \
+             SELECT ?c WHERE { GRAPH ?g { ?c synthesist:status \"pending\" } }",
         )
         .unwrap();
         let body = serialize_sparql_json_results(&results);

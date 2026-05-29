@@ -1,7 +1,7 @@
 //! Plan-at-risk overlay: flag specs whose agreed plan has been superseded.
 //!
 //! A spec is plan-at-risk when:
-//!   - It has `synth:agreeSnapshot` (a set of claim IRIs captured at AGREE
+//!   - It has `synthesist:agreeSnapshot` (a set of claim IRIs captured at AGREE
 //!     time), AND
 //!   - At least one claim in that snapshot has been superseded by a newer
 //!     claim whose `prov:generatedAtTime` is after the spec's own
@@ -11,7 +11,7 @@
 //!
 //! ```text
 //! subject   = spec IRI  (the at-risk spec)
-//! predicate = "synth:planAtRisk"
+//! predicate = "synthesist:planAtRisk"
 //! object    = new_claim IRI  (the claim that superseded a snapshot member)
 //! detail    = {"old_claim": ..., "stakeholder": ..., "new_at": ..., "spec_id": ...}
 //! ```
@@ -20,10 +20,10 @@
 //!
 //! ## T8.2 shortcut: spec_id in detail
 //!
-//! The SPARQL query also SELECTs the spec's `synth:id` literal (via OPTIONAL)
+//! The SPARQL query also SELECTs the spec's `synthesist:id` literal (via OPTIONAL)
 //! and surfaces it as `detail.spec_id`. This allows `cmd_task ready` to match
 //! overlay hits against task records by raw spec id without a second lookup.
-//! The OPTIONAL clause means specs without a `synth:id` triple still produce
+//! The OPTIONAL clause means specs without a `synthesist:id` triple still produce
 //! hits; `detail.spec_id` will be an empty string in that case.
 
 use anyhow::Result;
@@ -41,17 +41,17 @@ pub struct PlanAtRiskOverlay;
 
 const QUERY: &str = r#"
     PREFIX rdf:   <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-    PREFIX synth: <https://nomograph.org/synth/>
+    PREFIX synthesist: <https://nomograph.org/synthesist/>
     PREFIX prov:  <http://www.w3.org/ns/prov#>
 
     SELECT ?spec ?spec_id ?old_claim ?new_claim ?stakeholder ?new_at
     WHERE {
       GRAPH ?g {
-        ?spec a synth:Spec ; synth:agreeSnapshot ?old_claim .
+        ?spec a synthesist:Spec ; synthesist:agreeSnapshot ?old_claim .
         ?spec prov:generatedAtTime ?spec_agreed_at .
-        OPTIONAL { ?spec synth:id ?spec_id . }
+        OPTIONAL { ?spec synthesist:id ?spec_id . }
 
-        ?new_claim synth:supersedes ?old_claim ;
+        ?new_claim synthesist:supersedes ?old_claim ;
                    prov:wasAttributedTo ?stakeholder ;
                    prov:generatedAtTime ?new_at .
         FILTER(?new_at > ?spec_agreed_at)
@@ -107,7 +107,7 @@ impl Overlay for PlanAtRiskOverlay {
 
             hits.push(OverlayResult::with_detail(
                 spec,
-                "synth:planAtRisk",
+                "synthesist:planAtRisk",
                 new_claim,
                 json!({
                     "old_claim": old_claim,
@@ -150,14 +150,14 @@ mod tests {
     /// Inline @context shared by all test fixture documents.
     fn ctx() -> serde_json::Value {
         json!({
-            "nomograph": "https://nomograph.org/v3/",
-            "prov":      "http://www.w3.org/ns/prov#",
-            "xsd":       "http://www.w3.org/2001/XMLSchema#",
-            "synth":     "https://nomograph.org/synth/",
+            "nomograph":  "https://nomograph.org/v3/",
+            "prov":       "http://www.w3.org/ns/prov#",
+            "xsd":        "http://www.w3.org/2001/XMLSchema#",
+            "synthesist": "https://nomograph.org/synthesist/",
             "prov:generatedAtTime": {"@type": "xsd:dateTime"},
             "prov:wasAttributedTo": {"@type": "@id"},
-            "synth:supersedes":    {"@type": "@id"},
-            "synth:agreeSnapshot": {"@type": "@id", "@container": "@set"}
+            "synthesist:supersedes":    {"@type": "@id"},
+            "synthesist:agreeSnapshot": {"@type": "@id", "@container": "@set"}
         })
     }
 
@@ -176,11 +176,11 @@ mod tests {
         for id in ["claim-a", "claim-b", "claim-c"] {
             let doc = json!({
                 "@context": ctx(),
-                "@id": format!("synth:{}", id),
-                "@type": "synth:Task",
+                "@id": format!("synthesist:{}", id),
+                "@type": "synthesist:Task",
                 "prov:generatedAtTime": "2026-05-01T00:00:00.000Z",
                 "prov:wasAttributedTo": "asserter:user:local:agd",
-                "synth:summary": format!("Original {}", id),
+                "synthesist:summary": format!("Original {}", id),
             });
             writer.append("user:local:agd", &doc).unwrap();
         }
@@ -188,12 +188,12 @@ mod tests {
         // The spec, agreed on 2026-05-05, with the 3-claim snapshot.
         let spec_doc = json!({
             "@context": ctx(),
-            "@id": "synth:spec-alpha",
-            "@type": "synth:Spec",
+            "@id": "synthesist:spec-alpha",
+            "@type": "synthesist:Spec",
             "prov:generatedAtTime": "2026-05-05T12:00:00.000Z",
             "prov:wasAttributedTo": "asserter:user:local:agd",
-            "synth:summary": "Alpha spec",
-            "synth:agreeSnapshot": ["synth:claim-a", "synth:claim-b", "synth:claim-c"],
+            "synthesist:summary": "Alpha spec",
+            "synthesist:agreeSnapshot": ["synthesist:claim-a", "synthesist:claim-b", "synthesist:claim-c"],
         });
         writer.append("user:local:agd", &spec_doc).unwrap();
 
@@ -201,12 +201,12 @@ mod tests {
         // AGREE timestamp. This is the change that puts the plan at risk.
         let superseder = json!({
             "@context": ctx(),
-            "@id": "synth:claim-b-v2",
-            "@type": "synth:Task",
+            "@id": "synthesist:claim-b-v2",
+            "@type": "synthesist:Task",
             "prov:generatedAtTime": "2026-05-10T09:00:00.000Z",
             "prov:wasAttributedTo": "asserter:user:local:bob",
-            "synth:summary": "Revised claim-b",
-            "synth:supersedes": "synth:claim-b",
+            "synthesist:summary": "Revised claim-b",
+            "synthesist:supersedes": "synthesist:claim-b",
         });
         writer.append("user:local:agd", &superseder).unwrap();
 
@@ -235,7 +235,7 @@ mod tests {
             "object should be claim-b-v2 (the superseder), got: {}",
             hits[0].object
         );
-        assert_eq!(hits[0].predicate, "synth:planAtRisk");
+        assert_eq!(hits[0].predicate, "synthesist:planAtRisk");
 
         // Detail must contain old_claim pointing at claim-b.
         let old = hits[0].detail.get("old_claim").and_then(|v| v.as_str()).unwrap_or("");
@@ -247,7 +247,7 @@ mod tests {
     }
 
     // ------------------------------------------------------------------
-    // T8.2: spec_id surfaces in detail when synth:id is present.
+    // T8.2: spec_id surfaces in detail when synthesist:id is present.
     // ------------------------------------------------------------------
     #[test]
     fn spec_id_surfaces_in_detail_when_present() {
@@ -255,41 +255,41 @@ mod tests {
         let writer = LogWriter::new(tmp.path()).unwrap();
 
         let mut ctx_with_id = ctx();
-        ctx_with_id["synth:id"] = json!({});
+        ctx_with_id["synthesist:id"] = json!({});
 
         // One snapshot claim.
         let claim_doc = json!({
             "@context": ctx_with_id,
-            "@id": "synth:claim-for-id-test",
-            "@type": "synth:Task",
+            "@id": "synthesist:claim-for-id-test",
+            "@type": "synthesist:Task",
             "prov:generatedAtTime": "2026-05-01T00:00:00.000Z",
             "prov:wasAttributedTo": "asserter:user:local:agd",
-            "synth:summary": "Claim for id test",
+            "synthesist:summary": "Claim for id test",
         });
         writer.append("user:local:agd", &claim_doc).unwrap();
 
-        // Spec with synth:id "my-spec".
+        // Spec with synthesist:id "my-spec".
         let spec_doc = json!({
             "@context": ctx_with_id,
-            "@id": "synth:spec-with-id",
-            "@type": "synth:Spec",
-            "synth:id": "my-spec",
+            "@id": "synthesist:spec-with-id",
+            "@type": "synthesist:Spec",
+            "synthesist:id": "my-spec",
             "prov:generatedAtTime": "2026-05-05T12:00:00.000Z",
             "prov:wasAttributedTo": "asserter:user:local:agd",
-            "synth:summary": "Spec with id",
-            "synth:agreeSnapshot": ["synth:claim-for-id-test"],
+            "synthesist:summary": "Spec with id",
+            "synthesist:agreeSnapshot": ["synthesist:claim-for-id-test"],
         });
         writer.append("user:local:agd", &spec_doc).unwrap();
 
         // Superseder after AGREE.
         let superseder = json!({
             "@context": ctx_with_id,
-            "@id": "synth:claim-for-id-test-v2",
-            "@type": "synth:Task",
+            "@id": "synthesist:claim-for-id-test-v2",
+            "@type": "synthesist:Task",
             "prov:generatedAtTime": "2026-05-10T09:00:00.000Z",
             "prov:wasAttributedTo": "asserter:user:local:agd",
-            "synth:summary": "Revised",
-            "synth:supersedes": "synth:claim-for-id-test",
+            "synthesist:summary": "Revised",
+            "synthesist:supersedes": "synthesist:claim-for-id-test",
         });
         writer.append("user:local:agd", &superseder).unwrap();
 
@@ -320,22 +320,22 @@ mod tests {
         // A spec with no agreeSnapshot field.
         let spec_doc = json!({
             "@context": ctx(),
-            "@id": "synth:spec-no-snapshot",
-            "@type": "synth:Spec",
+            "@id": "synthesist:spec-no-snapshot",
+            "@type": "synthesist:Spec",
             "prov:generatedAtTime": "2026-05-05T12:00:00.000Z",
             "prov:wasAttributedTo": "asserter:user:local:agd",
-            "synth:summary": "Spec without a snapshot",
+            "synthesist:summary": "Spec without a snapshot",
         });
         writer.append("user:local:agd", &spec_doc).unwrap();
 
         // A superseding claim in the same time window.
         let superseder = json!({
             "@context": ctx(),
-            "@id": "synth:claim-x-v2",
-            "@type": "synth:Task",
+            "@id": "synthesist:claim-x-v2",
+            "@type": "synthesist:Task",
             "prov:generatedAtTime": "2026-05-10T09:00:00.000Z",
             "prov:wasAttributedTo": "asserter:user:local:agd",
-            "synth:supersedes": "synth:claim-x",
+            "synthesist:supersedes": "synthesist:claim-x",
         });
         writer.append("user:local:agd", &superseder).unwrap();
 
@@ -371,11 +371,11 @@ mod tests {
         for i in 0..300usize {
             let doc = json!({
                 "@context": ctx(),
-                "@id": format!("synth:claim-bulk-{:04}", i),
-                "@type": "synth:Task",
+                "@id": format!("synthesist:claim-bulk-{:04}", i),
+                "@type": "synthesist:Task",
                 "prov:generatedAtTime": "2026-05-01T00:00:00.000Z",
                 "prov:wasAttributedTo": "asserter:user:local:agd",
-                "synth:summary": format!("Bulk task {}", i),
+                "synthesist:summary": format!("Bulk task {}", i),
             });
             writer.append("user:local:agd", &doc).unwrap();
         }
@@ -384,22 +384,22 @@ mod tests {
         for id in ["snap-1", "snap-2", "snap-3"] {
             let doc = json!({
                 "@context": ctx(),
-                "@id": format!("synth:claim-{}", id),
-                "@type": "synth:Task",
+                "@id": format!("synthesist:claim-{}", id),
+                "@type": "synthesist:Task",
                 "prov:generatedAtTime": "2026-05-01T00:00:00.000Z",
                 "prov:wasAttributedTo": "asserter:user:local:agd",
-                "synth:summary": format!("Snap claim {}", id),
+                "synthesist:summary": format!("Snap claim {}", id),
             });
             writer.append("user:local:agd", &doc).unwrap();
         }
         let spec_doc = json!({
             "@context": ctx(),
-            "@id": "synth:spec-perf",
-            "@type": "synth:Spec",
+            "@id": "synthesist:spec-perf",
+            "@type": "synthesist:Spec",
             "prov:generatedAtTime": "2026-05-05T12:00:00.000Z",
             "prov:wasAttributedTo": "asserter:user:local:agd",
-            "synth:summary": "Perf spec",
-            "synth:agreeSnapshot": ["synth:claim-snap-1", "synth:claim-snap-2", "synth:claim-snap-3"],
+            "synthesist:summary": "Perf spec",
+            "synthesist:agreeSnapshot": ["synthesist:claim-snap-1", "synthesist:claim-snap-2", "synthesist:claim-snap-3"],
         });
         writer.append("user:local:agd", &spec_doc).unwrap();
 
@@ -436,34 +436,34 @@ mod tests {
 
         let orig = json!({
             "@context": ctx(),
-            "@id": "synth:claim-old",
-            "@type": "synth:Task",
+            "@id": "synthesist:claim-old",
+            "@type": "synthesist:Task",
             "prov:generatedAtTime": "2026-04-01T00:00:00.000Z",
             "prov:wasAttributedTo": "asserter:user:local:agd",
-            "synth:summary": "Original old claim",
+            "synthesist:summary": "Original old claim",
         });
         writer.append("user:local:agd", &orig).unwrap();
 
         // Superseder is BEFORE the AGREE timestamp.
         let superseder = json!({
             "@context": ctx(),
-            "@id": "synth:claim-old-v2",
-            "@type": "synth:Task",
+            "@id": "synthesist:claim-old-v2",
+            "@type": "synthesist:Task",
             "prov:generatedAtTime": "2026-04-15T00:00:00.000Z",
             "prov:wasAttributedTo": "asserter:user:local:agd",
-            "synth:supersedes": "synth:claim-old",
+            "synthesist:supersedes": "synthesist:claim-old",
         });
         writer.append("user:local:agd", &superseder).unwrap();
 
         // Spec AGREE timestamp is 2026-05-01 -- after the supersession.
         let spec_doc = json!({
             "@context": ctx(),
-            "@id": "synth:spec-early-super",
-            "@type": "synth:Spec",
+            "@id": "synthesist:spec-early-super",
+            "@type": "synthesist:Spec",
             "prov:generatedAtTime": "2026-05-01T00:00:00.000Z",
             "prov:wasAttributedTo": "asserter:user:local:agd",
-            "synth:summary": "Spec with early supersession",
-            "synth:agreeSnapshot": ["synth:claim-old"],
+            "synthesist:summary": "Spec with early supersession",
+            "synthesist:agreeSnapshot": ["synthesist:claim-old"],
         });
         writer.append("user:local:agd", &spec_doc).unwrap();
 

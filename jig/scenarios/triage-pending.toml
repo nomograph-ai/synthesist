@@ -130,5 +130,5 @@ check = "manual"
 partial_credit = true
 
 [expected_artifacts]
-claim_types = ["synth:Discovery"]
+claim_types = ["synthesist:Discovery"]
 claim_count_min = 1

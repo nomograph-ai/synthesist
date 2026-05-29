@@ -106,7 +106,7 @@ spot incomplete runs.
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `files` | array of strings | no | Glob patterns (relative to workspace root) for files that should exist. |
-| `claim_types` | array of strings | no | `synth:` claim types (e.g., `"synth:Spec"`, `"synth:Discovery"`) that should appear at least once in the claims log. |
+| `claim_types` | array of strings | no | `synthesist:` claim types (e.g., `"synthesist:Spec"`, `"synthesist:Discovery"`) that should appear at least once in the claims log. |
 | `claim_count_min` | integer | no | Minimum number of new claims (any type) that should be present at the end of the session vs the starting state. |
 
 ---
@@ -153,7 +153,7 @@ check = "manual"
 partial_credit = true
 
 [expected_artifacts]
-claim_types = ["synth:Spec"]
+claim_types = ["synthesist:Spec"]
 claim_count_min = 1
 ```
 

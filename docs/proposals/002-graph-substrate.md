@@ -39,7 +39,7 @@ The git-tracked footprint did not change. `claims/snapshot.amc` is in the projec
 
 ### Finding 2: v3 JSON-LD size projection holds
 
-A Python script transformed the 143 claims (extracted via `synthesist sql`) into compact JSON-LD with `@context` referenced by URI, prov-predicated timestamps, asserter attribution, supersession edges, and props expanded as `synth:<key>` predicates. One JSON-LD doc per line, one file.
+A Python script transformed the 143 claims (extracted via `synthesist sql`) into compact JSON-LD with `@context` referenced by URI, prov-predicated timestamps, asserter attribution, supersession edges, and props expanded as `synthesist:<key>` predicates. One JSON-LD doc per line, one file.
 
 | Metric | v2.5 `.amc` | v3 JSON-LD | Ratio |
 |---|---|---|---|
@@ -105,7 +105,7 @@ The substrate's source of truth is the union of `<asserter>/log.jsonl` files. Al
 Each line in a `<asserter>/log.jsonl` is one compact JSON-LD document representing one claim. Example:
 
 ```jsonld
-{"@context":"https://nomograph.org/v3","@id":"synth:claim/cf42b88aaf17276c","@type":"synth:Task","prov:generatedAtTime":"2026-05-05T17:43:11.695Z","prov:wasAttributedTo":"asserter:user:local:agd:edc-bootstrap","synth:depends_on":[],"synth:files":[],"synth:gate":"human","synth:id":"t1","synth:spec":"deploy","synth:status":"pending","synth:summary":"...","synth:tree":"edc"}
+{"@context":"https://nomograph.org/v3","@id":"synthesist:claim/cf42b88aaf17276c","@type":"synthesist:Task","prov:generatedAtTime":"2026-05-05T17:43:11.695Z","prov:wasAttributedTo":"asserter:user:local:agd:edc-bootstrap","synthesist:depends_on":[],"synthesist:files":[],"synthesist:gate":"human","synthesist:id":"t1","synthesist:spec":"deploy","synthesist:status":"pending","synthesist:summary":"...","synthesist:tree":"edc"}
 ```
 
 The `@context` is referenced by URI to the `nomograph-ontology` artifact. Tools embed a local copy of the context for offline use.
@@ -121,7 +121,7 @@ Multi-user is **a property of the file layout, not a substrate feature**. A futu
 
 ### Mono-temporal substrate with schema-level bi-temporal opt-in
 
-The substrate commits to one timestamp predicate: `prov:generatedAtTime` on every claim. The supersession chain (each claim points at the one it supersedes via `synth:supersedes`) captures causality at the semantic layer, independent of clocks.
+The substrate commits to one timestamp predicate: `prov:generatedAtTime` on every claim. The supersession chain (each claim points at the one it supersedes via `synthesist:supersedes`) captures causality at the semantic layer, independent of clocks.
 
 Modules that need valid-time semantics add their own predicates (e.g., `<module>:effectiveStart` and `<module>:effectiveEnd`) in their own SHACL shapes. SPARQL queries filter on those when needed. The substrate is unaware; it sees triples.
 
@@ -257,7 +257,7 @@ Every query through the alpha surfaces (`synthesist query`, `/sparql`, MCP metho
 {"ts": "2026-06-15T09:14:33Z",
  "surface": "cli|http|mcp",
  "query_hash": "<blake3 of canonical query>",
- "bgp_shape": "?c rdf:type ?t . ?c synth:status ?s",
+ "bgp_shape": "?c rdf:type ?t . ?c synthesist:status ?s",
  "filter_kinds": ["literal-eq"],
  "result_count": 60,
  "latency_ms": 0.147,
@@ -274,17 +274,17 @@ This is the data that informs gamma's query-function set.
 
 ## Schema
 
-The v2.5 synthesist primitives migrate forward into v3 unchanged. The substrate adds a universal claim envelope; synthesist's own claim types stay in the `synth:` namespace.
+The v2.5 synthesist primitives migrate forward into v3 unchanged. The substrate adds a universal claim envelope; synthesist's own claim types stay in the `synthesist:` namespace.
 
 **Universal claim envelope** (in `nomograph-ontology`, embedded in `nomograph-claim`):
-- `@id`: stable IRI (`synth:claim/<hash>`)
+- `@id`: stable IRI (`synthesist:claim/<hash>`)
 - `@type`: claim type IRI
 - `prov:generatedAtTime`: xsd:dateTime
 - `prov:wasAttributedTo`: asserter IRI
-- `synth:supersedes`: optional, prior claim IRI
+- `synthesist:supersedes`: optional, prior claim IRI
 - `nomograph:parentAsserter`: optional, for agent hierarchy audit
 
-**Synthesist module** (`synth:` namespace):
+**Synthesist module** (`synthesist:` namespace):
 - Tree, Spec, Task, Discovery, Session, Phase, Outcome, Campaign (per v2.5)
 - Two additive field plans carried forward from earlier internal design: `Spec.topics` (a free-text array for cross-module join key) and `Spec.agree_snapshot` (an array of claim IRIs captured at AGREE commit, for plan-at-risk detection in future overlays). Both are optional fields; existing claims validate cleanly without them.
 
@@ -308,7 +308,7 @@ nomograph-claim/                # substrate runtime (Rust)
 
 synthesist/                     # binary, depends on nomograph-claim
   src/                          # CLI, imperative validators
-  ontology/                     # synth: vocabulary, embedded
+  ontology/                     # synthesist: vocabulary, embedded
     synth.ttl
     synth.shacl.ttl
   surface/                      # surface manifests
@@ -406,7 +406,7 @@ Stating this clearly so the proposal cannot grow under it:
 - **Any realtime sync protocol or peer-to-peer transport.** v3 produces sync-friendly files. Transport is git or any filesystem-mirroring tool. Realtime sync is a v3.x value-add.
 - **Cross-asserter realtime agent coordination.** Within one operator's machine, multiple agents can coordinate via the local store. Across operators, coordination runs at git-pull cadence (minutes to hours). Cross-asserter realtime is a v3.x feature.
 - **Cryptographic signing of claims.** Identity is `<class>:<scope>:<id>` strings with self-asserted aliasing where applicable. Trust derives from git push access. Signing is a v3.x decision.
-- **A unified data model across modules.** Synthesist owns the `synth:` vocabulary. Future companion modules own their own. Cross-tool queries are SPARQL (alpha) or query functions (gamma) that join across named graphs. The substrate enforces structural validity per module; it does not enforce a global schema.
+- **A unified data model across modules.** Synthesist owns the `synthesist:` vocabulary. Future companion modules own their own. Cross-tool queries are SPARQL (alpha) or query functions (gamma) that join across named graphs. The substrate enforces structural validity per module; it does not enforce a global schema.
 - **A metapackage binary or any tool orchestration layer.** v3 ships the substrate. Higher-level tools that consume multiple modules are out of scope.
 - **Automatic phase transitions, agentic gating, or self-modifying schema.** v3 preserves the v2.5 state machine and adds no new automation.
 

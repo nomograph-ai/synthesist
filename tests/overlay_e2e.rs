@@ -1,9 +1,9 @@
 //! End-to-end overlay acceptance test (T8.3).
 //!
 //! Mirrors a realistic workflow:
-//!   1. Create a spec with synth:agreeSnapshot pointing at 3 pre-AGREE claims.
+//!   1. Create a spec with synthesist:agreeSnapshot pointing at 3 pre-AGREE claims.
 //!   2. Note the spec's prov:generatedAtTime as the AGREE moment.
-//!   3. Append a "later" claim with synth:supersedes pointing at one of the
+//!   3. Append a "later" claim with synthesist:supersedes pointing at one of the
 //!      snapshot claims, with prov:generatedAtTime AFTER the spec's.
 //!   4. Open a GraphView (in-memory), rebuild from the log.
 //!   5. Fetch the plan-at-risk overlay from the registry by name and run it.
@@ -20,14 +20,14 @@ use tempfile::TempDir;
 /// Inline @context shared by all fixture documents in this test.
 fn ctx() -> serde_json::Value {
     json!({
-        "nomograph": "https://nomograph.org/v3/",
-        "prov":      "http://www.w3.org/ns/prov#",
-        "xsd":       "http://www.w3.org/2001/XMLSchema#",
-        "synth":     "https://nomograph.org/synth/",
+        "nomograph":  "https://nomograph.org/v3/",
+        "prov":       "http://www.w3.org/ns/prov#",
+        "xsd":        "http://www.w3.org/2001/XMLSchema#",
+        "synthesist": "https://nomograph.org/synthesist/",
         "prov:generatedAtTime": {"@type": "xsd:dateTime"},
         "prov:wasAttributedTo": {"@type": "@id"},
-        "synth:supersedes":    {"@type": "@id"},
-        "synth:agreeSnapshot": {"@type": "@id", "@container": "@set"}
+        "synthesist:supersedes":    {"@type": "@id"},
+        "synthesist:agreeSnapshot": {"@type": "@id", "@container": "@set"}
     })
 }
 
@@ -39,7 +39,7 @@ fn ctx() -> serde_json::Value {
 ///
 /// Steps:
 ///   a. Three pre-AGREE task claims (claim-alpha, claim-beta, claim-gamma).
-///   b. A Spec that references all three in synth:agreeSnapshot, timestamped
+///   b. A Spec that references all three in synthesist:agreeSnapshot, timestamped
 ///      at 2026-05-10T12:00:00Z (the AGREE moment).
 ///   c. A superseding claim that replaces claim-beta, timestamped at
 ///      2026-05-15T08:00:00Z (after AGREE).
@@ -54,11 +54,11 @@ fn plan_at_risk_e2e_one_hit_after_agree() {
     for id in ["claim-alpha", "claim-beta", "claim-gamma"] {
         let doc = json!({
             "@context": ctx(),
-            "@id": format!("synth:{}", id),
-            "@type": "synth:Task",
+            "@id": format!("synthesist:{}", id),
+            "@type": "synthesist:Task",
             "prov:generatedAtTime": "2026-05-01T00:00:00.000Z",
             "prov:wasAttributedTo": "asserter:user:local:agd",
-            "synth:summary": format!("Pre-agree task {}", id),
+            "synthesist:summary": format!("Pre-agree task {}", id),
         });
         writer.append("user:local:agd", &doc).unwrap();
     }
@@ -66,15 +66,15 @@ fn plan_at_risk_e2e_one_hit_after_agree() {
     // Step b: the Spec at AGREE time.
     let spec_doc = json!({
         "@context": ctx(),
-        "@id": "synth:spec-e2e",
-        "@type": "synth:Spec",
+        "@id": "synthesist:spec-e2e",
+        "@type": "synthesist:Spec",
         "prov:generatedAtTime": "2026-05-10T12:00:00.000Z",
         "prov:wasAttributedTo": "asserter:user:local:agd",
-        "synth:summary": "E2E acceptance spec",
-        "synth:agreeSnapshot": [
-            "synth:claim-alpha",
-            "synth:claim-beta",
-            "synth:claim-gamma"
+        "synthesist:summary": "E2E acceptance spec",
+        "synthesist:agreeSnapshot": [
+            "synthesist:claim-alpha",
+            "synthesist:claim-beta",
+            "synthesist:claim-gamma"
         ],
     });
     writer.append("user:local:agd", &spec_doc).unwrap();
@@ -82,12 +82,12 @@ fn plan_at_risk_e2e_one_hit_after_agree() {
     // Step c: post-AGREE supersession of claim-beta.
     let superseder = json!({
         "@context": ctx(),
-        "@id": "synth:claim-beta-v2",
-        "@type": "synth:Task",
+        "@id": "synthesist:claim-beta-v2",
+        "@type": "synthesist:Task",
         "prov:generatedAtTime": "2026-05-15T08:00:00.000Z",
         "prov:wasAttributedTo": "asserter:user:local:bob",
-        "synth:supersedes": "synth:claim-beta",
-        "synth:summary": "Revised beta task (post-agree)",
+        "synthesist:supersedes": "synthesist:claim-beta",
+        "synthesist:summary": "Revised beta task (post-agree)",
     });
     writer.append("user:local:bob", &superseder).unwrap();
 
@@ -129,8 +129,8 @@ fn plan_at_risk_e2e_one_hit_after_agree() {
 
     // Predicate is the canonical plan-at-risk predicate.
     assert_eq!(
-        hit.predicate, "synth:planAtRisk",
-        "predicate must be synth:planAtRisk, got: {}",
+        hit.predicate, "synthesist:planAtRisk",
+        "predicate must be synthesist:planAtRisk, got: {}",
         hit.predicate
     );
 
@@ -167,26 +167,26 @@ fn plan_at_risk_e2e_no_hit_when_plan_is_intact() {
     for id in ["task-1", "task-2", "task-3"] {
         let doc = json!({
             "@context": ctx(),
-            "@id": format!("synth:{}", id),
-            "@type": "synth:Task",
+            "@id": format!("synthesist:{}", id),
+            "@type": "synthesist:Task",
             "prov:generatedAtTime": "2026-05-01T00:00:00.000Z",
             "prov:wasAttributedTo": "asserter:user:local:agd",
-            "synth:summary": format!("Intact task {}", id),
+            "synthesist:summary": format!("Intact task {}", id),
         });
         writer.append("user:local:agd", &doc).unwrap();
     }
 
     let spec_doc = json!({
         "@context": ctx(),
-        "@id": "synth:spec-intact",
-        "@type": "synth:Spec",
+        "@id": "synthesist:spec-intact",
+        "@type": "synthesist:Spec",
         "prov:generatedAtTime": "2026-05-10T12:00:00.000Z",
         "prov:wasAttributedTo": "asserter:user:local:agd",
-        "synth:summary": "Spec with intact plan",
-        "synth:agreeSnapshot": [
-            "synth:task-1",
-            "synth:task-2",
-            "synth:task-3"
+        "synthesist:summary": "Spec with intact plan",
+        "synthesist:agreeSnapshot": [
+            "synthesist:task-1",
+            "synthesist:task-2",
+            "synthesist:task-3"
         ],
     });
     writer.append("user:local:agd", &spec_doc).unwrap();

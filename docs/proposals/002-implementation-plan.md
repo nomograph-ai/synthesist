@@ -114,7 +114,7 @@ a markdown spec document.
 - Compact form keeps human readability. Do not switch to expanded form
   even if intermediate code is simpler with it.
 - The base context covers only universal predicates. Per-module
-  predicates (e.g., `synth:depends_on`) live in synthesist's context file
+  predicates (e.g., `synthesist:depends_on`) live in synthesist's context file
   and are layered on at write time.
 
 ---
@@ -437,7 +437,7 @@ the claim's `@type` IRI prefix.
 
 **Outputs**:
 - Modify the rebuild path from T2.2 to detect each claim's namespace
-  (e.g., `synth:Task` goes into the `<https://nomograph.org/graphs/synth>`
+  (e.g., `synthesist:Task` goes into the `<https://nomograph.org/graphs/synth>`
   named graph).
 - `pub fn modules_in_view(view: &View) -> Result<Vec<String>>` returning
   the named graph IRIs present.
@@ -559,7 +559,7 @@ does not change; only the call sites and the props extraction do.
 - `src/schema/mod.rs` updated to take `&serde_json::Value` (the JSON-LD
   props) instead of the v2 `Claim` struct.
 - Each per-type validator (`spec.rs`, `task.rs`, `discovery.rs`, etc.)
-  updated to expand `synth:` prefixes when reading field values.
+  updated to expand `synthesist:` prefixes when reading field values.
 - DAG cycle detection in `task_dag.rs` updated to query the new view.
 - Phase state machine in `cmd_phase.rs` unchanged in logic; only the
   read path changes.
@@ -570,9 +570,9 @@ does not change; only the call sites and the props extraction do.
   error messages as v2.5.
 
 **Gotchas**:
-- JSON-LD compacts predicates; when reading `props["synth:status"]`,
-  workers need to handle both compacted (`synth:status`) and expanded
-  (`https://nomograph.org/synth/status`) forms. Pick one and normalize
+- JSON-LD compacts predicates; when reading `props["synthesist:status"]`,
+  workers need to handle both compacted (`synthesist:status`) and expanded
+  (`https://nomograph.org/synthesist/status`) forms. Pick one and normalize
   on read.
 - The current `nomograph_claim::ClaimType` enum from v2 stays in spirit
   as the per-type dispatch. Move it into synthesist or replace with a
@@ -605,7 +605,7 @@ not a runtime gate.
   `oxttl` or the spike's parser).
 - The generated shapes contain entries for every claim type synthesist
   defines.
-- Manual inspection: a Task shape declares `synth:status` with
+- Manual inspection: a Task shape declares `synthesist:status` with
   `sh:in (pending in_progress done cancelled blocked waiting)`.
 
 **Gotchas**:
@@ -739,13 +739,13 @@ yields claims in causal order.
 **Outputs**:
 - `pub fn v2_to_v3(claim: &V2Claim) -> Result<serde_json::Value>`
 - Maps fields:
-  - `claim.id` -> `@id: "synth:claim/<id>"` (truncated to first 16 chars,
+  - `claim.id` -> `@id: "synthesist:claim/<id>"` (truncated to first 16 chars,
     matching the spike's convention)
-  - `claim.claim_type` -> `@type: "synth:<TitleCased>"`
+  - `claim.claim_type` -> `@type: "synthesist:<TitleCased>"`
   - `claim.asserted_at` -> `prov:generatedAtTime` ISO 8601 ms-precision
   - `claim.asserted_by` -> `prov:wasAttributedTo: "asserter:<full>"`
-  - `claim.supersedes` -> `synth:supersedes: "synth:claim/<id>"`
-  - `claim.props` fields expanded as `synth:<key>` predicates
+  - `claim.supersedes` -> `synthesist:supersedes: "synthesist:claim/<id>"`
+  - `claim.props` fields expanded as `synthesist:<key>` predicates
 
 **Acceptance criteria**:
 - Test against the storr corpus: every v2 claim translates without
@@ -1201,9 +1201,9 @@ T8.1 and T8.2 are sequential. T8.3 is the integration test.
 
 **Scope**: Implement the plan-at-risk overlay as a `Box<dyn Overlay>`.
 
-The overlay walks each spec with `synth:agreeSnapshot` set. For each
+The overlay walks each spec with `synthesist:agreeSnapshot` set. For each
 claim ID in the snapshot, query the view for any newer claim with
-`synth:supersedes <that ID>` whose `prov:generatedAtTime` is after
+`synthesist:supersedes <that ID>` whose `prov:generatedAtTime` is after
 the spec's AGREE timestamp. If found, the spec is plan-at-risk.
 
 **Outputs**:

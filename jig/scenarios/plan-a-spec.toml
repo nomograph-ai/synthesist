@@ -95,5 +95,5 @@ check = "manual"
 partial_credit = true
 
 [expected_artifacts]
-claim_types = ["synth:Spec", "synth:Task", "synth:Phase"]
+claim_types = ["synthesist:Spec", "synthesist:Task", "synthesist:Phase"]
 claim_count_min = 7

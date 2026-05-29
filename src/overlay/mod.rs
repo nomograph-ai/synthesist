@@ -228,16 +228,16 @@ mod tests {
                     "nomograph": "https://nomograph.org/v3/",
                     "prov":      "http://www.w3.org/ns/prov#",
                     "xsd":       "http://www.w3.org/2001/XMLSchema#",
-                    "synth":     "https://nomograph.org/synth/",
+                    "synthesist": "https://nomograph.org/synthesist/",
                     "prov:generatedAtTime": {"@type": "xsd:dateTime"},
                     "prov:wasAttributedTo": {"@type": "@id"}
                 },
-                "@id": format!("synth:claim/task{}", i),
-                "@type": "synth:Task",
+                "@id": format!("synthesist:claim/task{}", i),
+                "@type": "synthesist:Task",
                 "prov:generatedAtTime": "2026-05-28T00:00:00.000Z",
                 "prov:wasAttributedTo": "asserter:user:local:agd",
-                "synth:summary": format!("Task {}", i),
-                "synth:status": "pending",
+                "synthesist:summary": format!("Task {}", i),
+                "synthesist:status": "pending",
             });
             writer.append("user:local:agd", &doc).unwrap();
         }
@@ -249,14 +249,14 @@ mod tests {
         let hits = overlay.run(&view).unwrap();
 
         // One hit per distinct (type, status) combination. The 5 claims
-        // are all synth:Task with status "pending", so we expect one hit.
+        // are all synthesist:Task with status "pending", so we expect one hit.
         assert_eq!(
             hits.len(),
             1,
-            "expected 1 hit (synth:Task/pending), got {:?}",
+            "expected 1 hit (synthesist:Task/pending), got {:?}",
             hits
         );
-        assert_eq!(hits[0].predicate, "synth:status");
+        assert_eq!(hits[0].predicate, "synthesist:status");
         assert_eq!(hits[0].object, "pending");
     }
 }
