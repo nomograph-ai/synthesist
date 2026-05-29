@@ -720,15 +720,6 @@ pub enum JigCmd {
     /// List available manifests found in `surface/`.
     #[command(name = "list-manifests")]
     ListManifests,
-    /// Aggregate all `claims/_jig/*.json` result files into a comparison
-    /// table grouped by (scenario, manifest). Counts runs and records the
-    /// latest started_at per group. Pure read: no result files are modified.
-    /// Malformed JSON files emit a stderr warning and are skipped.
-    Aggregate {
-        /// Output format: md (default), csv, or json.
-        #[arg(long, default_value = "md", value_parser = ["md", "csv", "json"])]
-        format: String,
-    },
 }
 
 // ---------------------------------------------------------------------------
