@@ -833,19 +833,14 @@ mod tests {
 
     #[test]
     fn skill_content_references_all_claim_type_shapes() {
-        let shapes = &[
-            "synthesist:TreeShape",
-            "synthesist:SpecShape",
-            "synthesist:TaskShape",
-            "synthesist:DiscoveryShape",
-            "synthesist:SessionShape",
-            "synthesist:PhaseShape",
-            "synthesist:CampaignShape",
-            "synthesist:OutcomeShape",
-        ];
-        for shape in shapes {
+        // Drive the expected shape IRIs from wire_format::shape_iri so
+        // the assertion uses the same builder the SHACL emitter does;
+        // any rename or case shift surfaces here and in emit_shacl
+        // simultaneously.
+        for ty in ["tree", "spec", "task", "discovery", "session", "phase", "campaign", "outcome"] {
+            let shape = crate::wire_format::shape_iri(ty);
             assert!(
-                SKILL_CONTENT.contains(shape),
+                SKILL_CONTENT.contains(&shape),
                 "skill content missing SHACL shape reference: {shape}"
             );
         }

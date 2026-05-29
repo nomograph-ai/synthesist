@@ -233,7 +233,12 @@ mod tests {
 
     #[test]
     fn serialize_result_produces_expected_keys() {
-        let r = crate::overlay::OverlayResult::simple("subj", "pred", "obj");
+        let r = crate::overlay::OverlayResult::with_detail(
+            "subj",
+            "pred",
+            "obj",
+            Value::Null,
+        );
         let v = serialize_result(&r);
         assert_eq!(v["subject"], "subj");
         assert_eq!(v["predicate"], "pred");

@@ -219,81 +219,6 @@ pub type Store = SynthStore;
 // v3 translation helpers
 // ---------------------------------------------------------------------------
 
-/// Convert a `snake_case` or `kebab-case` string to `TitleCase`.
-///
-/// Examples: `task` -> `Task`, `agree_snapshot` -> `AgreeSnapshot`,
-/// `discovery` -> `Discovery`.
-fn camel_case(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    let mut capitalize_next = true;
-    for c in s.chars() {
-        if c == '_' || c == '-' {
-            capitalize_next = true;
-            continue;
-        }
-        if capitalize_next {
-            out.extend(c.to_uppercase());
-            capitalize_next = false;
-        } else {
-            out.push(c);
-        }
-    }
-    out
-}
-
-/// Inline @context for synthesist v3 JSON-LD docs. Shared between the
-/// dual-write path and `migrations::v2_to_v3` so freshly migrated and
-/// freshly dual-written v3 docs are byte-shape compatible.
-///
-/// Declares the `synthesist`, `nomograph`, `prov`, `xsd` prefixes plus
-/// IRI-reference typing for substrate-level reference predicates
-/// (`supersedes`, `agreeSnapshot`). Without these declarations a
-/// SPARQL query that does `PREFIX synthesist: <https://nomograph.org/synthesist/>`
-/// would not match the produced IRIs, because oxjsonld would treat
-/// `synthesist:Spec` as the URI `<synthesist:Spec>` rather than as the
-/// expanded `<https://nomograph.org/synthesist/Spec>`.
-pub(crate) fn synthesist_jsonld_context() -> serde_json::Value {
-    use serde_json::json;
-    json!({
-        "nomograph":  "https://nomograph.org/v3/",
-        "synthesist": "https://nomograph.org/synthesist/",
-        "prov":       "http://www.w3.org/ns/prov#",
-        "xsd":        "http://www.w3.org/2001/XMLSchema#",
-        "prov:generatedAtTime": {"@type": "xsd:dateTime"},
-        "prov:wasAttributedTo": {"@type": "@id"},
-        "prov:wasRevisionOf":   {"@type": "@id"},
-        "nomograph:parentAsserter": {"@type": "@id"},
-        "synthesist:supersedes":    {"@type": "@id"},
-        "synthesist:agreeSnapshot": {"@type": "@id", "@container": "@set"}
-    })
-}
-
-/// Convert a `snake_case` or `kebab-case` string to `lowerCamelCase`.
-///
-/// Used to align v3 JSON-LD predicate names with the SHACL ontology
-/// (e.g. `agree_snapshot` -> `agreeSnapshot`). Single-word inputs are
-/// unchanged.
-///
-/// Examples: `id` -> `id`, `agree_snapshot` -> `agreeSnapshot`,
-/// `depends_on` -> `dependsOn`.
-pub(crate) fn lower_camel_case(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    let mut capitalize_next = false;
-    for c in s.chars() {
-        if c == '_' || c == '-' {
-            capitalize_next = true;
-            continue;
-        }
-        if capitalize_next {
-            out.extend(c.to_uppercase());
-            capitalize_next = false;
-        } else {
-            out.push(c);
-        }
-    }
-    out
-}
-
 /// Format the current wall-clock time as RFC 3339 with millisecond
 /// precision and a `Z` suffix.
 fn format_now() -> String {
@@ -312,50 +237,39 @@ fn v3_dual_write(
 ) -> Result<()> {
     use serde_json::{Map, Value as V};
 
-    let id_short = &claim_id[..claim_id.len().min(16)];
-    let type_camel = camel_case(claim_type.as_str());
+    use crate::wire_format as wf;
 
     let mut doc: Map<String, V> = Map::new();
-    // Inline @context: declare the synthesist prefix so JSON-LD parsers
-    // expand `synthesist:Spec` to `<https://nomograph.org/synthesist/Spec>`
-    // and SPARQL queries that `PREFIX synthesist: <...synthesist/>` match
-    // the produced IRIs. `supersedes` and `agreeSnapshot` are typed as
-    // IRI references so superseding-claim and snapshot triples bind to
-    // node IRIs (matching `@id` of the target claim) rather than literals.
-    // graph_view::rebuild's inject_inline_context respects an inline
-    // @context object and overrides only the bare-URI form, so this
-    // survives the rebuild round-trip.
-    doc.insert("@context".into(), synthesist_jsonld_context());
-    doc.insert(
-        "@id".into(),
-        V::String(format!("synthesist:claim/{}", id_short)),
-    );
+    // The wire_format module owns the canonical v3 JSON-LD shape (see
+    // synthesist::wire_format for the contract). Co-locating @context,
+    // case conversions, and IRI builders there prevents drift between
+    // the dual-write path, the migration path, the SHACL emitter, and
+    // test fixtures.
+    doc.insert("@context".into(), wf::jsonld_context());
+    doc.insert("@id".into(), V::String(wf::claim_iri(claim_id)));
     doc.insert(
         "@type".into(),
-        V::String(format!("synthesist:{}", type_camel)),
+        V::String(wf::type_iri(claim_type.as_str())),
     );
     doc.insert("prov:generatedAtTime".into(), V::String(format_now()));
     doc.insert(
         "prov:wasAttributedTo".into(),
-        V::String(format!("asserter:{}", asserter)),
+        V::String(wf::asserter_iri(asserter)),
     );
 
     if let Some(sup_id) = supersedes {
-        let sup_short = &sup_id[..sup_id.len().min(16)];
         doc.insert(
             "synthesist:supersedes".into(),
-            V::String(format!("synthesist:claim/{}", sup_short)),
+            V::String(wf::claim_iri(sup_id)),
         );
     }
 
-    // Expand props as synthesist:<lowerCamelCase(key)> predicates.
-    // Snake_case is synthesist's internal convention (v2 era); the v3
-    // ontology uses lowerCamelCase to align with SHACL shapes and the
-    // overlay SPARQL prefixes (e.g. synthesist:agreeSnapshot,
-    // synthesist:dependsOn). Single-word keys pass through unchanged.
+    // Expand props via wire_format's predicate_iri (snake -> lowerCamel
+    // with the synthesist prefix). Aligns with the SHACL ontology and
+    // overlay SPARQL.
     if let Some(props_map) = props.as_object() {
         for (k, v) in props_map {
-            doc.insert(format!("synthesist:{}", lower_camel_case(k)), v.clone());
+            doc.insert(wf::predicate_iri(k), v.clone());
         }
     }
 
@@ -616,17 +530,7 @@ mod tests {
         );
     }
 
-    /// Internal: camel_case helper correctness.
-    #[test]
-    fn camel_case_helper() {
-        assert_eq!(camel_case("task"), "Task");
-        assert_eq!(camel_case("agree_snapshot"), "AgreeSnapshot");
-        assert_eq!(camel_case("discovery"), "Discovery");
-        assert_eq!(camel_case("session"), "Session");
-        assert_eq!(camel_case("campaign"), "Campaign");
-        assert_eq!(camel_case("tree"), "Tree");
-        assert_eq!(camel_case("spec"), "Spec");
-        assert_eq!(camel_case("outcome"), "Outcome");
-        assert_eq!(camel_case("phase"), "Phase");
-    }
+    // camel_case correctness lives in `wire_format::tests`; this
+    // module's test suite asserts dual-write behavior, not the
+    // wire-format primitives themselves.
 }

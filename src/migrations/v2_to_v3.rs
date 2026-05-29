@@ -15,7 +15,6 @@ use std::path::{Path, PathBuf};
 use chrono::{DateTime, Utc};
 use nomograph_claim::asserter;
 use nomograph_claim::claim::{Claim, ClaimType};
-use nomograph_claim::jsonld;
 use nomograph_claim::log::LogWriter;
 use nomograph_claim::store::Store;
 use serde_json::{Map, Value};
@@ -145,23 +144,25 @@ impl Migration for V2ToV3 {
 
 /// Translate one v2 claim into a v3 JSON-LD document.
 ///
-/// The module string is pre-computed by `module_for_type`.
+/// `module` is currently always `"synthesist"` because `module_for_type`
+/// rejects lattice-typed claims at the migration boundary (Directive 2).
+/// The parameter is retained for forward compatibility; today's IRI
+/// builders in `wire_format` are synthesist-specific.
 fn v2_claim_to_v3(claim: &Claim, module: &'static str) -> Value {
-    let type_camel = camel_case(claim.claim_type.as_str());
-    let id_short = &claim.id[..claim.id.len().min(16)];
+    use crate::wire_format as wf;
+
+    // Defensive: the only supported module string today is synthesist.
+    // If a future migration adds support for another module, the
+    // `wire_format` module will need a parallel set of IRI builders.
+    debug_assert_eq!(module, wf::MODULE_PREFIX);
 
     let mut doc = Map::new();
-    // Match the dual-write @context shape so a store containing both
-    // freshly migrated and freshly dual-written claims yields a
-    // single, queryable graph. See store::synthesist_jsonld_context.
-    doc.insert("@context".into(), crate::store::synthesist_jsonld_context());
-    doc.insert(
-        "@id".into(),
-        Value::String(format!("{}:claim/{}", module, id_short)),
-    );
+    // Single source of truth for the v3 shape -- see wire_format.rs.
+    doc.insert("@context".into(), wf::jsonld_context());
+    doc.insert("@id".into(), Value::String(wf::claim_iri(&claim.id)));
     doc.insert(
         "@type".into(),
-        Value::String(format!("{}:{}", module, type_camel)),
+        Value::String(wf::type_iri(claim.claim_type.as_str())),
     );
     doc.insert(
         "prov:generatedAtTime".into(),
@@ -169,32 +170,25 @@ fn v2_claim_to_v3(claim: &Claim, module: &'static str) -> Value {
     );
     doc.insert(
         "prov:wasAttributedTo".into(),
-        Value::String(format!("asserter:{}", claim.asserted_by)),
+        Value::String(wf::asserter_iri(&claim.asserted_by)),
     );
 
     if let Some(sup) = &claim.supersedes {
-        let sup_short = &sup[..sup.len().min(16)];
         doc.insert(
-            format!("{}:supersedes", module),
-            Value::String(format!("{}:claim/{}", module, sup_short)),
+            "synthesist:supersedes".into(),
+            Value::String(wf::claim_iri(sup)),
         );
     }
     if let Some(parent) = &claim.parent_asserter {
         doc.insert(
             "nomograph:parentAsserter".into(),
-            Value::String(format!("asserter:{}", parent)),
+            Value::String(wf::asserter_iri(parent)),
         );
     }
 
-    // Expand props as <module>:<lowerCamel(key)> predicates so the
-    // migration's output aligns with the dual-write's predicate
-    // names (synthesist:agreeSnapshot, not synthesist:agree_snapshot).
     if let Some(props_map) = claim.props.as_object() {
         for (k, v) in props_map {
-            doc.insert(
-                format!("{}:{}", module, crate::store::lower_camel_case(k)),
-                v.clone(),
-            );
+            doc.insert(wf::predicate_iri(k), v.clone());
         }
     }
 
@@ -222,23 +216,9 @@ pub fn module_for_type(t: &ClaimType) -> Result<&'static str, MigrationError> {
     }
 }
 
-fn camel_case(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    let mut capitalize_next = true;
-    for c in s.chars() {
-        if c == '_' || c == '-' {
-            capitalize_next = true;
-            continue;
-        }
-        if capitalize_next {
-            out.extend(c.to_uppercase());
-            capitalize_next = false;
-        } else {
-            out.push(c);
-        }
-    }
-    out
-}
+// `camel_case` previously had a duplicate definition here, identical
+// to the one in `crate::store`. Both now live in `crate::wire_format`
+// (review item #10 / #1: extract wire_format module).
 
 fn format_iso(dt: DateTime<Utc>) -> String {
     dt.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()
@@ -354,18 +334,9 @@ mod tests {
         );
     }
 
-    #[test]
-    fn camel_case_handles_simple_lowercase() {
-        assert_eq!(camel_case("task"), "Task");
-        assert_eq!(camel_case("spec"), "Spec");
-        assert_eq!(camel_case("disposition"), "Disposition");
-    }
-
-    #[test]
-    fn camel_case_handles_underscore_separation() {
-        assert_eq!(camel_case("agent_intent"), "AgentIntent");
-        assert_eq!(camel_case("agree_snapshot"), "AgreeSnapshot");
-    }
+    // camel_case correctness is asserted in `wire_format::tests`; the
+    // migration's own tests cover translation behavior, not the
+    // wire-format primitives.
 
     #[test]
     fn module_for_type_routes_synthesist_types_correctly() {

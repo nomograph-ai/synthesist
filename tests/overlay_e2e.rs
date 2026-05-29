@@ -18,17 +18,11 @@ use std::time::Instant;
 use tempfile::TempDir;
 
 /// Inline @context shared by all fixture documents in this test.
+///
+/// Reuses the canonical context from the synthesist crate so the e2e
+/// exercises the shape the production dual-write actually emits.
 fn ctx() -> serde_json::Value {
-    json!({
-        "nomograph":  "https://nomograph.org/v3/",
-        "prov":       "http://www.w3.org/ns/prov#",
-        "xsd":        "http://www.w3.org/2001/XMLSchema#",
-        "synthesist": "https://nomograph.org/synthesist/",
-        "prov:generatedAtTime": {"@type": "xsd:dateTime"},
-        "prov:wasAttributedTo": {"@type": "@id"},
-        "synthesist:supersedes":    {"@type": "@id"},
-        "synthesist:agreeSnapshot": {"@type": "@id", "@container": "@set"}
-    })
+    nomograph_synthesist::wire_format::jsonld_context()
 }
 
 // ---------------------------------------------------------------------------

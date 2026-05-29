@@ -39,11 +39,10 @@ use super::{Overlay, OverlayResult};
 /// dateTime literals -- the core capabilities the alpha thesis depends on.
 pub struct PlanAtRiskOverlay;
 
-const QUERY: &str = r#"
-    PREFIX rdf:   <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-    PREFIX synthesist: <https://nomograph.org/synthesist/>
-    PREFIX prov:  <http://www.w3.org/ns/prov#>
-
+/// SPARQL body for the plan-at-risk overlay. Combined with
+/// `wire_format::SPARQL_PREFIX_PREAMBLE` at query time so the prefix
+/// declarations stay in lockstep with the canonical wire format.
+const QUERY_BODY: &str = r#"
     SELECT ?spec ?spec_id ?old_claim ?new_claim ?stakeholder ?new_at
     WHERE {
       GRAPH ?g {
@@ -59,6 +58,10 @@ const QUERY: &str = r#"
     }
 "#;
 
+fn build_query() -> String {
+    format!("{}{}", crate::wire_format::SPARQL_PREFIX_PREAMBLE, QUERY_BODY)
+}
+
 impl Overlay for PlanAtRiskOverlay {
     fn name(&self) -> &str {
         "plan-at-risk"
@@ -69,7 +72,7 @@ impl Overlay for PlanAtRiskOverlay {
     }
 
     fn run(&self, view: &GraphView) -> Result<Vec<OverlayResult>> {
-        let results = select(view, QUERY)?;
+        let results = select(view, &build_query())?;
 
         // Column order: spec, spec_id, old_claim, new_claim, stakeholder, new_at
         let col_spec = results.columns.iter().position(|c| c == "spec");
@@ -148,17 +151,13 @@ mod tests {
     use tempfile::TempDir;
 
     /// Inline @context shared by all test fixture documents.
+    ///
+    /// Consumes the canonical context from `crate::wire_format` so this
+    /// test exercises the shape the production dual-write actually
+    /// emits. Previously a local hand-rolled @context drifted from
+    /// canonical (Scan B finding); single source of truth.
     fn ctx() -> serde_json::Value {
-        json!({
-            "nomograph":  "https://nomograph.org/v3/",
-            "prov":       "http://www.w3.org/ns/prov#",
-            "xsd":        "http://www.w3.org/2001/XMLSchema#",
-            "synthesist": "https://nomograph.org/synthesist/",
-            "prov:generatedAtTime": {"@type": "xsd:dateTime"},
-            "prov:wasAttributedTo": {"@type": "@id"},
-            "synthesist:supersedes":    {"@type": "@id"},
-            "synthesist:agreeSnapshot": {"@type": "@id", "@container": "@set"}
-        })
+        crate::wire_format::jsonld_context()
     }
 
     // ------------------------------------------------------------------

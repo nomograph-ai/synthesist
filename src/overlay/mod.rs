@@ -45,20 +45,6 @@ pub struct OverlayResult {
 }
 
 impl OverlayResult {
-    /// Construct a result with no supplemental detail.
-    pub fn simple(
-        subject: impl Into<String>,
-        predicate: impl Into<String>,
-        object: impl Into<String>,
-    ) -> Self {
-        Self {
-            subject: subject.into(),
-            predicate: predicate.into(),
-            object: object.into(),
-            detail: Value::Null,
-        }
-    }
-
     /// Construct a result with supplemental detail.
     pub fn with_detail(
         subject: impl Into<String>,
@@ -183,14 +169,10 @@ mod tests {
         assert!(find("does-not-exist").is_none());
     }
 
-    #[test]
-    fn overlay_result_simple_has_null_detail() {
-        let r = OverlayResult::simple("s", "p", "o");
-        assert_eq!(r.subject, "s");
-        assert_eq!(r.predicate, "p");
-        assert_eq!(r.object, "o");
-        assert_eq!(r.detail, Value::Null);
-    }
+    // The `simple` constructor was removed (compile-warning dead code).
+    // Callers that want no supplemental detail pass `Value::Null` to
+    // `with_detail`; the test below covers that path implicitly via
+    // the demo overlay.
 
     #[test]
     fn overlay_result_with_detail_carries_value() {
@@ -224,14 +206,7 @@ mod tests {
 
         for i in 0..5 {
             let doc = json!({
-                "@context": {
-                    "nomograph": "https://nomograph.org/v3/",
-                    "prov":      "http://www.w3.org/ns/prov#",
-                    "xsd":       "http://www.w3.org/2001/XMLSchema#",
-                    "synthesist": "https://nomograph.org/synthesist/",
-                    "prov:generatedAtTime": {"@type": "xsd:dateTime"},
-                    "prov:wasAttributedTo": {"@type": "@id"}
-                },
+                "@context": crate::wire_format::jsonld_context(),
                 "@id": format!("synthesist:claim/task{}", i),
                 "@type": "synthesist:Task",
                 "prov:generatedAtTime": "2026-05-28T00:00:00.000Z",

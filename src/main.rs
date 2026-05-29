@@ -28,6 +28,7 @@ mod skill;
 mod store;
 mod task_dag;
 mod task_mutate;
+mod wire_format;
 
 use clap::Parser;
 
@@ -56,9 +57,15 @@ fn run(cli: cli::Cli) -> anyhow::Result<()> {
     // Propagate --data-dir to SYNTHESIST_DIR so every Store::discover call picks
     // it up. Store::find_data_dir reads SYNTHESIST_DIR; the flag is syntactic
     // sugar so callers don't have to export the env var manually.
+    //
     // SAFETY: set_var is unsafe in edition 2024 because env vars are
-    // process-global and not thread-safe. Synthesist is single-threaded at
-    // this point -- we're before any Store::open or command dispatch.
+    // process-global and not thread-safe. This call is safe today because it
+    // runs before any thread is spawned: `cli::Cli::parse` is synchronous,
+    // and no `tokio::spawn`, `rayon::*`, or `std::thread::spawn` precedes
+    // this point. cmd_serve later spawns tokio tasks, but only after this
+    // block completes. If a future change introduces concurrency earlier in
+    // the dispatch (e.g. a parallel preflight check), the set_var call must
+    // move to a once-cell or a thread-safe configuration carrier before it.
     if let Some(path) = cli.data_dir.as_ref() {
         // Canonicalize best-effort for a clearer error if the path is wrong.
         let value = path.to_string_lossy().into_owned();

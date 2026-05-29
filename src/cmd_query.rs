@@ -252,18 +252,12 @@ mod tests {
     use serde_json::json;
     use tempfile::TempDir;
 
-    // Helper: build a minimal synthesist:Task JSON-LD doc with an inline
-    // context so Oxigraph can parse it without a network fetch.
+    // Helper: build a minimal synthesist:Task JSON-LD doc using the
+    // canonical wire_format context so the test exercises the same
+    // shape the production dual-write emits.
     fn make_task_claim(id_suffix: &str, status: &str) -> serde_json::Value {
         json!({
-            "@context": {
-                "nomograph": "https://nomograph.org/v3/",
-                "prov":      "http://www.w3.org/ns/prov#",
-                "xsd":       "http://www.w3.org/2001/XMLSchema#",
-                "synthesist": "https://nomograph.org/synthesist/",
-                "prov:generatedAtTime": {"@type": "xsd:dateTime"},
-                "prov:wasAttributedTo": {"@type": "@id"}
-            },
+            "@context": crate::wire_format::jsonld_context(),
             "@id": format!("synthesist:claim/{}", id_suffix),
             "@type": "synthesist:Task",
             "prov:generatedAtTime": "2026-05-29T00:00:00.000Z",

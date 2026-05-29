@@ -566,14 +566,7 @@ mod sparql_tests {
 
     fn make_task_claim(id_suffix: &str, status: &str) -> serde_json::Value {
         serde_json::json!({
-            "@context": {
-                "nomograph": "https://nomograph.org/v3/",
-                "prov":      "http://www.w3.org/ns/prov#",
-                "xsd":       "http://www.w3.org/2001/XMLSchema#",
-                "synthesist": "https://nomograph.org/synthesist/",
-                "prov:generatedAtTime": {"@type": "xsd:dateTime"},
-                "prov:wasAttributedTo": {"@type": "@id"}
-            },
+            "@context": crate::wire_format::jsonld_context(),
             "@id": format!("synthesist:claim/{}", id_suffix),
             "@type": "synthesist:Task",
             "prov:generatedAtTime": "2026-05-29T00:00:00.000Z",

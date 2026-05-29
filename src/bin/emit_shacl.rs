@@ -319,10 +319,11 @@ mod tests {
 
     #[test]
     fn emit_produces_non_empty_output() {
+        use nomograph_synthesist::wire_format::shape_iri;
         let out = emit();
         assert!(!out.is_empty());
-        assert!(out.contains("synthesist:TreeShape"));
-        assert!(out.contains("synthesist:SpecShape"));
+        assert!(out.contains(&shape_iri("tree")));
+        assert!(out.contains(&shape_iri("spec")));
     }
 
     #[test]
