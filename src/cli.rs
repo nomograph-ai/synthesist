@@ -190,6 +190,13 @@ pub enum Command {
         #[command(subcommand)]
         cmd: OverlayCmd,
     },
+    /// Run canonical scenarios under surface manifests and record results.
+    /// Results land in `claims/_jig/<run_id>.json`. Read-only; no session
+    /// or phase gate applies.
+    Jig {
+        #[command(subcommand)]
+        cmd: JigCmd,
+    },
 }
 
 // --- Claims (substrate maintenance) ---
@@ -678,6 +685,29 @@ pub enum OverlayCmd {
         /// Overlay name (see `overlay list` for available names).
         name: String,
     },
+}
+
+// --- Jig ---
+
+#[derive(Subcommand)]
+pub enum JigCmd {
+    /// Run a named scenario under a named manifest and write a result JSON
+    /// to `claims/_jig/<run_id>.json`. For v3-alpha the LLM session is not
+    /// invoked; this command records the setup with `status: "pending"`.
+    Run {
+        /// Scenario name (file stem under `jig/scenarios/<name>.toml`).
+        #[arg(long, value_name = "NAME")]
+        scenario: String,
+        /// Manifest name (file stem under `surface/<name>.toml`).
+        #[arg(long, value_name = "NAME")]
+        manifest: String,
+    },
+    /// List available scenarios found in `jig/scenarios/`.
+    #[command(name = "list-scenarios")]
+    ListScenarios,
+    /// List available manifests found in `surface/`.
+    #[command(name = "list-manifests")]
+    ListManifests,
 }
 
 /// Custom value parser for `spec update --status`.

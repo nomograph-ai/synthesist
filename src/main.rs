@@ -1,5 +1,6 @@
 mod cli;
 mod cmd_campaign;
+mod cmd_jig;
 mod cmd_claims;
 mod cmd_conflicts;
 mod cmd_discovery;
@@ -21,6 +22,7 @@ mod compaction;
 mod output;
 mod overlay;
 mod schema;
+mod surface;
 mod skill;
 mod store;
 mod task_dag;
@@ -140,6 +142,8 @@ fn run(cli: cli::Cli) -> anyhow::Result<()> {
             }
             // Overlay subcommands are read-only: no session or phase gate.
             | cli::Command::Overlay { .. }
+            // Jig subcommands are read-only: no session or phase gate.
+            | cli::Command::Jig { .. }
     );
 
     // Session enforcement for write operations.
@@ -194,6 +198,7 @@ fn run(cli: cli::Cli) -> anyhow::Result<()> {
         cli::Command::Claims { cmd } => cmd_claims::run(cmd, &cli.session),
         cli::Command::Outcome { cmd } => cmd_outcome::run(cmd, &cli.session),
         cli::Command::Overlay { cmd } => cmd_overlay::run(cmd, cli.data_dir.as_deref()),
+        cli::Command::Jig { cmd } => cmd_jig::run(cmd),
         // Init, Skill, Version, and the landscape family (stakeholder,
         // disposition, signal, stance) are handled in the short-circuit
         // match above.
