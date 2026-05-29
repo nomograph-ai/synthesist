@@ -1,0 +1,27 @@
+[manifest]
+name        = "overlay-first-class"
+description = "sparql-exposed plus named overlay warning commands; overlay signals are first-class CLI citizens"
+
+[commands]
+include = [
+    "status",
+    "tree add", "tree list", "tree show", "tree close",
+    "spec add", "spec show", "spec update", "spec list",
+    "task add", "task list", "task show", "task update",
+    "task claim", "task done", "task reset", "task block",
+    "task wait", "task cancel", "task ready", "task acceptance",
+    "discovery add", "discovery list",
+    "campaign add", "campaign list",
+    "session start", "session close", "session list", "session status",
+    "phase show", "phase set",
+    "export", "import", "sql",
+    "conflicts", "migrate status", "migrate v1-to-v2",
+    "init", "check", "version", "skill", "serve",
+    "claims compact",
+    "outcome add", "outcome list",
+]
+exclude = []
+add     = [
+    "query", "overlay run", "spec hierarchy",
+    "warn plan-at-risk", "warn stale-dispositions",
+]

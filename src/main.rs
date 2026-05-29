@@ -191,7 +191,8 @@ fn run(cli: cli::Cli) -> anyhow::Result<()> {
         | cli::Command::Stakeholder { .. }
         | cli::Command::Disposition { .. }
         | cli::Command::Signal { .. }
-        | cli::Command::Stance { .. } => unreachable!(),
+        | cli::Command::Stance { .. }
+        | cli::Command::Overlay { .. } => unreachable!(),
     }
 }
 
