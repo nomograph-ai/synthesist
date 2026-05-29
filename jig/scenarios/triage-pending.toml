@@ -1,0 +1,134 @@
+[scenario]
+name = "triage-pending"
+description = "Given a tree with 20 pending tasks across multiple specs, identify the ready tasks and surface the dependency root causes blocking the rest."
+version = "0.1.0"
+tags = ["triage", "dependencies", "planning"]
+
+[starting_state]
+description = """
+A synthesist workspace in EXECUTE phase with 20 pending tasks across two specs.
+'infra' has 12 tasks with a layered dependency chain: t1 blocks t2-t5, t3 blocks
+t6-t9, t7 blocks t10-t12. 'app' has 8 tasks: t1 blocks t2 and t3, t2 and t3
+both block t4-t6, t6 blocks t7-t8. Only infra:t1 and app:t1 are unblocked at
+the start.
+"""
+setup_commands = [
+  "synthesist init",
+  "synthesist tree add --id platform --title 'Platform'",
+  "synthesist session start --id jig-session --title 'Jig: triage-pending'",
+
+  "synthesist spec add --tree platform --id infra --title 'Infrastructure layer'",
+  "synthesist task add --spec infra --id t1  --summary 'Provision base VPC and subnets'",
+  "synthesist task add --spec infra --id t2  --summary 'Deploy NAT gateway' --depends-on t1",
+  "synthesist task add --spec infra --id t3  --summary 'Configure private DNS zone' --depends-on t1",
+  "synthesist task add --spec infra --id t4  --summary 'Create S3 buckets for artifacts' --depends-on t1",
+  "synthesist task add --spec infra --id t5  --summary 'Set up IAM roles baseline' --depends-on t1",
+  "synthesist task add --spec infra --id t6  --summary 'Register internal service hostnames' --depends-on t3",
+  "synthesist task add --spec infra --id t7  --summary 'Deploy internal certificate authority' --depends-on t3",
+  "synthesist task add --spec infra --id t8  --summary 'Issue wildcard cert for internal domain' --depends-on t3",
+  "synthesist task add --spec infra --id t9  --summary 'Validate DNS resolution end-to-end' --depends-on t3",
+  "synthesist task add --spec infra --id t10 --summary 'Configure mTLS between services' --depends-on t7",
+  "synthesist task add --spec infra --id t11 --summary 'Rotate bootstrap credentials' --depends-on t7",
+  "synthesist task add --spec infra --id t12 --summary 'Write infra runbook draft' --depends-on t7",
+
+  "synthesist spec add --tree platform --id app --title 'Application layer'",
+  "synthesist task add --spec app --id t1 --summary 'Scaffold application repo and CI pipeline'",
+  "synthesist task add --spec app --id t2 --summary 'Add database migration tooling' --depends-on t1",
+  "synthesist task add --spec app --id t3 --summary 'Configure secrets manager integration' --depends-on t1",
+  "synthesist task add --spec app --id t4 --summary 'Implement health check endpoint' --depends-on t2 --depends-on t3",
+  "synthesist task add --spec app --id t5 --summary 'Write integration test harness' --depends-on t2 --depends-on t3",
+  "synthesist task add --spec app --id t6 --summary 'Deploy staging environment' --depends-on t2 --depends-on t3",
+  "synthesist task add --spec app --id t7 --summary 'Run smoke tests against staging' --depends-on t6",
+  "synthesist task add --spec app --id t8 --summary 'Document deployment runbook' --depends-on t6",
+
+  "synthesist phase set --spec infra --phase EXECUTE",
+  "synthesist phase set --spec app  --phase EXECUTE",
+]
+
+[goal]
+prompt = """
+You are a synthesist operator. A platform tree has 20 pending tasks across
+two specs. Your job is to triage: find which tasks are ready to start today,
+explain what is blocking the rest, and produce a written triage report as a
+Discovery.
+
+Steps:
+
+  1. Check which tasks are ready across both specs:
+       synthesist task ready --spec infra
+       synthesist task ready --spec app
+
+  2. Review the full task list for each spec to understand the dependency shape:
+       synthesist spec show --spec infra
+       synthesist spec show --spec app
+
+  3. Add a Discovery to one of the specs (your choice) that answers:
+     a. Which tasks are ready to start right now (list them with spec:id).
+     b. What are the root-cause blockers: the specific tasks that, if completed,
+        would unblock the largest number of downstream tasks.
+     c. A recommended execution order for the first 48 hours of work.
+
+     Use:
+       synthesist discovery add \\
+         --spec <infra|app> \\
+         --title 'Triage report: platform tree' \\
+         --body '<your report>'
+
+  4. Confirm status:
+       synthesist status
+
+Constraints:
+  - Do not claim or complete any tasks; triage only.
+  - Do not add, remove, or modify tasks or specs.
+  - The Discovery must name specific task IDs (e.g., 'infra:t1', 'app:t1').
+  - The root-cause section must name at least two root blockers with reasoning.
+  - The 48-hour plan must be actionable: a short ordered list, not prose.
+"""
+success_criterion = "A Discovery exists that lists the ready tasks by ID, names the root-cause blockers with reasoning, and provides a 48-hour execution order."
+
+[[rubric]]
+id = "ready-tasks-identified"
+description = "The Discovery names all tasks that are ready (infra:t1 and app:t1 at minimum; others if operator correctly reasons about the state)."
+weight = 20
+check = "manual"
+partial_credit = true
+
+[[rubric]]
+id = "root-causes-named"
+description = "The Discovery names at least two root-cause blockers with explicit reasoning about downstream count."
+weight = 25
+check = "manual"
+partial_credit = true
+
+[[rubric]]
+id = "48h-plan"
+description = "The Discovery contains an ordered 48-hour plan with specific task IDs."
+weight = 20
+check = "manual"
+partial_credit = true
+
+[[rubric]]
+id = "discovery-created"
+description = "A Discovery claim exists (automated check: log file is non-empty after the session)."
+weight = 15
+check = "artifact"
+check_artifact = "claims/**/log.jsonl"
+
+[[rubric]]
+id = "no-mutations"
+description = "No tasks were claimed, completed, or added during triage (task count unchanged)."
+weight = 10
+check = "cli"
+check_command = "synthesist status"
+check_pattern = "20"
+
+[[rubric]]
+id = "report-clarity"
+description = "The Discovery is readable by a human engineer with no context: IDs are anchor-linked to summaries or summaries are quoted inline."
+weight = 10
+check = "manual"
+partial_credit = true
+
+[expected_artifacts]
+claim_types = ["synth:Discovery"]
+claim_count_min = 1

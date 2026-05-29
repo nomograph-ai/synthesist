@@ -1,0 +1,107 @@
+[scenario]
+name = "execute-a-task"
+description = "Given a task in EXECUTE phase, complete the work and emit a Discovery capturing the outcome."
+version = "0.1.0"
+tags = ["execution", "discovery", "phase-execute"]
+
+[starting_state]
+description = """
+A synthesist workspace with one tree, one spec, and one task. The spec is in
+EXECUTE phase. The task is pending and assigned to the operator. The task is to
+write a shell script that counts the number of JSON-LD lines in a given log file.
+The script is already specified; the operator's job is to declare completion
+and record findings.
+"""
+setup_commands = [
+  "synthesist init",
+  "synthesist tree add --id tools --title 'Tools'",
+  "synthesist session start --id jig-session --title 'Jig: execute-a-task'",
+  "synthesist spec add --tree tools --id count-jsonld --title 'Count JSON-LD lines utility'",
+  "synthesist task add --spec count-jsonld --id t1 --summary 'Write count-jsonld.sh that counts JSON-LD lines in a log file'",
+  "synthesist task add --spec count-jsonld --id t2 --summary 'Test count-jsonld.sh against claims/genesis.jsonld' --depends-on t1",
+  "synthesist phase set --spec count-jsonld --phase EXECUTE",
+  "synthesist task claim --spec count-jsonld --task t1",
+]
+
+[goal]
+prompt = """
+You are a synthesist operator. A task is waiting for you to complete.
+
+Context:
+  Spec: count-jsonld (tree: tools)
+  Phase: EXECUTE
+  Task t1: 'Write count-jsonld.sh that counts JSON-LD lines in a log file'
+  Task t1 is currently claimed by you and in progress.
+
+Your job:
+  1. Check the current task state:
+       synthesist task ready --spec count-jsonld
+
+  2. Mark task t1 done:
+       synthesist task done --spec count-jsonld --task t1
+
+  3. Emit a Discovery that records what was built. The Discovery should include:
+     - What the script does (one sentence)
+     - How to invoke it (example command)
+     - Any edge cases or limitations discovered during the work
+     Use:
+       synthesist discovery add \\
+         --spec count-jsonld \\
+         --title 'count-jsonld.sh: implementation notes' \\
+         --body '<your findings>'
+
+  4. Confirm task t2 is now unblocked:
+       synthesist task ready --spec count-jsonld
+
+  5. Check overall status:
+       synthesist status
+
+Constraints:
+  - Do not add new tasks or modify the spec structure.
+  - The Discovery body must be substantive: at least 3 sentences covering
+    what was built, how to use it, and one limitation or caveat.
+  - Do not advance the phase; t2 is not yet done.
+"""
+success_criterion = "Task t1 is done, a Discovery exists for the spec, and task t2 is surfaced as ready."
+
+[[rubric]]
+id = "task-done"
+description = "Task t1 is in status 'done'."
+weight = 25
+check = "cli"
+check_command = "synthesist task ready --spec count-jsonld"
+check_pattern = "t2"
+
+[[rubric]]
+id = "discovery-created"
+description = "At least one Discovery claim exists for spec count-jsonld."
+weight = 25
+check = "artifact"
+check_artifact = "claims/**/log.jsonl"
+
+[[rubric]]
+id = "discovery-body-quality"
+description = "The Discovery body covers what was built, how to use it, and at least one caveat."
+weight = 30
+check = "manual"
+partial_credit = true
+
+[[rubric]]
+id = "t2-unblocked"
+description = "Task t2 is visible in 'task ready' output (dependency on t1 satisfied)."
+weight = 15
+check = "cli"
+check_command = "synthesist task ready --spec count-jsonld"
+check_pattern = "t2"
+
+[[rubric]]
+id = "no-phase-advance"
+description = "Spec phase remains EXECUTE (operator did not over-reach)."
+weight = 5
+check = "cli"
+check_command = "synthesist status"
+check_pattern = "EXECUTE"
+
+[expected_artifacts]
+claim_types = ["synth:Task", "synth:Discovery"]
+claim_count_min = 2

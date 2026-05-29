@@ -1,0 +1,51 @@
+# Jig scenario template.
+# Copy this file, rename to <scenario-name>.toml, and fill in all fields.
+# See docs/jig-scenarios.md for full field reference.
+
+[scenario]
+name = "scenario-name"          # kebab-case; must match filename stem
+description = "One sentence."
+version = "0.1.0"
+tags = []                       # optional: e.g. ["planning", "phase-1"]
+
+[starting_state]
+description = "Describe what the workspace looks like before the session."
+# Use setup_commands OR fixture_path, not both.
+setup_commands = [
+  # "synthesist init",
+  # "synthesist tree add --id <id> --title '<title>'",
+]
+# fixture_path = "jig/fixtures/<name>/"
+
+[goal]
+prompt = """
+You are a synthesist operator. Your task is:
+
+<describe the task in full; include any constraints and the expected deliverable>
+
+Use the synthesist CLI to complete the task. Confirm final state with
+`synthesist status` before ending the session.
+"""
+success_criterion = "Observable single-sentence success state."
+
+# At least one rubric entry is required.
+# Weights do not need to sum to any fixed number; they are normalized.
+[[rubric]]
+id = "criterion-1"
+description = "What this criterion measures."
+weight = 50
+check = "cli"                   # "cli", "artifact", or "manual"
+check_command = "synthesist status"
+check_pattern = ""              # optional regex on stdout
+
+[[rubric]]
+id = "criterion-2"
+description = "Quality or correctness criterion requiring human judgment."
+weight = 50
+check = "manual"
+partial_credit = true
+
+[expected_artifacts]
+files = []                      # glob patterns relative to workspace root
+claim_types = []                # e.g. ["synth:Spec", "synth:Task"]
+claim_count_min = 0

@@ -1,0 +1,99 @@
+[scenario]
+name = "plan-a-spec"
+description = "Given a product brief, produce a synthesist spec with 5-10 tasks and lock the plan at AGREE."
+version = "0.1.0"
+tags = ["planning", "spec", "phase-agree"]
+
+[starting_state]
+description = "A fresh synthesist workspace with one tree ('product') and no specs."
+setup_commands = [
+  "synthesist init",
+  "synthesist tree add --id product --title 'Product'",
+  "synthesist session start --id jig-session --title 'Jig: plan-a-spec'",
+]
+
+[goal]
+prompt = """
+You are a synthesist operator. Your task is to plan a new software feature.
+
+Brief:
+  Add an export command to synthesist that writes the current claim log as
+  a CSV file. The CSV should have columns: id, type, status, summary,
+  asserted_at, asserted_by. The command should accept an optional --output
+  flag (default: stdout). It must work on any claims/ directory regardless
+  of how many asserters have contributed.
+
+Steps:
+  1. Create a spec under the 'product' tree:
+       synthesist spec add --tree product --id export-csv --title 'Export claims as CSV'
+
+  2. Decompose the brief into 5-10 tasks. For each task run:
+       synthesist task add --spec export-csv --id <task-id> --summary '<summary>'
+     Declare dependencies between tasks using --depends-on where order matters.
+
+  3. Review the plan:
+       synthesist task ready --spec export-csv
+
+  4. Advance the spec to AGREE phase to lock the plan:
+       synthesist phase set --spec export-csv --phase AGREE
+
+  5. Confirm final state:
+       synthesist status
+
+Constraints:
+  - Use only synthesist CLI commands. Do not write code.
+  - Each task summary must be a single clear action (verb + object).
+  - Tasks must cover at least: parsing, formatting, output routing, and a test.
+  - Dependencies must be declared explicitly; do not leave DAG edges implicit.
+  - Do not invent additional specs or trees.
+"""
+success_criterion = "The spec 'export-csv' exists under tree 'product', has 5-10 tasks with explicit dependency edges, and is in AGREE phase."
+
+[[rubric]]
+id = "spec-created"
+description = "The spec 'export-csv' exists under tree 'product'."
+weight = 10
+check = "cli"
+check_command = "synthesist spec show --spec export-csv"
+check_pattern = "export-csv"
+
+[[rubric]]
+id = "task-count"
+description = "The spec has between 5 and 10 tasks."
+weight = 20
+check = "cli"
+check_command = "synthesist task ready --spec export-csv"
+check_pattern = "."
+
+[[rubric]]
+id = "dag-edges"
+description = "At least one inter-task dependency is declared (DAG is not a flat list)."
+weight = 20
+check = "manual"
+partial_credit = false
+
+[[rubric]]
+id = "task-coverage"
+description = "Tasks cover parsing, formatting, output routing, and testing -- four distinct concerns."
+weight = 20
+check = "manual"
+partial_credit = true
+
+[[rubric]]
+id = "agree-phase"
+description = "The spec is in AGREE phase."
+weight = 20
+check = "cli"
+check_command = "synthesist phase set --spec export-csv --phase AGREE"
+check_pattern = "AGREE"
+
+[[rubric]]
+id = "summary-quality"
+description = "Each task summary is a clear single-action statement (verb + object, no filler)."
+weight = 10
+check = "manual"
+partial_credit = true
+
+[expected_artifacts]
+claim_types = ["synth:Spec", "synth:Task", "synth:Phase"]
+claim_count_min = 7
