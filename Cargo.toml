@@ -40,6 +40,15 @@ thiserror = "1"
 rusqlite = { version = "0.39", features = ["bundled"] }
 chrono = { version = "0.4", features = ["serde"] }
 
+# v3-alpha graph view stack. JSON-LD parsing + RocksDB-backed
+# triple store + SPARQL query engine. Heavy dep cloud accepted
+# for alpha thesis validation; gamma replaces with a custom triple
+# index sized to measured demand.
+oxigraph = "0.4"
+oxjsonld = "0.1"
+oxrdf = "0.2"
+oxttl = "0.1"
+
 # E2EE
 chacha20poly1305 = "0.10"
 argon2 = "0.5"
@@ -94,9 +103,6 @@ tempfile = "3"
 proptest = "1"
 assert_cmd = "2"
 predicates = "3"
-oxjsonld = "0.1"
-oxrdf = "0.2"
-oxttl = "0.1"
 
 [profile.release]
 opt-level = 3

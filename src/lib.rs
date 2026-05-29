@@ -27,6 +27,7 @@ pub mod view;
 // during the v3-alpha-integration build; the v2 modules above remain
 // until synthesist and any other consumer migrate to v3.
 pub mod asserter;
+pub mod graph_view;
 pub mod jsonld;
 pub mod log;
 pub mod ontology;
