@@ -20,12 +20,16 @@
 use anyhow::{Context, Result};
 use axum::{
     Router,
-    response::{Html, Json, Sse, sse::Event},
-    routing::get,
+    body::Bytes,
+    extract::Query as AxumQuery,
+    http::{HeaderMap, StatusCode},
+    response::{Html, IntoResponse, Json, Response, Sse, sse::Event},
+    routing::{get, post},
 };
 use futures_util::stream::Stream;
 use notify::{Event as NotifyEvent, EventKind, RecursiveMode, Watcher};
 use serde_json::Value;
+use std::collections::HashMap;
 use std::convert::Infallible;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -73,6 +77,10 @@ async fn serve_async(port: Option<u16>, bind_all: bool) -> Result<()> {
         .route("/api/state", get(handle_state_json))
         .route("/api/graph", get(handle_graph_json))
         .route("/events", get(handle_events))
+        .route(
+            "/sparql",
+            get(handle_sparql_get).post(handle_sparql_post),
+        )
         .with_state(tx);
 
     eprintln!("synthesist serve listening on http://{addr}");
@@ -80,6 +88,8 @@ async fn serve_async(port: Option<u16>, bind_all: bool) -> Result<()> {
     eprintln!("  GET /api/state -- state as JSON");
     eprintln!("  GET /api/graph -- network graph as JSON");
     eprintln!("  GET /events    -- SSE (push on fs change)");
+    eprintln!("  GET /sparql    -- SPARQL Protocol (read-only SELECT)");
+    eprintln!("  POST /sparql   -- SPARQL Protocol (form-urlencoded or direct body)");
     eprintln!("watching {} for changes", claims_changes.display());
     eprintln!("press ctrl-c to stop");
 
@@ -207,7 +217,594 @@ async fn handle_events(
     )
 }
 
-use axum::response::IntoResponse as _;
+// ---------------------------------------------------------------------------
+// SPARQL Protocol endpoint (/sparql)
+// ---------------------------------------------------------------------------
+//
+// W3C SPARQL Protocol (https://www.w3.org/TR/sparql11-protocol/), read-only.
+//
+// Supported request shapes:
+//   GET  /sparql?query=<urlencoded>
+//   POST /sparql  Content-Type: application/x-www-form-urlencoded  body: query=...
+//   POST /sparql  Content-Type: application/sparql-query           body: <raw query>
+//
+// Returns: 200 application/sparql-results+json on SELECT success.
+//          400 for malformed SPARQL, unsupported query kind (UPDATE /
+//              INSERT / DELETE), or missing query parameter.
+//
+// The endpoint never panics; all error paths return an HTTP status with
+// a plain-text body describing the problem.
+
+const SPARQL_RESULTS_JSON_CONTENT_TYPE: &str = "application/sparql-results+json";
+
+/// Detect SPARQL update operations by scanning the normalized query for
+/// leading update keywords. This is a fast v3-alpha shortcut. A future
+/// cleanup (TODO) should use spargebra to parse and check the query kind
+/// rather than relying on string matching.
+fn is_update_query(sparql: &str) -> bool {
+    let upper = sparql.to_ascii_uppercase();
+    let trimmed = upper.trim_start();
+    // Covers SPARQL 1.1 Update production keywords.
+    let update_prefixes = [
+        "INSERT ", "DELETE ", "INSERT{", "DELETE{",
+        "LOAD ", "CLEAR ", "DROP ", "ADD ", "MOVE ", "COPY ", "CREATE ",
+    ];
+    update_prefixes.iter().any(|p| trimmed.starts_with(p))
+}
+
+/// Execute a SPARQL SELECT against the local graph view.
+/// Returns `(StatusCode, body_string)`. Suitable for `spawn_blocking`.
+fn run_sparql_query(sparql: String) -> (StatusCode, String) {
+    use nomograph_claim::graph_view::{rebuild, select, GraphView};
+    use nomograph_synthesist::telemetry::{Surface, TelemetryWriter};
+
+    if is_update_query(&sparql) {
+        return (
+            StatusCode::BAD_REQUEST,
+            "SPARQL UPDATE operations are not supported on this read-only endpoint".to_string(),
+        );
+    }
+
+    // Open graph view with on-disk first, in-memory rebuild fallback.
+    // TODO: consolidate with cmd_query::open_view into a shared helper.
+    let (view, claims_dir_opt) = match open_graph_view_for_serve() {
+        Ok(pair) => pair,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("failed to open graph view: {e}"),
+            );
+        }
+    };
+
+    let start = std::time::Instant::now();
+    let result = select(&view, &sparql);
+    let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+
+    let (errored, result_count, body) = match result {
+        Ok(ref results) => {
+            let count = results.rows.len();
+            let body = serialize_sparql_json_results(results);
+            (false, count, Ok(body))
+        }
+        Err(ref e) => (true, 0, Err(format!("SPARQL evaluation failed: {e}"))),
+    };
+
+    // Best-effort telemetry: failures logged to stderr, never mask the response.
+    if let Some(ref claims_dir) = claims_dir_opt {
+        if let Ok(writer) = TelemetryWriter::new(claims_dir) {
+            if let Err(e) =
+                writer.record_query(Surface::Http, &sparql, result_count, elapsed_ms, errored)
+            {
+                eprintln!("warning: telemetry record failed (http surface): {e}");
+            }
+        }
+    }
+
+    match body {
+        Ok(json_body) => (StatusCode::OK, json_body),
+        Err(msg) => (StatusCode::BAD_REQUEST, msg),
+    }
+}
+
+/// Open the graph view for the serve handler.
+///
+/// Returns `(GraphView, Option<claims_dir>)`. The `claims_dir` is
+/// passed to the telemetry writer; `None` means discovery failed and
+/// telemetry is skipped silently.
+///
+/// Strategy: discover via `SynthStore::discover`, open on-disk RocksDB
+/// view, fall back to in-memory rebuild on failure.
+/// TODO: consolidate with `cmd_query::open_view` into a shared helper.
+fn open_graph_view_for_serve(
+) -> anyhow::Result<(nomograph_claim::graph_view::GraphView, Option<PathBuf>)> {
+    use nomograph_claim::graph_view::{rebuild, GraphView};
+
+    let claims_dir = match crate::store::SynthStore::discover() {
+        Ok(store) => store.root().to_path_buf().join("claims"),
+        Err(_) => {
+            let start = std::env::current_dir().context("get cwd")?;
+            let mut cur = start.as_path();
+            loop {
+                let candidate = cur.join("claims");
+                if candidate.is_dir() {
+                    break candidate;
+                }
+                match cur.parent() {
+                    Some(p) => cur = p,
+                    None => anyhow::bail!(
+                        "no claims/ directory found walking up from {}",
+                        start.display()
+                    ),
+                }
+            }
+        }
+    };
+
+    let view_dir = claims_dir.join("_view.oxigraph");
+    let view = match GraphView::open(&view_dir) {
+        Ok(v) => v,
+        Err(_) => {
+            let v = GraphView::open_in_memory().context("open in-memory graph view")?;
+            rebuild(&v, &claims_dir)
+                .with_context(|| format!("rebuild view from {}", claims_dir.display()))?;
+            v
+        }
+    };
+
+    Ok((view, Some(claims_dir)))
+}
+
+/// Serialize `SelectResults` to SPARQL JSON Results format
+/// (https://www.w3.org/TR/sparql11-results-json/).
+fn serialize_sparql_json_results(
+    results: &nomograph_claim::graph_view::SelectResults,
+) -> String {
+    use nomograph_claim::graph_view::Term;
+
+    let vars: Vec<Value> = results
+        .columns
+        .iter()
+        .map(|c| Value::String(c.clone()))
+        .collect();
+
+    let bindings: Vec<Value> = results
+        .rows
+        .iter()
+        .map(|row| {
+            let mut binding = serde_json::Map::new();
+            for (col, term) in results.columns.iter().zip(row.iter()) {
+                let term_val = match term {
+                    Term::Iri(iri) => serde_json::json!({"type": "uri", "value": iri}),
+                    Term::BlankNode(id) => serde_json::json!({"type": "bnode", "value": id}),
+                    Term::Literal {
+                        value,
+                        datatype,
+                        language,
+                    } => {
+                        let mut obj = serde_json::Map::new();
+                        obj.insert("type".into(), Value::String("literal".into()));
+                        obj.insert("value".into(), Value::String(value.clone()));
+                        if let Some(lang) = language {
+                            obj.insert("xml:lang".into(), Value::String(lang.clone()));
+                        } else if let Some(dt) = datatype {
+                            obj.insert("datatype".into(), Value::String(dt.clone()));
+                        }
+                        Value::Object(obj)
+                    }
+                };
+                binding.insert(col.clone(), term_val);
+            }
+            Value::Object(binding)
+        })
+        .collect();
+
+    let result = serde_json::json!({
+        "head": {"vars": vars},
+        "results": {"bindings": bindings}
+    });
+
+    serde_json::to_string(&result).unwrap_or_else(|_| "{}".to_string())
+}
+
+/// Build the HTTP response for a SPARQL result.
+///
+/// 200: Content-Type is `application/sparql-results+json`.
+/// Non-200: plain text body.
+fn build_sparql_response(status: StatusCode, body: String) -> Response {
+    use axum::http::header;
+    if status == StatusCode::OK {
+        (
+            status,
+            [(header::CONTENT_TYPE, SPARQL_RESULTS_JSON_CONTENT_TYPE)],
+            body,
+        )
+            .into_response()
+    } else {
+        (status, body).into_response()
+    }
+}
+
+/// GET /sparql?query=<urlencoded>
+async fn handle_sparql_get(AxumQuery(params): AxumQuery<HashMap<String, String>>) -> Response {
+    let Some(sparql) = params.get("query").cloned() else {
+        return (
+            StatusCode::BAD_REQUEST,
+            "missing required 'query' parameter".to_string(),
+        )
+            .into_response();
+    };
+
+    match tokio::task::spawn_blocking(move || run_sparql_query(sparql)).await {
+        Ok((status, body)) => build_sparql_response(status, body),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("join error: {e}"),
+        )
+            .into_response(),
+    }
+}
+
+/// POST /sparql handler.
+///
+/// Accepts:
+/// - `application/x-www-form-urlencoded` with `query=...`
+/// - `application/sparql-query` with raw SPARQL in the body
+async fn handle_sparql_post(headers: HeaderMap, body: Bytes) -> Response {
+    let content_type = headers
+        .get(axum::http::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+
+    let sparql = if content_type.contains("application/x-www-form-urlencoded") {
+        let body_str = match std::str::from_utf8(&body) {
+            Ok(s) => s,
+            Err(_) => {
+                return (StatusCode::BAD_REQUEST, "request body is not valid UTF-8")
+                    .into_response();
+            }
+        };
+        let mut query_val: Option<String> = None;
+        for part in body_str.split('&') {
+            if let Some(val) = part.strip_prefix("query=") {
+                query_val = Some(sparql_percent_decode(val));
+                break;
+            }
+        }
+        match query_val {
+            Some(q) => q,
+            None => {
+                return (StatusCode::BAD_REQUEST, "missing 'query' field in form body")
+                    .into_response();
+            }
+        }
+    } else if content_type.contains("application/sparql-query") {
+        match String::from_utf8(body.to_vec()) {
+            Ok(s) => s,
+            Err(_) => {
+                return (StatusCode::BAD_REQUEST, "request body is not valid UTF-8")
+                    .into_response();
+            }
+        }
+    } else {
+        return (
+            StatusCode::BAD_REQUEST,
+            format!(
+                "unsupported Content-Type '{content_type}'; \
+                 expected application/x-www-form-urlencoded or application/sparql-query"
+            ),
+        )
+            .into_response();
+    };
+
+    match tokio::task::spawn_blocking(move || run_sparql_query(sparql)).await {
+        Ok((status, body)) => build_sparql_response(status, body),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("join error: {e}"),
+        )
+            .into_response(),
+    }
+}
+
+/// Minimal percent-decode for URL-encoded SPARQL form values.
+///
+/// Handles `%XX` escapes and `+` as space.
+fn sparql_percent_decode(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let bytes = s.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'+' {
+            out.push(' ');
+            i += 1;
+        } else if bytes[i] == b'%' && i + 2 < bytes.len() {
+            if let (Some(hi), Some(lo)) = (
+                (bytes[i + 1] as char).to_digit(16),
+                (bytes[i + 2] as char).to_digit(16),
+            ) {
+                out.push(char::from(((hi << 4) | lo) as u8));
+                i += 3;
+            } else {
+                out.push(bytes[i] as char);
+                i += 1;
+            }
+        } else {
+            out.push(bytes[i] as char);
+            i += 1;
+        }
+    }
+    out
+}
+
+// ---------------------------------------------------------------------------
+// Tests for SPARQL endpoint
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod sparql_tests {
+    use super::*;
+    use axum::body::Body;
+    use axum::http::{Request, header};
+    use nomograph_claim::graph_view::{GraphView, rebuild};
+    use nomograph_claim::log::LogWriter;
+    use tempfile::TempDir;
+    use tower::ServiceExt as _;
+
+    fn make_task_claim(id_suffix: &str, status: &str) -> serde_json::Value {
+        serde_json::json!({
+            "@context": {
+                "nomograph": "https://nomograph.org/v3/",
+                "prov":      "http://www.w3.org/ns/prov#",
+                "xsd":       "http://www.w3.org/2001/XMLSchema#",
+                "synth":     "https://nomograph.org/synth/",
+                "prov:generatedAtTime": {"@type": "xsd:dateTime"},
+                "prov:wasAttributedTo": {"@type": "@id"}
+            },
+            "@id": format!("synth:claim/{}", id_suffix),
+            "@type": "synth:Task",
+            "prov:generatedAtTime": "2026-05-29T00:00:00.000Z",
+            "prov:wasAttributedTo": "asserter:user:local:agd",
+            "synth:summary": format!("Task {}", id_suffix),
+            "synth:status":  status,
+        })
+    }
+
+    fn build_test_view(n: usize) -> (TempDir, GraphView) {
+        let tmp = TempDir::new().unwrap();
+        let writer = LogWriter::new(tmp.path()).unwrap();
+        let statuses = ["pending", "in_progress", "done"];
+        for i in 0..n {
+            let status = statuses[i % statuses.len()];
+            let doc = make_task_claim(&format!("{:04}", i), status);
+            writer.append("user:local:agd", &doc).unwrap();
+        }
+        let view = GraphView::open_in_memory().unwrap();
+        rebuild(&view, tmp.path()).unwrap();
+        (tmp, view)
+    }
+
+    fn build_test_router() -> Router {
+        let (tx, _) = broadcast::channel::<()>(1);
+        Router::new()
+            .route("/sparql", get(handle_sparql_get).post(handle_sparql_post))
+            .with_state(tx)
+    }
+
+    /// Minimal URL-percent-encoder for test query parameters.
+    fn url_encode(s: &str) -> String {
+        let mut out = String::new();
+        for b in s.bytes() {
+            match b {
+                b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                    out.push(b as char);
+                }
+                b' ' => out.push('+'),
+                _ => out.push_str(&format!("%{:02X}", b)),
+            }
+        }
+        out
+    }
+
+    // ------------------------------------------------------------------
+    // Helper unit tests
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn is_update_query_rejects_keywords() {
+        assert!(is_update_query("INSERT DATA { <s> <p> <o> }"));
+        assert!(is_update_query("  INSERT DATA { }"));
+        assert!(is_update_query("DELETE WHERE { ?s ?p ?o }"));
+        assert!(is_update_query("LOAD <http://example.org/graph>"));
+        assert!(is_update_query("CLEAR ALL"));
+        assert!(is_update_query("DROP GRAPH <g>"));
+    }
+
+    #[test]
+    fn is_update_query_passes_read_operations() {
+        assert!(!is_update_query("SELECT ?s WHERE { ?s ?p ?o }"));
+        assert!(!is_update_query("ASK { ?s ?p ?o }"));
+        assert!(!is_update_query("CONSTRUCT { ?s ?p ?o } WHERE { ?s ?p ?o }"));
+        assert!(!is_update_query(
+            "PREFIX ex: <http://example.org/> SELECT ?s WHERE { ?s ?p ?o }"
+        ));
+    }
+
+    #[test]
+    fn sparql_percent_decode_plus_is_space() {
+        assert_eq!(sparql_percent_decode("hello+world"), "hello world");
+    }
+
+    #[test]
+    fn sparql_percent_decode_percent_encoded() {
+        assert_eq!(sparql_percent_decode("hello%20world"), "hello world");
+        assert_eq!(sparql_percent_decode("a%3Db"), "a=b");
+    }
+
+    #[test]
+    fn sparql_percent_decode_roundtrip_select_query() {
+        let q = "SELECT ?s WHERE { ?s ?p ?o }";
+        let encoded = url_encode(q);
+        assert_eq!(sparql_percent_decode(&encoded), q);
+    }
+
+    #[test]
+    fn serialize_sparql_json_results_shape() {
+        let (_tmp, view) = build_test_view(3);
+        let results = nomograph_claim::graph_view::select(
+            &view,
+            "PREFIX synth: <https://nomograph.org/synth/> \
+             SELECT ?c ?summary WHERE { GRAPH ?g { ?c synth:summary ?summary } } ORDER BY ?c",
+        )
+        .unwrap();
+        let json_str = serialize_sparql_json_results(&results);
+        let val: serde_json::Value = serde_json::from_str(&json_str).unwrap();
+        let vars = val["head"]["vars"].as_array().unwrap();
+        assert!(vars.contains(&serde_json::json!("c")));
+        assert!(vars.contains(&serde_json::json!("summary")));
+        let bindings = val["results"]["bindings"].as_array().unwrap();
+        assert_eq!(bindings.len(), 3);
+        for b in bindings {
+            assert_eq!(b["c"]["type"], "uri", "?c should be uri");
+            assert_eq!(b["summary"]["type"], "literal", "?summary should be literal");
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Acceptance criterion: read-only enforced via run_sparql_query.
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn run_sparql_query_update_rejected_400() {
+        let (status, body) = run_sparql_query("INSERT DATA { <s> <p> <o> }".to_string());
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(body.contains("read-only"), "body: {body}");
+    }
+
+    #[test]
+    fn run_sparql_query_delete_rejected_400() {
+        let (status, body) = run_sparql_query("DELETE WHERE { ?s ?p ?o }".to_string());
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(body.contains("read-only"), "body: {body}");
+    }
+
+    // ------------------------------------------------------------------
+    // Acceptance criterion: SELECT returns SPARQL JSON results format.
+    // Tests via serialize_sparql_json_results with a real in-memory view.
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn select_results_conform_to_sparql_json_spec() {
+        let (_tmp, view) = build_test_view(3);
+        let results = nomograph_claim::graph_view::select(
+            &view,
+            "PREFIX synth: <https://nomograph.org/synth/> \
+             SELECT ?c WHERE { GRAPH ?g { ?c synth:status \"pending\" } }",
+        )
+        .unwrap();
+        let body = serialize_sparql_json_results(&results);
+        let val: serde_json::Value = serde_json::from_str(&body).unwrap();
+        // W3C spec requires head.vars and results.bindings.
+        assert!(val["head"]["vars"].is_array(), "missing head.vars");
+        assert!(
+            val["results"]["bindings"].is_array(),
+            "missing results.bindings"
+        );
+        assert_eq!(val["results"]["bindings"].as_array().unwrap().len(), 1);
+    }
+
+    // ------------------------------------------------------------------
+    // HTTP round-trip via tower::ServiceExt::oneshot
+    // ------------------------------------------------------------------
+
+    // Acceptance criterion: UPDATE via GET query param rejected with 400.
+    #[tokio::test]
+    async fn get_sparql_update_returns_400() {
+        let app = build_test_router();
+        let query = url_encode("INSERT DATA { <s> <p> <o> }");
+        let req = Request::builder()
+            .uri(format!("/sparql?query={query}"))
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    // Missing query param returns 400.
+    #[tokio::test]
+    async fn get_sparql_missing_query_param_returns_400() {
+        let app = build_test_router();
+        let req = Request::builder()
+            .uri("/sparql")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body_str = std::str::from_utf8(&body_bytes).unwrap();
+        assert!(body_str.contains("query"), "expected 'query' in: {body_str}");
+    }
+
+    // Acceptance criterion: POST form-urlencoded UPDATE rejected with 400.
+    #[tokio::test]
+    async fn post_sparql_form_update_returns_400() {
+        let app = build_test_router();
+        let body = format!("query={}", url_encode("DELETE WHERE { ?s ?p ?o }"));
+        let req = Request::builder()
+            .method("POST")
+            .uri("/sparql")
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .body(Body::from(body))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    // Acceptance criterion: POST direct body UPDATE rejected with 400.
+    #[tokio::test]
+    async fn post_sparql_direct_body_update_returns_400() {
+        let app = build_test_router();
+        let req = Request::builder()
+            .method("POST")
+            .uri("/sparql")
+            .header(header::CONTENT_TYPE, "application/sparql-query")
+            .body(Body::from("INSERT DATA { <s> <p> <o> }"))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    // Unsupported Content-Type on POST returns 400.
+    #[tokio::test]
+    async fn post_sparql_unsupported_content_type_returns_400() {
+        let app = build_test_router();
+        let req = Request::builder()
+            .method("POST")
+            .uri("/sparql")
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(r#"{"query": "SELECT ?s WHERE { ?s ?p ?o }"}"#))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    // POST form-urlencoded missing query field returns 400.
+    #[tokio::test]
+    async fn post_sparql_form_missing_query_field_returns_400() {
+        let app = build_test_router();
+        let req = Request::builder()
+            .method("POST")
+            .uri("/sparql")
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .body(Body::from("other_field=value"))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+}
 
 #[derive(Debug, serde::Serialize)]
 struct State {
