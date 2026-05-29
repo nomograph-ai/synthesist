@@ -63,6 +63,10 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "syn
 tokio-stream = { version = "0.1", features = ["sync"] }
 notify = "6"
 futures-util = "0.3"
+# spargebra is a transitive dep via oxigraph; declared explicitly here
+# so telemetry.rs can use it for SPARQL AST walking without relying on
+# Cargo's implicit transitive dep resolution (which is not stable).
+spargebra = "0.3"
 
 [features]
 # Legacy SQL-backed commands not yet ported to the claim substrate.
