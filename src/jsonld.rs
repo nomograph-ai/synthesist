@@ -126,8 +126,8 @@ mod tests {
     #[test]
     fn claim_iri_composes_correctly() {
         assert_eq!(
-            claim_iri("synth", "abc123"),
-            "synth:claim/abc123"
+            claim_iri("synthesist", "abc123"),
+            "synthesist:claim/abc123"
         );
         assert_eq!(
             claim_iri("nomograph", "deadbeef"),
@@ -149,7 +149,7 @@ mod tests {
 
     #[test]
     fn merge_contexts_produces_array_with_base_first() {
-        let module = json!({"synth": "https://nomograph.org/synth/"});
+        let module = json!({"synthesist": "https://nomograph.org/synthesist/"});
         let merged = merge_contexts(module.clone());
         let arr = merged.as_array().unwrap();
         assert_eq!(arr.len(), 2);
@@ -167,8 +167,8 @@ mod tests {
         // Construct a minimal claim using only the base context.
         let doc = json!({
             "@context": base_context_inner(),
-            "@id": "synth:claim/test123",
-            "@type": "synth:Task",
+            "@id": "synthesist:claim/test123",
+            "@type": "synthesist:Task",
             "prov:generatedAtTime": "2026-05-29T01:00:00.000Z",
             "prov:wasAttributedTo": "asserter:user:local:agd"
         });

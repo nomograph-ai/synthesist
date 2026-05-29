@@ -63,7 +63,7 @@ use serde_json::Value;
 
 /// A newtype wrapping the `@id` string of a written claim.
 ///
-/// The value is the raw JSON-LD `@id` field, e.g. `"synth:claim/abc123"`.
+/// The value is the raw JSON-LD `@id` field, e.g. `"synthesist:claim/abc123"`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClaimId(pub String);
 
@@ -268,7 +268,7 @@ pub fn dir_name_for_asserter(asserter: &str) -> String {
 ///
 /// `id` is the claim's `@id` value pulled from the parsed document.
 /// `raw` is the full JSON-LD doc as a `serde_json::Value`. Callers that
-/// want typed access against a module schema (e.g., synth:Task) walk
+/// want typed access against a module schema (e.g., synthesist:Task) walk
 /// the raw value themselves.
 #[derive(Debug, Clone)]
 pub struct Claim {
@@ -448,10 +448,10 @@ mod tests {
         json!({
             "@context": "https://nomograph.org/v3/context.jsonld",
             "@id": id,
-            "@type": "synth:Task",
+            "@type": "synthesist:Task",
             "prov:generatedAtTime": "2026-05-29T00:00:00.000Z",
             "prov:wasAttributedTo": asserter_iri,
-            "synth:summary": "test claim"
+            "synthesist:summary": "test claim"
         })
     }
 
@@ -467,7 +467,7 @@ mod tests {
 
         let asserter = "user:local:agd";
         for i in 0..100 {
-            let id = format!("synth:claim/{:016x}", i);
+            let id = format!("synthesist:claim/{:016x}", i);
             let doc = make_claim(&id, "asserter:user:local:agd");
             let claim_id = writer.append(asserter, &doc).unwrap();
             assert_eq!(claim_id.as_str(), id);
@@ -517,12 +517,12 @@ mod tests {
         for i in 0..60 {
             if i % 3 == 0 {
                 // Every third write goes to B; others go to A.
-                let id = format!("synth:claim/b{:015x}", i);
+                let id = format!("synthesist:claim/b{:015x}", i);
                 let doc = make_claim(&id, "asserter:agent:claude-opus-4-7:sess-xyz");
                 writer.append(asserter_b, &doc).unwrap();
                 count_b += 1;
             } else {
-                let id = format!("synth:claim/a{:015x}", i);
+                let id = format!("synthesist:claim/a{:015x}", i);
                 let doc = make_claim(&id, "asserter:user:local:alice");
                 writer.append(asserter_a, &doc).unwrap();
                 count_a += 1;
@@ -575,7 +575,7 @@ mod tests {
 
         // Missing @id.
         let no_id = json!({
-            "@type": "synth:Task",
+            "@type": "synthesist:Task",
             "prov:generatedAtTime": "2026-05-29T00:00:00.000Z",
             "prov:wasAttributedTo": "asserter:user:local:agd"
         });
@@ -588,7 +588,7 @@ mod tests {
 
         // Missing @type.
         let no_type = json!({
-            "@id": "synth:claim/abc",
+            "@id": "synthesist:claim/abc",
             "prov:generatedAtTime": "2026-05-29T00:00:00.000Z",
             "prov:wasAttributedTo": "asserter:user:local:agd"
         });
@@ -601,8 +601,8 @@ mod tests {
 
         // Missing prov:generatedAtTime.
         let no_time = json!({
-            "@id": "synth:claim/abc",
-            "@type": "synth:Task",
+            "@id": "synthesist:claim/abc",
+            "@type": "synthesist:Task",
             "prov:wasAttributedTo": "asserter:user:local:agd"
         });
         let err = writer.append(asserter, &no_time).unwrap_err();
@@ -614,8 +614,8 @@ mod tests {
 
         // Missing prov:wasAttributedTo.
         let no_attr = json!({
-            "@id": "synth:claim/abc",
-            "@type": "synth:Task",
+            "@id": "synthesist:claim/abc",
+            "@type": "synthesist:Task",
             "prov:generatedAtTime": "2026-05-29T00:00:00.000Z"
         });
         let err = writer.append(asserter, &no_attr).unwrap_err();
@@ -662,7 +662,7 @@ mod tests {
     fn log_file_has_trailing_newline() {
         let tmp = TempDir::new().unwrap();
         let writer = LogWriter::new(tmp.path()).unwrap();
-        let doc = make_claim("synth:claim/aabbccdd", "asserter:user:local:agd");
+        let doc = make_claim("synthesist:claim/aabbccdd", "asserter:user:local:agd");
         writer.append("user:local:agd", &doc).unwrap();
 
         let log_path = tmp.path().join("user-local-agd").join("log.jsonl");
@@ -685,9 +685,9 @@ mod tests {
     // -- Supplementary: ClaimId display and as_str --
     #[test]
     fn claim_id_display() {
-        let id = ClaimId("synth:claim/abc".to_owned());
-        assert_eq!(id.as_str(), "synth:claim/abc");
-        assert_eq!(id.to_string(), "synth:claim/abc");
+        let id = ClaimId("synthesist:claim/abc".to_owned());
+        assert_eq!(id.as_str(), "synthesist:claim/abc");
+        assert_eq!(id.to_string(), "synthesist:claim/abc");
     }
 
     //
@@ -714,21 +714,21 @@ mod tests {
 
         for i in 0..20 {
             let doc = make_claim(
-                &format!("synth:claim/a{:02}", i),
+                &format!("synthesist:claim/a{:02}", i),
                 "asserter:user:local:agd",
             );
             writer.append("user:local:agd", &doc).unwrap();
         }
         for i in 0..15 {
             let doc = make_claim(
-                &format!("synth:claim/b{:02}", i),
+                &format!("synthesist:claim/b{:02}", i),
                 "asserter:user:local:jkolb",
             );
             writer.append("user:local:jkolb", &doc).unwrap();
         }
         for i in 0..15 {
             let doc = make_claim(
-                &format!("synth:claim/c{:02}", i),
+                &format!("synthesist:claim/c{:02}", i),
                 "asserter:agent:claude:sess1",
             );
             writer.append("agent:claude:sess1", &doc).unwrap();
@@ -768,7 +768,7 @@ mod tests {
         // Write some normal claims.
         for i in 0..3 {
             let doc = make_claim(
-                &format!("synth:claim/n{}", i),
+                &format!("synthesist:claim/n{}", i),
                 "asserter:user:local:agd",
             );
             writer.append("user:local:agd", &doc).unwrap();
@@ -806,12 +806,12 @@ mod tests {
         std::fs::create_dir_all(&asserter_dir).unwrap();
         let log_path = asserter_dir.join("log.jsonl");
         let good_a = serde_json::to_string(&make_claim(
-            "synth:claim/good_a",
+            "synthesist:claim/good_a",
             "asserter:user:local:agd",
         ))
         .unwrap();
         let good_b = serde_json::to_string(&make_claim(
-            "synth:claim/good_b",
+            "synthesist:claim/good_b",
             "asserter:user:local:agd",
         ))
         .unwrap();
@@ -835,7 +835,7 @@ mod tests {
         std::fs::create_dir_all(&asserter_dir).unwrap();
         let log_path = asserter_dir.join("log.jsonl");
         let good = serde_json::to_string(&make_claim(
-            "synth:claim/x",
+            "synthesist:claim/x",
             "asserter:user:local:agd",
         ))
         .unwrap();
@@ -864,7 +864,7 @@ mod tests {
         .unwrap();
 
         // Write a real claim.
-        let doc = make_claim("synth:claim/real", "asserter:user:local:agd");
+        let doc = make_claim("synthesist:claim/real", "asserter:user:local:agd");
         writer.append("user:local:agd", &doc).unwrap();
 
         let reader = LogReader::new(tmp.path()).unwrap();
@@ -878,13 +878,13 @@ mod tests {
         let writer = LogWriter::new(tmp.path()).unwrap();
 
         // Append in NON-lexicographic order.
-        let doc_z = make_claim("synth:claim/from_zulu", "asserter:user:local:zulu");
+        let doc_z = make_claim("synthesist:claim/from_zulu", "asserter:user:local:zulu");
         writer.append("user:local:zulu", &doc_z).unwrap();
 
-        let doc_a = make_claim("synth:claim/from_alpha", "asserter:user:local:alpha");
+        let doc_a = make_claim("synthesist:claim/from_alpha", "asserter:user:local:alpha");
         writer.append("user:local:alpha", &doc_a).unwrap();
 
-        let doc_m = make_claim("synth:claim/from_mike", "asserter:user:local:mike");
+        let doc_m = make_claim("synthesist:claim/from_mike", "asserter:user:local:mike");
         writer.append("user:local:mike", &doc_m).unwrap();
 
         let reader = LogReader::new(tmp.path()).unwrap();
@@ -898,9 +898,9 @@ mod tests {
         assert_eq!(
             ids,
             vec![
-                "synth:claim/from_alpha",
-                "synth:claim/from_mike",
-                "synth:claim/from_zulu",
+                "synthesist:claim/from_alpha",
+                "synthesist:claim/from_mike",
+                "synthesist:claim/from_zulu",
             ]
         );
     }
