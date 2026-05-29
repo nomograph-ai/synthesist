@@ -37,6 +37,10 @@ license = "MIT"
 name = "synthesist"
 path = "src/main.rs"
 
+[[bin]]
+name = "emit-shacl"
+path = "src/bin/emit_shacl.rs"
+
 [dependencies]
 clap = { version = "4", features = ["derive", "env"] }
 rusqlite = { version = "0.39", features = ["bundled"] }
@@ -85,3 +89,4 @@ tempfile = "3"
 assert_cmd = "2"
 predicates = "3"
 tower = { version = "0.5", features = ["util"] }
+oxttl = "0.1"
