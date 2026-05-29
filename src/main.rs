@@ -2,6 +2,7 @@ mod cli;
 mod cmd_campaign;
 mod cmd_jig;
 mod cmd_claims;
+mod migrations;
 mod cmd_conflicts;
 mod cmd_discovery;
 mod cmd_export;

@@ -121,7 +121,7 @@ pub enum Command {
         #[command(subcommand)]
         cmd: PhaseCmd,
     },
-    /// Check schema version, or migrate a v1 `.synth/main.db` to v2 `claims/`.
+    /// List, inspect, and run schema migrations (v2-to-v3 and future transitions).
     Migrate {
         #[command(subcommand)]
         cmd: MigrateCmd,
@@ -656,26 +656,27 @@ pub enum SessionCmd {
 
 #[derive(Subcommand)]
 pub enum MigrateCmd {
-    /// Report claim-substrate status. If a legacy v1 `.synth/main.db`
-    /// is present, the next_action field names the migrator to run.
+    /// List all registered migrations (chain order).
+    List,
+    /// Show current schema version and pending migrations.
     Status,
-    /// Migrate a v1 `.synth/main.db` into a v2 `claims/` directory.
-    /// Preserves created_at timestamps; auto-backs up the v1 db; emits
-    /// JSON with verified row-count round-trip.
-    #[command(name = "v1-to-v2")]
-    V1ToV2 {
-        /// Path to the v1 SQLite database (e.g. `.synth/main.db`).
+    /// Run migrations from current schema version to target (or latest).
+    Run {
+        /// Target schema version. Default: latest registered.
         #[arg(long)]
-        from: PathBuf,
-        /// Path to the v2 `claims/` directory to create.
-        #[arg(long)]
-        to: PathBuf,
-        /// Read only; do not write any claims or backup.
+        target: Option<String>,
+        /// Plan the chain and report without writing.
         #[arg(long)]
         dry_run: bool,
-        /// Delete any existing `claims/` at `--to` before migrating.
+        /// Skip the tarball backup. Default: backup is written.
         #[arg(long)]
-        overwrite: bool,
+        no_backup: bool,
+    },
+    /// Convenience shortcut for the v2-to-v3 migration.
+    #[command(name = "v2-to-v3")]
+    V2ToV3 {
+        #[arg(long)]
+        dry_run: bool,
     },
 }
 
@@ -804,8 +805,10 @@ const REGISTRY: &[(&str, bool)] = &[
     ("phase show",         true),
     ("phase set",          true),
     // --- migrate ---
+    ("migrate list",       true),
     ("migrate status",     true),
-    ("migrate v1-to-v2",   true),
+    ("migrate run",        true),
+    ("migrate v2-to-v3",   true),
     // --- claims substrate ---
     ("claims compact",     true),
     // --- outcome ---
@@ -1021,7 +1024,7 @@ include = [
     "session start", "session close", "session list", "session status",
     "phase show", "phase set",
     "export", "import", "sql",
-    "conflicts", "migrate status", "migrate v1-to-v2",
+    "conflicts", "migrate list", "migrate status", "migrate run", "migrate v2-to-v3",
     "init", "check", "version", "skill", "serve",
     "claims compact",
     "outcome add", "outcome list",
@@ -1080,8 +1083,10 @@ add     = []
             "session status",
             "phase show",
             "phase set",
+            "migrate list",
             "migrate status",
-            "migrate v1-to-v2",
+            "migrate run",
+            "migrate v2-to-v3",
             "claims compact",
             "outcome add",
             "outcome list",

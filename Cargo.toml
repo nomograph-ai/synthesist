@@ -74,6 +74,9 @@ spargebra = "0.3"
 # blake3 is the substrate's standard hash; used by telemetry canonicalize()
 # for query_hash derivation. Pin to 1.x for stability.
 blake3 = "1"
+# migrations: tarball backup of the v2 store before migration.
+flate2 = "1"
+tar = "0.4"
 
 [features]
 # Legacy SQL-backed commands not yet ported to the claim substrate.

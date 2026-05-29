@@ -15,7 +15,7 @@ include = [
     "session start", "session close", "session list", "session status",
     "phase show", "phase set",
     "export", "import", "sql",
-    "conflicts", "migrate status", "migrate v1-to-v2",
+    "conflicts", "migrate list", "migrate status", "migrate run", "migrate v2-to-v3",
     "init", "check", "version", "skill", "serve",
     "claims compact",
     "outcome add", "outcome list",
