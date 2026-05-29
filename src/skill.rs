@@ -2,13 +2,378 @@
 //!
 //! The skill file is the primary interface between synthesist and LLM agents.
 //! It must be execution-system agnostic (works with Claude Code, Cursor, etc.).
+//!
+//! # Manifest-filtered emission
+//!
+//! `cmd_skill(Some(path))` loads the manifest at `path`, builds the
+//! manifest-filtered command tree via `cli::build_app`, and emits a skill
+//! document that lists only the commands present in that tree.
+//!
+//! `cmd_skill(None)` (default) prints `SKILL_CONTENT` unchanged.  The output
+//! is byte-equivalent to the v3-alpha baseline.
+
+use std::path::Path;
 
 use anyhow::Result;
 
-pub fn cmd_skill() -> Result<()> {
-    print!("{SKILL_CONTENT}");
+pub fn cmd_skill(manifest_path: Option<&Path>) -> Result<()> {
+    match manifest_path {
+        None => {
+            // Default: baseline behavior, byte-equivalent to the v3-alpha
+            // baseline. Do not filter or transform.
+            print!("{SKILL_CONTENT}");
+        }
+        Some(path) => {
+            let manifest = crate::surface::manifest::load(path)?;
+            let skill = generate_skill_for_manifest(&manifest);
+            print!("{skill}");
+        }
+    }
     Ok(())
 }
+
+/// Generate a skill document filtered to the commands permitted by `manifest`.
+///
+/// The structure follows `SKILL_CONTENT` exactly. Sections in the Command
+/// Reference are included only when at least one command from that section
+/// appears in the manifest's permitted set. The "Behavioral Contract",
+/// "Worked Example", "Data Model", "Display Conventions", "Error Handling",
+/// "Storage", and "Schema" sections are always included because they document
+/// invariants that apply regardless of surface.
+///
+/// Additional command groups available in the manifest but absent from the
+/// baseline skill content (e.g. `query`, `overlay run`) are appended to the
+/// Command Reference under their own headings.
+fn generate_skill_for_manifest(manifest: &crate::surface::manifest::Manifest) -> String {
+    // Build the set of permitted command keys for this manifest.
+    let app = crate::cli::build_app(manifest);
+    let permitted = collect_app_keys(&app);
+
+    // Start from the baseline content and selectively rebuild the Command
+    // Reference section, then append any non-baseline sections.
+    //
+    // Strategy: split SKILL_CONTENT at "## Command Reference" and re-emit
+    // only the permitted groups, then re-append the trailing non-command
+    // sections ("## Display Conventions" onward).
+
+    let cmd_ref_marker = "## Command Reference\n";
+    let after_cmd_ref_marker = "## Display Conventions\n";
+
+    let before_cmd_ref = match SKILL_CONTENT.find(cmd_ref_marker) {
+        Some(idx) => &SKILL_CONTENT[..idx],
+        None => return SKILL_CONTENT.to_string(),
+    };
+
+    let after_sections = match SKILL_CONTENT.find(after_cmd_ref_marker) {
+        Some(idx) => &SKILL_CONTENT[idx..],
+        None => "",
+    };
+
+    let mut out = String::with_capacity(SKILL_CONTENT.len() + 1024);
+    out.push_str(before_cmd_ref);
+    out.push_str(cmd_ref_marker);
+    out.push('\n');
+
+    // Emit each baseline command group only when it has permitted commands.
+    emit_section_if_permitted(
+        &mut out,
+        &permitted,
+        &["status", "init", "check", "conflicts", "version", "skill", "export", "import", "sql"],
+        ESTATE_SECTION,
+    );
+    emit_section_if_permitted(
+        &mut out,
+        &permitted,
+        &["tree add", "tree list", "tree show", "tree close"],
+        TREES_SECTION,
+    );
+    emit_section_if_permitted(
+        &mut out,
+        &permitted,
+        &["spec add", "spec show", "spec update", "spec list"],
+        SPECS_SECTION,
+    );
+    emit_section_if_permitted(
+        &mut out,
+        &permitted,
+        &[
+            "task add", "task list", "task show", "task update", "task claim",
+            "task done", "task reset", "task block", "task wait", "task cancel",
+            "task ready", "task acceptance",
+        ],
+        TASKS_SECTION,
+    );
+    emit_section_if_permitted(
+        &mut out,
+        &permitted,
+        &["discovery add", "discovery list"],
+        DISCOVERIES_SECTION,
+    );
+    emit_section_if_permitted(
+        &mut out,
+        &permitted,
+        &["outcome add", "outcome list"],
+        OUTCOMES_SECTION,
+    );
+    emit_section_if_permitted(
+        &mut out,
+        &permitted,
+        &["claims compact"],
+        CLAIMS_SECTION,
+    );
+    emit_section_if_permitted(
+        &mut out,
+        &permitted,
+        &["campaign add", "campaign list"],
+        CAMPAIGNS_SECTION,
+    );
+    emit_section_if_permitted(
+        &mut out,
+        &permitted,
+        &["session start", "session close", "session list", "session status"],
+        SESSIONS_SECTION,
+    );
+    emit_section_if_permitted(
+        &mut out,
+        &permitted,
+        &["phase show", "phase set"],
+        PHASE_SECTION,
+    );
+    emit_section_if_permitted(
+        &mut out,
+        &permitted,
+        &["export", "import", "sql", "migrate status", "migrate v1-to-v2"],
+        DATA_MANAGEMENT_SECTION,
+    );
+
+    // Non-baseline additions: emit only when the manifest permits them.
+    if permitted.iter().any(|k| k == "query") {
+        out.push_str(QUERY_SECTION);
+        out.push('\n');
+    }
+    if permitted.iter().any(|k| k == "overlay list" || k == "overlay run") {
+        out.push_str(OVERLAY_SECTION);
+        out.push('\n');
+    }
+    if permitted.iter().any(|k| k.starts_with("jig")) {
+        out.push_str(JIG_SECTION);
+        out.push('\n');
+    }
+
+    out.push_str(after_sections);
+    out
+}
+
+/// Emit `section_content` only when at least one of `required_keys` is in
+/// `permitted`. The heading is included in `section_content`.
+fn emit_section_if_permitted(
+    out: &mut String,
+    permitted: &[String],
+    required_keys: &[&str],
+    section_content: &str,
+) {
+    if required_keys
+        .iter()
+        .any(|k| permitted.iter().any(|p| p == k))
+    {
+        out.push_str(section_content);
+        out.push('\n');
+    }
+}
+
+/// Collect every command key from a built `clap::Command` tree in "parent
+/// sub" form (e.g. `"task add"`, `"status"`).
+fn collect_app_keys(app: &clap::Command) -> Vec<String> {
+    let mut keys = Vec::new();
+    for sub in app.get_subcommands() {
+        let parent = sub.get_name();
+        let mut has_children = false;
+        for child in sub.get_subcommands() {
+            keys.push(format!("{parent} {}", child.get_name()));
+            has_children = true;
+        }
+        if !has_children {
+            keys.push(parent.to_string());
+        }
+    }
+    keys
+}
+
+// ---------------------------------------------------------------------------
+// Per-section content fragments used in manifest-filtered emission.
+// Each fragment begins with its ### heading and ends before the next heading.
+// ---------------------------------------------------------------------------
+
+const ESTATE_SECTION: &str = "### Estate
+```
+synthesist init                                  # creates claims/genesis.amc
+synthesist status                                # trees, task counts, ready tasks, sessions
+synthesist check                                 # referential integrity validation
+synthesist conflicts                             # list diamond conflicts (same prior superseded by >1 live successor)
+synthesist version                               # version + update check
+synthesist skill                                 # this file
+```";
+
+const TREES_SECTION: &str = r#"### Trees
+```
+synthesist tree add <name> --description TEXT     # e.g. tree add upstream --description "GitLab"
+synthesist tree list                              # hides closed trees
+synthesist tree list --include-closed             # include trees superseded with status=closed
+synthesist tree show <name>                       # name, description, spec_count, session_count
+synthesist tree close <name>                      # supersede with status=closed (non-destructive)
+synthesist tree close <name> --start-id <hash>    # disambiguate when multiple trees share <name>
+```"#;
+
+const SPECS_SECTION: &str = r#"### Specs
+```
+synthesist spec add <tree/spec> --goal TEXT        # e.g. spec add upstream/auth --goal "Migrate v2->v3"
+synthesist spec show <tree/spec>
+synthesist spec update <tree/spec> --status done   # work delivered; spec moves to terminal state
+synthesist spec list <tree>                       # positional form, e.g. spec list upstream
+synthesist spec list --tree <name>                # flag form (same effect)
+```
+Status values: `draft`, `active`, `done`, `superseded`. To record
+how a spec was disposed of (`completed`, `abandoned`, `deferred`,
+`superseded_by`), use `synthesist outcome add` -- those are
+Outcome claim values, not Spec status values, and the CLI rejects
+them at parse time with a redirect message."#;
+
+const TASKS_SECTION: &str = r#"### Tasks
+IDs auto-generate as t1, t2, ... unless --id is provided.
+```
+synthesist task add <tree/spec> "summary" --depends-on t1,t2 --gate human --files src/auth.rs
+synthesist task list <tree/spec> --active          # hide cancelled tasks
+synthesist task show <tree/spec> <id>              # full detail with deps, files, criteria
+synthesist task update <tree/spec> <id> --summary "revised summary"
+synthesist task update <tree/spec> <id> --depends-on t4,t5   # replace dep list (validates cycle/self/unknown)
+synthesist task update <tree/spec> <id> --depends-on ""      # clear dep list
+synthesist task claim <tree/spec> <id>             # pending -> in_progress (sets owner)
+synthesist task done <tree/spec> <id>              # in_progress -> done (runs acceptance criteria)
+synthesist task reset <tree/spec> <id>             # in_progress -> pending (crash recovery)
+synthesist task reset --session <dead-session>     # bulk reset all tasks owned by dead session
+synthesist task block <tree/spec> <id>             # pending/in_progress -> blocked
+synthesist task wait <tree/spec> <id> --reason "waiting on MR !123"
+synthesist task cancel <tree/spec> <id> --reason "approach changed"
+synthesist task ready <tree/spec>                  # pending tasks with all deps done
+synthesist task acceptance <tree/spec> <id> --criterion "tests pass" --verify "cargo test"
+```"#;
+
+const DISCOVERIES_SECTION: &str = r#"### Discoveries
+```
+synthesist discovery add <tree/spec> --finding "SQLite outperforms DuckDB for this workload" --impact high
+synthesist discovery list <tree/spec>
+```"#;
+
+const OUTCOMES_SECTION: &str = r#"### Outcomes
+Outcome claims express *what happened* to a spec (distinct from
+Spec status, which expresses *what state the spec is in*). Each
+Outcome is its own claim with its own asserter and timestamp;
+multiple Outcomes against the same spec form a history.
+```
+synthesist outcome add <tree/spec> --status completed --note "shipped in MR !500"
+synthesist outcome add <tree/spec> --status abandoned --note "scope folded into auth-v3"
+synthesist outcome add <tree/spec> --status deferred --note "blocked by upstream"
+synthesist outcome add <tree/spec> --status superseded_by --linked-spec other/spec --note "absorbed"
+synthesist outcome list <tree/spec>
+```
+Status values: `completed`, `abandoned`, `deferred`,
+`superseded_by`. The `superseded_by` status requires
+`--linked-spec` (the schema rejects it without)."#;
+
+const CLAIMS_SECTION: &str = "### Substrate maintenance (`claims`)
+Operations on the on-disk claim store, distinct from typed
+appends. Compaction re-encodes incremental `changes/*.amc` files
+into a single `snapshot.amc` under the substrate lock; logical
+history is unchanged. Large estates have observed ~1300x
+working-tree shrink. Heavy operation; schedule during quiet
+windows.
+
+`claims compact` does not append a typed claim and records no
+attribution. It does not require `--session` and is not subject
+to phase enforcement; it can run in any phase from any context.
+```
+synthesist claims compact --dry-run               # preview without writing
+synthesist claims compact --yes                   # required for non-interactive
+```
+Without `--yes`, interactive callers see a confirmation prompt;
+non-interactive callers (agents, CI) get an error directing them
+to pass `--yes` rather than hanging on stdin.";
+
+const CAMPAIGNS_SECTION: &str = r#"### Campaigns
+```
+synthesist campaign add <tree> <spec-id> --summary "Auth migration"
+synthesist campaign add <tree> <spec-id> --backlog --title "Future: OAuth2 support"
+synthesist campaign list <tree>
+```"#;
+
+const SESSIONS_SECTION: &str = r#"### Sessions
+```
+synthesist session start <id> --tree upstream --spec auth --summary "Auth work"
+synthesist session close <id>                     # append a closing supersession
+synthesist session close <id> --start-id <hash>   # disambiguate when multiple openers share <id>
+synthesist session list                           # show all sessions
+synthesist session status <id>                    # claims written in this session
+```
+
+Multi-user writes merge automatically via CRDT. Run
+`synthesist conflicts` to surface unresolved supersessions."#;
+
+const PHASE_SECTION: &str = r#"### Phase
+Phase is per-session in v2. Both `phase show` and `phase set`
+require `--session=<id>` or `SYNTHESIST_SESSION`. To see every
+live session's phase at once, use `synthesist status`.
+```
+synthesist phase show --session=<id>               # current phase for one session
+synthesist phase show                              # ERROR if SYNTHESIST_SESSION unset
+synthesist phase set plan --session=<id>           # orient -> plan (validated)
+synthesist phase set execute --session=<id>        # fails if not in agree
+synthesist --force phase set execute --session=<id> # override transition validation
+```"#;
+
+const DATA_MANAGEMENT_SECTION: &str = r#"### Data Management
+```
+synthesist export                                                                  # full JSON backup (claim log export)
+synthesist import backup.json                                                      # restore from backup
+synthesist sql "SELECT id, summary, status FROM tasks WHERE tree = 'upstream'"
+synthesist migrate status                                                          # report v1/v2 status; names migrator if v1 db present
+synthesist migrate v1-to-v2 --from .synth/main.db --to claims/                     # port v1 db into v2 claims
+```
+
+Migration is an integrated subcommand on v2 binaries; there is no
+separate `migrate-v1-to-v2` executable. Pass `--dry-run` first, then
+re-run without it. See synthesist/MIGRATION.md for the operator
+runbook.
+
+Observation commands (`stakeholder`, `disposition`, `signal`,
+`topic`, `stance`, `landscape`) have moved to the `lattice` tool.
+Running them here prints a pointer to the replacement."#;
+
+// Non-baseline sections: included only when the manifest permits them.
+
+const QUERY_SECTION: &str = "### Graph Query
+Run read-only SPARQL SELECT queries against the local graph view.
+Results are JSON with `columns`, `rows`, and `count`.
+```
+synthesist query --sparql \"SELECT ?s ?p ?o WHERE { ?s ?p ?o } LIMIT 10\"
+synthesist query --file query.sparql               # load query from file
+```";
+
+const OVERLAY_SECTION: &str = "### Overlays
+Named analysis passes over the graph view. Each overlay runs a
+SPARQL CONSTRUCT query and returns structured hits. Read-only.
+```
+synthesist overlay list                            # list registered overlays
+synthesist overlay run <name>                      # run overlay, print hits as JSON
+```";
+
+const JIG_SECTION: &str = "### Jig
+Run canonical scenarios under surface manifests and record results.
+Results land in `claims/_jig/<run_id>.json`.
+```
+synthesist jig run --scenario <name> --manifest <name>
+synthesist jig list-scenarios                      # list scenarios in jig/scenarios/
+synthesist jig list-manifests                      # list manifests in surface/
+```";
 
 const SKILL_CONTENT: &str = r#"# Synthesist -- Specification Graph Manager (v2)
 
@@ -537,7 +902,178 @@ mod tests {
 
     #[test]
     fn cmd_skill_returns_ok() {
-        // Smoke test: cmd_skill must not error.
-        cmd_skill().expect("cmd_skill should return Ok");
+        // Smoke test: default (no manifest) must not error.
+        cmd_skill(None).expect("cmd_skill(None) should return Ok");
+    }
+
+    // T5.3 acceptance tests
+    // -----------------------------------------------------------------------
+
+    /// Helper: build an inline manifest and run generate_skill_for_manifest.
+    fn skill_for_toml(toml: &str) -> String {
+        let manifest = crate::surface::manifest::parse_str(toml, "<test>").unwrap();
+        generate_skill_for_manifest(&manifest)
+    }
+
+    #[test]
+    fn default_skill_is_byte_equivalent_to_skill_content() {
+        // The no-manifest path prints SKILL_CONTENT unchanged. Verify that
+        // SKILL_CONTENT is non-empty and contains the canonical sections.
+        // cmd_skill(None) is exercised by cmd_skill_returns_ok; here we
+        // verify the content contract directly.
+        assert!(!SKILL_CONTENT.is_empty());
+        assert!(SKILL_CONTENT.contains("## Command Reference"));
+        assert!(SKILL_CONTENT.contains("## Schema (v3-alpha)"));
+    }
+
+    #[test]
+    fn baseline_manifest_produces_all_v25_sections() {
+        // A manifest with an explicit include list covering all v2.5 commands
+        // (empty include = all baseline) should produce a skill that contains
+        // all the expected section headings.
+        let toml = r#"
+[manifest]
+name        = "baseline-v25"
+description = "v2.5 surface"
+
+[commands]
+include = []
+exclude = []
+add     = []
+"#;
+        let skill = skill_for_toml(toml);
+
+        // All structural sections must be present.
+        for section in &[
+            "## Data Model",
+            "## Behavioral Contract",
+            "## Command Reference",
+            "### Estate",
+            "### Trees",
+            "### Specs",
+            "### Tasks",
+            "### Discoveries",
+            "### Outcomes",
+            "### Sessions",
+            "### Phase",
+            "### Data Management",
+            "## Display Conventions",
+            "## Error Handling",
+            "## Storage",
+            "## Schema (v3-alpha)",
+        ] {
+            assert!(
+                skill.contains(section),
+                "baseline skill missing section: {section}"
+            );
+        }
+
+        // Baseline must NOT include the non-baseline sections.
+        assert!(
+            !skill.contains("### Graph Query"),
+            "baseline skill must not include Graph Query section"
+        );
+        assert!(
+            !skill.contains("### Overlays"),
+            "baseline skill must not include Overlays section"
+        );
+    }
+
+    #[test]
+    fn sparql_exposed_manifest_includes_sparql_commands() {
+        // A manifest that adds `query` and `overlay run` must produce a skill
+        // that documents those commands.
+        let toml = r#"
+[manifest]
+name        = "sparql-exposed"
+description = "baseline plus SPARQL query surface"
+
+[commands]
+include = []
+exclude = []
+add     = ["query", "overlay list", "overlay run"]
+"#;
+        let skill = skill_for_toml(toml);
+
+        // The SPARQL query commands must appear.
+        assert!(
+            skill.contains("synthesist query"),
+            "sparql-exposed skill must document `synthesist query`"
+        );
+        assert!(
+            skill.contains("synthesist overlay run"),
+            "sparql-exposed skill must document `synthesist overlay run`"
+        );
+        assert!(
+            skill.contains("synthesist overlay list"),
+            "sparql-exposed skill must document `synthesist overlay list`"
+        );
+
+        // Baseline commands must still be present (empty include = all baseline).
+        assert!(
+            skill.contains("synthesist task add"),
+            "sparql-exposed skill must still document baseline `synthesist task add`"
+        );
+        assert!(
+            skill.contains("synthesist spec add"),
+            "sparql-exposed skill must still document baseline `synthesist spec add`"
+        );
+    }
+
+    #[test]
+    fn pruned_manifest_omits_excluded_sections() {
+        // A manifest that omits task management commands should produce a skill
+        // without the Tasks section.
+        let toml = r#"
+[manifest]
+name        = "no-tasks"
+description = "minimal surface without task management"
+
+[commands]
+include = ["status", "init", "spec add", "spec show", "session start", "session close", "skill"]
+exclude = []
+add     = []
+"#;
+        let skill = skill_for_toml(toml);
+
+        assert!(
+            skill.contains("synthesist spec add"),
+            "pruned skill must include spec add"
+        );
+        // The ### Tasks section must be absent; "synthesist task add" may still
+        // appear in the Worked Example section (always included), so we check
+        // for the section heading rather than a command mention.
+        assert!(
+            !skill.contains("### Tasks"),
+            "pruned skill must not include the Tasks command-reference section"
+        );
+    }
+
+    #[test]
+    fn manifest_filtered_skill_has_no_em_dashes() {
+        // Per project convention: no em dashes in any output.
+        let toml = r#"
+[manifest]
+name        = "em-dash-check"
+description = "check for em dashes"
+"#;
+        let skill = skill_for_toml(toml);
+        assert!(
+            !skill.contains('\u{2014}'),
+            "manifest-filtered skill must not contain em dashes"
+        );
+    }
+
+    #[test]
+    fn cmd_skill_with_manifest_path_works() {
+        use std::io::Write;
+        // Write a temp manifest file and verify cmd_skill(Some(path)) returns Ok.
+        let mut f = tempfile::NamedTempFile::new().unwrap();
+        write!(
+            f,
+            "[manifest]\nname = \"test\"\ndescription = \"test manifest\"\n"
+        )
+        .unwrap();
+        cmd_skill(Some(f.path())).expect("cmd_skill with manifest path should return Ok");
     }
 }

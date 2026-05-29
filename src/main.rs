@@ -69,7 +69,7 @@ fn run(cli: cli::Cli) -> anyhow::Result<()> {
     // Commands that don't need a database
     match &cli.command {
         cli::Command::Init => return cmd_init::cmd_init(),
-        cli::Command::Skill => return skill::cmd_skill(),
+        cli::Command::Skill { manifest } => return skill::cmd_skill(manifest.as_deref()),
         cli::Command::Version { offline } => return cmd_version(*offline),
         // Landscape family (stakeholder/disposition/signal/stance) moved to
         // the `lattice` binary in v2. We short-circuit before session and
@@ -203,7 +203,7 @@ fn run(cli: cli::Cli) -> anyhow::Result<()> {
         // disposition, signal, stance) are handled in the short-circuit
         // match above.
         cli::Command::Init
-        | cli::Command::Skill
+        | cli::Command::Skill { .. }
         | cli::Command::Version { .. }
         | cli::Command::Stakeholder { .. }
         | cli::Command::Disposition { .. }
