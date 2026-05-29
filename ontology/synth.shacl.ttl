@@ -1,0 +1,340 @@
+@prefix synth: <https://nomograph.org/synth/> .
+@prefix nomograph: <https://nomograph.org/v3/> .
+@prefix prov: <http://www.w3.org/ns/prov#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+#
+# Synthesist (synth:) module SHACL shapes.
+#
+# Documentation artifact. NOT a runtime gate. Synthesist's imperative
+# validators in src/schema/*.rs remain authoritative; SHACL ships
+# alongside the binary as a declarative description for LLM and
+# external-tool consumption.
+#
+# Source of truth for each enum (sh:in lists): the Rust constants
+# in src/schema/<type>.rs. This file is kept aligned by hand for v3-
+# alpha; an emit-shacl build step lands later in T3.x.
+#
+# Every shape extends the universal envelope by including the four
+# substrate-universal predicates: @id (sh:targetClass binds this),
+# rdf:type, prov:generatedAtTime, prov:wasAttributedTo. The base
+# shape in nomograph-claim's ontology/base.shacl.ttl covers those
+# constraints; each shape here adds per-type constraints.
+#
+
+#
+# Tree -- top-level project domain.
+#
+
+synth:TreeShape a sh:NodeShape ;
+    sh:targetClass synth:Tree ;
+    rdfs:label "Tree shape"@en ;
+    sh:property [
+        sh:path synth:name ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string ;
+    ] ;
+    sh:property [
+        sh:path synth:description ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string ;
+    ] .
+
+#
+# Spec -- unit of work; goal + constraints + decisions.
+#
+
+synth:SpecShape a sh:NodeShape ;
+    sh:targetClass synth:Spec ;
+    rdfs:label "Spec shape"@en ;
+    sh:property [
+        sh:path synth:tree ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string ;
+    ] ;
+    sh:property [
+        sh:path synth:id ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string ;
+    ] ;
+    sh:property [
+        sh:path synth:goal ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string ;
+    ] ;
+    sh:property [
+        sh:path synth:status ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:in ( "draft" "active" "done" "superseded" ) ;
+    ] ;
+    sh:property [
+        sh:path synth:constraints ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string ;
+    ] ;
+    sh:property [
+        sh:path synth:decisions ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string ;
+    ] ;
+    sh:property [
+        sh:path synth:topics ;
+        sh:minCount 1 ;
+        sh:nodeKind sh:Literal ;
+    ] ;
+    sh:property [
+        sh:path synth:agree_snapshot ;
+        sh:nodeKind sh:IRI ;
+    ] .
+
+#
+# Task -- atomic work item within a spec.
+#
+
+synth:TaskShape a sh:NodeShape ;
+    sh:targetClass synth:Task ;
+    rdfs:label "Task shape"@en ;
+    sh:property [
+        sh:path synth:tree ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string ;
+    ] ;
+    sh:property [
+        sh:path synth:spec ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string ;
+    ] ;
+    sh:property [
+        sh:path synth:id ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string ;
+    ] ;
+    sh:property [
+        sh:path synth:summary ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string ;
+    ] ;
+    sh:property [
+        sh:path synth:status ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:in ( "pending" "in_progress" "done" "blocked" "waiting" "cancelled" ) ;
+    ] ;
+    sh:property [
+        sh:path synth:gate ;
+        sh:maxCount 1 ;
+        sh:in ( "human" ) ;
+    ] ;
+    sh:property [
+        sh:path synth:description ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string ;
+    ] ;
+    sh:property [
+        sh:path synth:owner ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string ;
+    ] ;
+    sh:property [
+        sh:path synth:depends_on ;
+        sh:nodeKind sh:Literal ;
+    ] ;
+    sh:property [
+        sh:path synth:files ;
+        sh:nodeKind sh:Literal ;
+    ] .
+
+#
+# Discovery -- append-only institutional memory per spec.
+#
+
+synth:DiscoveryShape a sh:NodeShape ;
+    sh:targetClass synth:Discovery ;
+    rdfs:label "Discovery shape"@en ;
+    sh:property [
+        sh:path synth:tree ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string ;
+    ] ;
+    sh:property [
+        sh:path synth:spec ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string ;
+    ] ;
+    sh:property [
+        sh:path synth:id ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string ;
+    ] ;
+    sh:property [
+        sh:path synth:date ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string ;
+    ] ;
+    sh:property [
+        sh:path synth:finding ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string ;
+    ] ;
+    sh:property [
+        sh:path synth:author ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string ;
+    ] ;
+    sh:property [
+        sh:path synth:impact ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string ;
+    ] ;
+    sh:property [
+        sh:path synth:action ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string ;
+    ] .
+
+#
+# Session -- isolated work copy with metadata.
+#
+
+synth:SessionShape a sh:NodeShape ;
+    sh:targetClass synth:Session ;
+    rdfs:label "Session shape"@en ;
+    sh:property [
+        sh:path synth:id ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string ;
+    ] ;
+    sh:property [
+        sh:path synth:tree ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string ;
+    ] ;
+    sh:property [
+        sh:path synth:spec ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string ;
+    ] ;
+    sh:property [
+        sh:path synth:summary ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string ;
+    ] .
+
+#
+# Phase -- per-session workflow state.
+#
+
+synth:PhaseShape a sh:NodeShape ;
+    sh:targetClass synth:Phase ;
+    rdfs:label "Phase shape"@en ;
+    sh:property [
+        sh:path synth:session_id ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string ;
+    ] ;
+    sh:property [
+        sh:path synth:name ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:in ( "orient" "plan" "agree" "execute" "reflect" "replan" "report" ) ;
+    ] .
+
+#
+# Campaign -- cross-spec coordination.
+#
+
+synth:CampaignShape a sh:NodeShape ;
+    sh:targetClass synth:Campaign ;
+    rdfs:label "Campaign shape"@en ;
+    sh:property [
+        sh:path synth:tree ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string ;
+    ] ;
+    sh:property [
+        sh:path synth:spec ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string ;
+    ] ;
+    sh:property [
+        sh:path synth:kind ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:in ( "active" "backlog" ) ;
+    ] ;
+    sh:property [
+        sh:path synth:summary ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string ;
+    ] ;
+    sh:property [
+        sh:path synth:title ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string ;
+    ] ;
+    sh:property [
+        sh:path synth:blocked_by ;
+        sh:nodeKind sh:Literal ;
+    ] .
+
+#
+# Outcome -- what happened to a spec (distinct from Spec status).
+#
+
+synth:OutcomeShape a sh:NodeShape ;
+    sh:targetClass synth:Outcome ;
+    rdfs:label "Outcome shape"@en ;
+    sh:property [
+        sh:path synth:tree ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string ;
+    ] ;
+    sh:property [
+        sh:path synth:spec ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string ;
+    ] ;
+    sh:property [
+        sh:path synth:status ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:in ( "completed" "abandoned" "deferred" "superseded_by" ) ;
+    ] ;
+    sh:property [
+        sh:path synth:note ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string ;
+    ] ;
+    sh:property [
+        sh:path synth:linked_spec ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string ;
+    ] ;
+    sh:property [
+        sh:path synth:date ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string ;
+    ] .
