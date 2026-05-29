@@ -7,8 +7,10 @@ SynthStore, an overlay framework with a plan-at-risk overlay, a
 manifest mechanism, SPARQL query and overlay subcommands, jig harness
 integration, telemetry scaffolding, an engineered migrations module,
 and a SHACL emitter binary. Empirical storage numbers from the storr
-corpus (143 claims): v2 footprint 35.1 MB, v3 footprint 100.9 KB,
-compression ratio 348x, mean 705.8 B per v3 claim.
+corpus (143 claims, measured against the shipping wire format -- inline
+`@context` + lowerCamelCase predicates): v2 footprint 35.1 MB, v3
+footprint 153.9 KB, compression ratio 223x, mean 1,102.0 B per v3
+claim.
 
 ### Upgrading from v2.5.x
 
@@ -71,13 +73,17 @@ operator playbook.
   dispatch. The telemetry surface is internal for pre.1; the
   operator-facing `--trace` flag and subscriber configuration are
   under consideration for pre.2.
-- **Storage empirics (storr corpus, n=143 claims).** Per-type mean
-  bytes in the v3 JSON-LD format: Task 756.6 B (n=107), Phase
-  343.8 B (n=16), Spec 537.3 B (n=6), Campaign 428.0 B (n=4),
-  Discovery 1900.5 B (n=4), Session 311.5 B (n=4), Tree 349.5 B
-  (n=2). Estate-wide: v2 35.1 MB, v3 100.9 KB, ratio 348x. Numbers
-  reflect inline `@context` overhead included in every document; the
-  context will be deduplicatable in a later release.
+- **Storage empirics (storr corpus, n=143 claims).** Numbers are
+  measured against the wire format shipped in pre.1: inline `@context`
+  object declaring synthesist/nomograph/prov/xsd prefixes, lowerCamelCase
+  predicate names, `@type`/`@id` coercions for supersedes and
+  agreeSnapshot. Per-type mean bytes: Task 1,152.6 B (n=107), Phase
+  739.8 B (n=16), Spec 934.3 B (n=6), Campaign 825.0 B (n=4),
+  Discovery 2,297.5 B (n=4), Session 708.5 B (n=4), Tree 746.5 B
+  (n=2). Estate-wide: v2 35.1 MB (35,143,253 B), v3 153.9 KB
+  (157,583 B), ratio 223x. The inline `@context` contributes
+  approximately 397 B per claim relative to a URI-form context
+  reference; context deduplication is planned for a later release.
 
 ### Known issues
 
