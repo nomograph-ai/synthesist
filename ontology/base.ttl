@@ -10,7 +10,7 @@
 #
 # This ontology covers ONLY the substrate-universal envelope: asserter
 # identity, asserter classes, supersession and parent-asserter
-# predicates. Module-specific vocabularies (synth:, future modules)
+# predicates. Module-specific vocabularies (synthesist:, future modules)
 # extend the base with their own classes and predicates.
 #
 # Source of truth for this file: nomograph-claim/ontology/base.ttl.
@@ -68,7 +68,7 @@ prov:wasAttributedTo a owl:ObjectProperty ;
 
 prov:wasRevisionOf a owl:ObjectProperty ;
     rdfs:label "was revision of"@en ;
-    rdfs:comment "Universal supersession edge. The claim that this one supersedes. Modules MAY define their own supersession predicate (e.g., synth:supersedes) and the substrate treats either as a supersession edge."@en .
+    rdfs:comment "Universal supersession edge. The claim that this one supersedes. Modules MAY define their own supersession predicate (e.g., synthesist:supersedes) and the substrate treats either as a supersession edge."@en .
 
 #
 # Optional envelope predicate.

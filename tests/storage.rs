@@ -32,7 +32,7 @@ fn make_claim(module: &str, id_suffix: &str, asserter_iri: &str) -> Value {
         "@type": format!("{}:Task", module),
         "prov:generatedAtTime": "2026-05-29T00:00:00.000Z",
         "prov:wasAttributedTo": asserter_iri,
-        "synth:summary": format!("Claim {}", id_suffix),
+        "synthesist:summary": format!("Claim {}", id_suffix),
     })
 }
 

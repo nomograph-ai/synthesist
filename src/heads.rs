@@ -151,8 +151,8 @@ mod tests {
     fn make_claim(id: &str) -> serde_json::Value {
         json!({
             "@context": "https://nomograph.org/v3/context.jsonld",
-            "@id": format!("synth:claim/{}", id),
-            "@type": "synth:Task",
+            "@id": format!("synthesist:claim/{}", id),
+            "@type": "synthesist:Task",
             "prov:generatedAtTime": "2026-05-29T00:00:00.000Z",
             "prov:wasAttributedTo": "asserter:user:local:agd"
         })

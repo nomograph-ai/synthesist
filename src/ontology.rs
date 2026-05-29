@@ -4,7 +4,7 @@
 //! constants so consumers do not need a network fetch to resolve the
 //! base @context vocabulary or the structural shapes.
 //!
-//! Module-specific vocabularies (synth:, future modules) live with
+//! Module-specific vocabularies (synthesist:, future modules) live with
 //! their own crates. This crate embeds only the base.
 //!
 //! See `ontology/base.ttl` for the source. The `serialize_ontology()`

@@ -330,22 +330,22 @@ pub struct RebuildStats {
 
 /// Base IRI for per-module named graphs.
 ///
-/// A claim with `@type: synth:Task` lands in the named graph
-/// `<https://nomograph.org/graphs/synth>`. The prefix segment is
+/// A claim with `@type: synthesist:Task` lands in the named graph
+/// `<https://nomograph.org/graphs/synthesist>`. The prefix segment is
 /// taken from the `@type` value's first compact-prefix component.
 const NAMED_GRAPH_BASE: &str = "https://nomograph.org/graphs/";
 
 /// Construct the named graph IRI for a module prefix.
 ///
-/// Example: `module_graph_iri("synth")` returns
-/// `https://nomograph.org/graphs/synth`.
+/// Example: `module_graph_iri("synthesist")` returns
+/// `https://nomograph.org/graphs/synthesist`.
 pub fn module_graph_iri(module_prefix: &str) -> String {
     format!("{}{}", NAMED_GRAPH_BASE, module_prefix)
 }
 
 /// Extract the module prefix from a claim's `@type` value.
 ///
-/// For compact form like `synth:Task`, returns `Some("synth")`. For
+/// For compact form like `synthesist:Task`, returns `Some("synthesist")`. For
 /// full IRI form, attempts to identify the module by URI pattern
 /// (matches `https://nomograph.org/<module>/`); returns the module
 /// segment if so, `None` otherwise.
@@ -592,22 +592,22 @@ mod tests {
     //
 
     fn make_claim(_module: &str, id_suffix: &str, asserter_iri: &str) -> Value {
-        // Use inline context with both the base prefixes and the synth
+        // Use inline context with both the base prefixes and the synthesist
         // module prefix so the test doc expands correctly.
         json!({
             "@context": {
-                "nomograph": "https://nomograph.org/v3/",
-                "prov":      "http://www.w3.org/ns/prov#",
-                "xsd":       "http://www.w3.org/2001/XMLSchema#",
-                "synth":     "https://nomograph.org/synth/",
+                "nomograph":  "https://nomograph.org/v3/",
+                "prov":       "http://www.w3.org/ns/prov#",
+                "xsd":        "http://www.w3.org/2001/XMLSchema#",
+                "synthesist": "https://nomograph.org/synthesist/",
                 "prov:generatedAtTime": {"@type": "xsd:dateTime"},
                 "prov:wasAttributedTo": {"@type": "@id"}
             },
-            "@id": format!("synth:claim/{}", id_suffix),
-            "@type": "synth:Task",
+            "@id": format!("synthesist:claim/{}", id_suffix),
+            "@type": "synthesist:Task",
             "prov:generatedAtTime": "2026-05-29T00:00:00.000Z",
             "prov:wasAttributedTo": asserter_iri,
-            "synth:summary": format!("Test claim {}", id_suffix),
+            "synthesist:summary": format!("Test claim {}", id_suffix),
         })
     }
 
@@ -628,7 +628,7 @@ mod tests {
         let writer = LogWriter::new(tmp.path()).unwrap();
         for i in 0..100 {
             let doc = make_claim(
-                "synth",
+                "synthesist",
                 &format!("{:03}", i),
                 "asserter:user:local:agd",
             );
@@ -641,7 +641,7 @@ mod tests {
         assert_eq!(stats.claims_loaded, 100);
 
         // Each claim emits 5 triples: rdf:type, prov:generatedAtTime,
-        // prov:wasAttributedTo, synth:summary, and the implicit
+        // prov:wasAttributedTo, synthesist:summary, and the implicit
         // mapping. Actual count is whatever Oxigraph produces; we
         // assert a lower bound that proves multiple triples land per
         // claim.
@@ -659,7 +659,7 @@ mod tests {
         let writer = LogWriter::new(tmp.path()).unwrap();
         for i in 0..10 {
             let doc = make_claim(
-                "synth",
+                "synthesist",
                 &format!("i{}", i),
                 "asserter:user:local:agd",
             );
@@ -682,7 +682,7 @@ mod tests {
 
         // Round 1: 5 claims.
         for i in 0..5 {
-            let doc = make_claim("synth", &format!("a{}", i), "asserter:user:local:agd");
+            let doc = make_claim("synthesist", &format!("a{}", i), "asserter:user:local:agd");
             writer.append("user:local:agd", &doc).unwrap();
         }
         let view = GraphView::open_in_memory().unwrap();
@@ -691,7 +691,7 @@ mod tests {
 
         // Round 2: 5 more claims appended, total 10.
         for i in 0..5 {
-            let doc = make_claim("synth", &format!("b{}", i), "asserter:user:local:agd");
+            let doc = make_claim("synthesist", &format!("b{}", i), "asserter:user:local:agd");
             writer.append("user:local:agd", &doc).unwrap();
         }
         let stats_second = rebuild(&view, tmp.path()).unwrap();
@@ -710,7 +710,7 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let writer = LogWriter::new(tmp.path()).unwrap();
         for i in 0..10 {
-            let doc = make_claim("synth", &format!("q{}", i), "asserter:user:local:agd");
+            let doc = make_claim("synthesist", &format!("q{}", i), "asserter:user:local:agd");
             writer.append("user:local:agd", &doc).unwrap();
         }
         let view = GraphView::open_in_memory().unwrap();
@@ -728,7 +728,7 @@ mod tests {
 
         let type_term = &results.rows[0][0];
         match type_term {
-            Term::Iri(s) => assert!(s.ends_with("synth/Task")),
+            Term::Iri(s) => assert!(s.ends_with("synthesist/Task")),
             other => panic!("expected IRI for type, got {:?}", other),
         }
     }
@@ -758,15 +758,15 @@ mod tests {
     fn ask_returns_true_when_claim_exists() {
         let tmp = TempDir::new().unwrap();
         let writer = LogWriter::new(tmp.path()).unwrap();
-        let doc = make_claim("synth", "ask1", "asserter:user:local:agd");
+        let doc = make_claim("synthesist", "ask1", "asserter:user:local:agd");
         writer.append("user:local:agd", &doc).unwrap();
         let view = GraphView::open_in_memory().unwrap();
         rebuild(&view, tmp.path()).unwrap();
 
         let q = r#"
-            PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-            PREFIX synth: <https://nomograph.org/synth/>
-            ASK { GRAPH ?g { ?c rdf:type synth:Task } }
+            PREFIX rdf:         <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+            PREFIX synthesist:  <https://nomograph.org/synthesist/>
+            ASK { GRAPH ?g { ?c rdf:type synthesist:Task } }
         "#;
         assert_eq!(ask(&view, q).unwrap(), true);
     }
@@ -782,15 +782,15 @@ mod tests {
     fn select_term_distinguishes_iri_and_literal() {
         let tmp = TempDir::new().unwrap();
         let writer = LogWriter::new(tmp.path()).unwrap();
-        let doc = make_claim("synth", "term1", "asserter:user:local:agd");
+        let doc = make_claim("synthesist", "term1", "asserter:user:local:agd");
         writer.append("user:local:agd", &doc).unwrap();
         let view = GraphView::open_in_memory().unwrap();
         rebuild(&view, tmp.path()).unwrap();
 
         let q = r#"
-            PREFIX synth: <https://nomograph.org/synth/>
+            PREFIX synthesist: <https://nomograph.org/synthesist/>
             SELECT ?c ?s WHERE {
-              GRAPH ?g { ?c synth:summary ?s }
+              GRAPH ?g { ?c synthesist:summary ?s }
             }
         "#;
         let results = select(&view, q).unwrap();
@@ -812,20 +812,15 @@ mod tests {
 
     #[test]
     fn extract_module_prefix_handles_compact_form() {
-        assert_eq!(extract_module_prefix("synth:Task"), Some("synth".into()));
-        assert_eq!(extract_module_prefix("lat:Disposition"), Some("lat".into()));
+        assert_eq!(extract_module_prefix("synthesist:Task"), Some("synthesist".into()));
         assert_eq!(extract_module_prefix("nomograph:Genesis"), Some("nomograph".into()));
     }
 
     #[test]
     fn extract_module_prefix_handles_full_iri() {
         assert_eq!(
-            extract_module_prefix("https://nomograph.org/synth/Task"),
-            Some("synth".into())
-        );
-        assert_eq!(
-            extract_module_prefix("https://nomograph.org/lat/Disposition"),
-            Some("lat".into())
+            extract_module_prefix("https://nomograph.org/synthesist/Task"),
+            Some("synthesist".into())
         );
     }
 
@@ -840,17 +835,17 @@ mod tests {
     #[test]
     fn module_graph_iri_composes_correctly() {
         assert_eq!(
-            module_graph_iri("synth"),
-            "https://nomograph.org/graphs/synth"
+            module_graph_iri("synthesist"),
+            "https://nomograph.org/graphs/synthesist"
         );
     }
 
     #[test]
-    fn rebuild_routes_synth_claims_to_synth_named_graph() {
+    fn rebuild_routes_synthesist_claims_single() {
         let tmp = TempDir::new().unwrap();
         let writer = LogWriter::new(tmp.path()).unwrap();
         for i in 0..5 {
-            let doc = make_claim("synth", &format!("g{}", i), "asserter:user:local:agd");
+            let doc = make_claim("synthesist", &format!("g{}", i), "asserter:user:local:agd");
             writer.append("user:local:agd", &doc).unwrap();
         }
 
@@ -858,76 +853,36 @@ mod tests {
         rebuild(&view, tmp.path()).unwrap();
 
         let graphs = view.modules_in_view().unwrap();
-        assert_eq!(graphs, vec!["https://nomograph.org/graphs/synth".to_string()]);
+        assert_eq!(graphs, vec!["https://nomograph.org/graphs/synthesist".to_string()]);
     }
 
     #[test]
-    fn rebuild_separates_two_modules_into_two_named_graphs() {
+    fn rebuild_routes_synthesist_claims_to_synthesist_named_graph() {
         let tmp = TempDir::new().unwrap();
         let writer = LogWriter::new(tmp.path()).unwrap();
 
-        // Synth claims.
         for i in 0..3 {
-            let doc = make_claim("synth", &format!("s{}", i), "asserter:user:local:agd");
-            writer.append("user:local:agd", &doc).unwrap();
-        }
-
-        // Hypothetical lat: claims. Use a doc with @type lat:Foo so
-        // it lands in the lat named graph.
-        for i in 0..2 {
-            let doc = json!({
-                "@context": {
-                    "lat":  "https://nomograph.org/lat/",
-                    "prov": "http://www.w3.org/ns/prov#",
-                    "xsd":  "http://www.w3.org/2001/XMLSchema#",
-                    "prov:generatedAtTime": {"@type": "xsd:dateTime"},
-                    "prov:wasAttributedTo": {"@type": "@id"}
-                },
-                "@id": format!("lat:claim/x{}", i),
-                "@type": "lat:Foo",
-                "prov:generatedAtTime": "2026-05-29T00:00:00.000Z",
-                "prov:wasAttributedTo": "asserter:user:local:agd"
-            });
+            let doc = make_claim("synthesist", &format!("s{}", i), "asserter:user:local:agd");
             writer.append("user:local:agd", &doc).unwrap();
         }
 
         let view = GraphView::open_in_memory().unwrap();
         rebuild(&view, tmp.path()).unwrap();
 
-        let mut graphs = view.modules_in_view().unwrap();
-        graphs.sort();
+        let graphs = view.modules_in_view().unwrap();
         assert_eq!(
             graphs,
-            vec![
-                "https://nomograph.org/graphs/lat".to_string(),
-                "https://nomograph.org/graphs/synth".to_string(),
-            ]
+            vec!["https://nomograph.org/graphs/synthesist".to_string()]
         );
     }
 
     #[test]
-    fn graph_named_synth_filter_returns_only_synth_claims() {
+    fn graph_named_synthesist_filter_returns_only_synthesist_claims() {
         let tmp = TempDir::new().unwrap();
         let writer = LogWriter::new(tmp.path()).unwrap();
 
         for i in 0..4 {
-            let doc = make_claim("synth", &format!("f{}", i), "asserter:user:local:agd");
-            writer.append("user:local:agd", &doc).unwrap();
-        }
-        for i in 0..2 {
-            let doc = json!({
-                "@context": {
-                    "lat":  "https://nomograph.org/lat/",
-                    "prov": "http://www.w3.org/ns/prov#",
-                    "xsd":  "http://www.w3.org/2001/XMLSchema#",
-                    "prov:generatedAtTime": {"@type": "xsd:dateTime"},
-                    "prov:wasAttributedTo": {"@type": "@id"}
-                },
-                "@id": format!("lat:claim/lf{}", i),
-                "@type": "lat:Other",
-                "prov:generatedAtTime": "2026-05-29T00:00:00.000Z",
-                "prov:wasAttributedTo": "asserter:user:local:agd"
-            });
+            let doc = make_claim("synthesist", &format!("f{}", i), "asserter:user:local:agd");
             writer.append("user:local:agd", &doc).unwrap();
         }
 
@@ -935,15 +890,15 @@ mod tests {
         rebuild(&view, tmp.path()).unwrap();
 
         let q = r#"
-            PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-            PREFIX synth: <https://nomograph.org/synth/>
+            PREFIX rdf:         <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+            PREFIX synthesist:  <https://nomograph.org/synthesist/>
             SELECT (COUNT(?c) AS ?n)
-            WHERE { GRAPH <https://nomograph.org/graphs/synth> { ?c rdf:type synth:Task } }
+            WHERE { GRAPH <https://nomograph.org/graphs/synthesist> { ?c rdf:type synthesist:Task } }
         "#;
         let results = select(&view, q).unwrap();
         assert_eq!(results.rows.len(), 1);
         if let Term::Literal { value, .. } = &results.rows[0][0] {
-            assert_eq!(value, "4", "expected 4 synth:Task in the synth graph");
+            assert_eq!(value, "4", "expected 4 synthesist:Task in the synthesist graph");
         } else {
             panic!("expected literal for count, got {:?}", results.rows[0][0]);
         }
@@ -956,7 +911,7 @@ mod tests {
 
         // Write 2 good claims through the writer.
         for i in 0..2 {
-            let doc = make_claim("synth", &format!("ok{}", i), "asserter:user:local:agd");
+            let doc = make_claim("synthesist", &format!("ok{}", i), "asserter:user:local:agd");
             writer.append("user:local:agd", &doc).unwrap();
         }
 

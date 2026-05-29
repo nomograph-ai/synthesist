@@ -30,10 +30,6 @@ path = "src/lib.rs"
 name = "claim"
 path = "src/bin/claim.rs"
 
-[[bin]]
-name = "migrate-v2-to-v3"
-path = "src/bin/migrate_v2_to_v3.rs"
-
 [dependencies]
 automerge = "0.8"
 serde = { version = "1", features = ["derive"] }

@@ -17,7 +17,7 @@ writes or reads claims (synthesist, future modules, the migration tool).
    round-trips the file to the same triples.
 3. **Content-proportional in bytes.** Per-claim overhead is on the
    order of 200 to 400 bytes; the rest is payload.
-4. **Module-extensible.** Synthesist adds `synth:` predicates;
+4. **Module-extensible.** Synthesist adds `synthesist:` predicates;
    future modules add their own. The substrate enforces only the
    universal envelope.
 
@@ -59,9 +59,9 @@ context and the module context:
 {
   "@context": [
     {"prov": "http://www.w3.org/ns/prov#", "xsd": "...", ...},
-    {"synth": "https://nomograph.org/synth/", "synth:depends_on": {"@type": "@id", "@container": "@set"}, ...}
+    {"synthesist": "https://nomograph.org/synthesist/", "synthesist:depends_on": {"@type": "@id", "@container": "@set"}, ...}
   ],
-  "@id": "synth:claim/abc123",
+  "@id": "synthesist:claim/abc123",
   ...
 }
 ```
@@ -76,7 +76,7 @@ Every claim must carry:
 
 - `@id` -- a stable IRI of the form `<module>:claim/<hash>`.
 - `@type` -- the claim type IRI in the module's namespace (e.g.,
-  `synth:Task`).
+  `synthesist:Task`).
 - `prov:generatedAtTime` -- xsd:dateTime in millisecond precision,
   trailing `Z`. Example: `"2026-05-29T01:00:00.123Z"`.
 - `prov:wasAttributedTo` -- an asserter IRI of the form
@@ -96,8 +96,8 @@ Every claim must carry:
 
 ## Module-specific predicates
 
-Predicates in a module's namespace (e.g., `synth:status`,
-`synth:depends_on`, `synth:summary`) are defined and validated by the
+Predicates in a module's namespace (e.g., `synthesist:status`,
+`synthesist:depends_on`, `synthesist:summary`) are defined and validated by the
 module, not by the substrate. Predicate typing is declared in the
 module's @context; predicate semantics are the module's concern.
 
@@ -149,7 +149,7 @@ strip the prefix to get the asserter string.
 - Booleans, numbers, strings: native JSON types.
 - Lists: JSON arrays. For unordered set semantics, the @context can
   declare `"@container": "@set"` (the synthesist context does this
-  for `synth:depends_on`).
+  for `synthesist:depends_on`).
 
 ## On-disk file format
 

@@ -23,18 +23,18 @@ use tempfile::TempDir;
 fn make_synth_task(id_suffix: &str, asserter_iri: &str, status: &str) -> Value {
     json!({
         "@context": {
-            "synth":     "https://nomograph.org/synth/",
+            "synthesist": "https://nomograph.org/synthesist/",
             "prov":      "http://www.w3.org/ns/prov#",
             "xsd":       "http://www.w3.org/2001/XMLSchema#",
             "prov:generatedAtTime": {"@type": "xsd:dateTime"},
             "prov:wasAttributedTo": {"@type": "@id"}
         },
-        "@id": format!("synth:claim/{}", id_suffix),
-        "@type": "synth:Task",
+        "@id": format!("synthesist:claim/{}", id_suffix),
+        "@type": "synthesist:Task",
         "prov:generatedAtTime": "2026-05-29T01:00:00.000Z",
         "prov:wasAttributedTo": asserter_iri,
-        "synth:status": status,
-        "synth:summary": format!("Test task {}", id_suffix),
+        "synthesist:status": status,
+        "synthesist:summary": format!("Test task {}", id_suffix),
     })
 }
 
@@ -88,9 +88,9 @@ fn build_and_query_status_shape() {
         GROUP BY ?type
     "#;
     let results = select(&view, q_by_type).unwrap();
-    assert_eq!(results.rows.len(), 1, "one type: synth:Task");
+    assert_eq!(results.rows.len(), 1, "one type: synthesist:Task");
     if let Term::Iri(s) = &results.rows[0][0] {
-        assert!(s.ends_with("synth/Task"));
+        assert!(s.ends_with("synthesist/Task"));
     } else {
         panic!("expected IRI for type");
     }
@@ -100,9 +100,9 @@ fn build_and_query_status_shape() {
     //
     let q_pending = r#"
         PREFIX rdf:   <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-        PREFIX synth: <https://nomograph.org/synth/>
+        PREFIX synthesist: <https://nomograph.org/synthesist/>
         SELECT (COUNT(?c) AS ?n)
-        WHERE { GRAPH ?g { ?c rdf:type synth:Task . ?c synth:status "pending" } }
+        WHERE { GRAPH ?g { ?c rdf:type synthesist:Task . ?c synthesist:status "pending" } }
     "#;
     let results = select(&view, q_pending).unwrap();
     assert_eq!(results.rows.len(), 1);
@@ -141,15 +141,15 @@ fn ask_query_against_populated_view() {
 
     let q_yes = r#"
         PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-        PREFIX synth: <https://nomograph.org/synth/>
-        ASK { GRAPH ?g { ?c rdf:type synth:Task } }
+        PREFIX synthesist: <https://nomograph.org/synthesist/>
+        ASK { GRAPH ?g { ?c rdf:type synthesist:Task } }
     "#;
     assert_eq!(ask(&view, q_yes).unwrap(), true);
 
     let q_no = r#"
         PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-        PREFIX synth: <https://nomograph.org/synth/>
-        ASK { GRAPH ?g { ?c rdf:type synth:Discovery } }
+        PREFIX synthesist: <https://nomograph.org/synthesist/>
+        ASK { GRAPH ?g { ?c rdf:type synthesist:Discovery } }
     "#;
     assert_eq!(ask(&view, q_no).unwrap(), false);
 }
@@ -220,9 +220,9 @@ fn end_to_end_runs_under_10_seconds() {
 
     let q = r#"
         PREFIX rdf:   <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-        PREFIX synth: <https://nomograph.org/synth/>
+        PREFIX synthesist: <https://nomograph.org/synthesist/>
         SELECT (COUNT(?c) AS ?n)
-        WHERE { GRAPH ?g { ?c rdf:type synth:Task . ?c synth:status "pending" } }
+        WHERE { GRAPH ?g { ?c rdf:type synthesist:Task . ?c synthesist:status "pending" } }
     "#;
     let _ = select(&view, q).unwrap();
 
