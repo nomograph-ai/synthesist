@@ -184,7 +184,7 @@ fn run(cli: cli::Cli) -> anyhow::Result<()> {
         cli::Command::Task { cmd } => cmd_task::run(cmd, &cli.session),
         cli::Command::Discovery { cmd } => cmd_discovery::run(cmd, &cli.session),
         cli::Command::Campaign { cmd } => cmd_campaign::run(cmd, &cli.session),
-        cli::Command::Session { cmd } => cmd_session::run(cmd),
+        cli::Command::Session { cmd } => cmd_session::run(cmd, &cli.session),
         cli::Command::Phase { cmd } => cmd_phase::run(cmd, &cli.session, cli.force),
         cli::Command::Export => cmd_export::cmd_export(),
         cli::Command::Import { file } => cmd_import::cmd_import(file),

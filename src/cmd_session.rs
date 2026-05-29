@@ -18,7 +18,7 @@ use serde_json::{Value, json};
 use crate::cli::SessionCmd;
 use crate::store::{SynthStore, json_out};
 
-pub fn run(cmd: &SessionCmd) -> Result<()> {
+pub fn run(cmd: &SessionCmd, session: &Option<String>) -> Result<()> {
     match cmd {
         SessionCmd::Start {
             id,
@@ -38,7 +38,7 @@ pub fn run(cmd: &SessionCmd) -> Result<()> {
              supersede the opener non-destructively, or just stop referencing the \
              session. Run `synthesist conflicts` if supersessions diverged."
         ),
-        SessionCmd::Close { id, start_id } => cmd_session_close(id, start_id.as_deref()),
+        SessionCmd::Close { id, start_id } => cmd_session_close(id, start_id.as_deref(), session),
     }
 }
 
@@ -164,8 +164,13 @@ fn cmd_session_status(id: &str) -> Result<()> {
 /// This disambiguates when several sessions share the same display
 /// `id` — the original v1 single-id assumption that v2 doesn't enforce
 /// at write time.
-fn cmd_session_close(id: &str, start_id: Option<&str>) -> Result<()> {
-    let mut store = SynthStore::discover()?;
+fn cmd_session_close(id: &str, start_id: Option<&str>, session: &Option<String>) -> Result<()> {
+    // discover_for mirrors the asserter so the Session-close claim
+    // dual-writes to the v3 log (T3.6 follow-up; same fix as cmd_phase).
+    // cmd_session_start still goes through workflow::Session::start which
+    // bypasses SynthStore::append and is not yet dual-write-clean; that
+    // is a substrate-shaping concern outside A.2's scope.
+    let mut store = SynthStore::discover_for(session)?;
     // Pull every live opener (claim_type=session, supersedes IS NULL,
     // and whose claim id is not itself superseded by a later session
     // claim). We re-derive "live" client-side from the rows because the

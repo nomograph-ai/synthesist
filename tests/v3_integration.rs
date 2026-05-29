@@ -248,8 +248,9 @@ fn v3_happy_path_dual_write() {
         .success()
         .stdout(predicate::str::contains("\"finding\":"));
 
-    // 13. session close
-    synth(&tmp)
+    // 13. session close (run inside the session so the close claim
+    //     dual-writes to the same session-scoped v3 log per A.2 fix).
+    synth_s(&tmp, session)
         .args(["session", "close", session])
         .assert()
         .success()
@@ -260,9 +261,9 @@ fn v3_happy_path_dual_write() {
     //
     // Only commands that call SynthStore::append WITH a session-scoped
     // asserter (via discover_for) produce v3 log lines. `session start`
-    // / `session close` go through nomograph_workflow::Session and do
-    // not route through SynthStore::append. `task ready` and `status`
-    // are read-only.
+    // still goes through nomograph_workflow::Session::start which
+    // bypasses SynthStore::append (substrate concern outside A.2's
+    // scope). `task ready` and `status` are read-only.
     //
     // Session-scoped dual-write claims:
     //   phase set plan    -> 1 Phase claim
@@ -275,10 +276,11 @@ fn v3_happy_path_dual_write() {
     //   task claim t1     -> 1 Task claim (supersession)
     //   task done t1      -> 1 Task claim (supersession)
     //   discovery add     -> 1 Discovery claim
+    //   session close     -> 1 Session claim (supersession; A.2 fix)
     //
-    // Total: 10 v3 claims.
+    // Total: 11 v3 claims.
     // ------------------------------------------------------------------
-    const EXPECTED_V3_CLAIMS: usize = 10;
+    const EXPECTED_V3_CLAIMS: usize = 11;
 
     // a) v2 .amc files exist.
     assert_v2_amc_exists(&tmp);
