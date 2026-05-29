@@ -1339,6 +1339,7 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "toml",
+ "tower",
 ]
 
 [[package]]
