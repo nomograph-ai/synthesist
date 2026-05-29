@@ -134,6 +134,27 @@ pub enum Command {
         /// SQL query to execute. Only read-only queries are allowed.
         query: String,
     },
+    /// Run a read-only SPARQL SELECT query against the local graph view
+    /// and return results as JSON with `columns`, `rows`, and `count`.
+    ///
+    /// Supply the query inline with `--sparql` or load it from a file
+    /// with `--file`. The view is opened from `claims/_view.oxigraph/`
+    /// if present; otherwise an in-memory view is rebuilt from the log
+    /// union (the macOS RocksDB issue means the in-memory path is the
+    /// practical default on macOS; see cmd_query.rs for details).
+    ///
+    /// NOTE (T5.2): this command is currently a regular clap subcommand.
+    /// When T5.2 (CLI command registry refactor) lands, it should be
+    /// registered under the `sparql-exposed` manifest key and hidden
+    /// from `baseline-v25`.
+    Query {
+        /// SPARQL SELECT query string to execute.
+        #[arg(long, value_name = "SPARQL", conflicts_with = "file")]
+        sparql: Option<String>,
+        /// Path to a file containing the SPARQL SELECT query.
+        #[arg(long, value_name = "PATH", conflicts_with = "sparql")]
+        file: Option<std::path::PathBuf>,
+    },
     /// Serve a browsable HTML dashboard of the claim graph on a local
     /// HTTP port. Multi-person reviewers (and agents via `/api/state`)
     /// can drill in via progressive disclosure. Read-only.
