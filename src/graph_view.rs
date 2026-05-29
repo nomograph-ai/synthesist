@@ -132,6 +132,149 @@ impl GraphView {
 }
 
 //
+// Query: SPARQL SELECT and ASK against the view.
+//
+
+/// A single term in a SPARQL result row.
+///
+/// IRIs and blank nodes carry their string form; literals carry the
+/// lexical value, an optional datatype IRI, and an optional language
+/// tag. The shape is deliberately substrate-agnostic so callers can
+/// match against it without coupling to Oxigraph types directly.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Term {
+    Iri(String),
+    BlankNode(String),
+    Literal {
+        value: String,
+        datatype: Option<String>,
+        language: Option<String>,
+    },
+}
+
+impl Term {
+    /// Return the underlying string for IRI or BlankNode variants, or
+    /// the literal value for Literal. Returns an empty string for
+    /// terms that have no useful string projection.
+    pub fn as_str(&self) -> &str {
+        match self {
+            Term::Iri(s) => s,
+            Term::BlankNode(s) => s,
+            Term::Literal { value, .. } => value,
+        }
+    }
+}
+
+/// Result of a SPARQL SELECT query.
+///
+/// `columns` lists the variable names in the order the query
+/// projected them. `rows` is a flat list of bindings; each binding is
+/// a vector of [`Term`] aligned with `columns`. A column with no
+/// binding in a particular row appears as a `Term::Literal` with an
+/// empty value (since SPARQL allows unbound vars but our flat shape
+/// is easier to handle this way).
+#[derive(Debug, Clone)]
+pub struct SelectResults {
+    pub columns: Vec<String>,
+    pub rows: Vec<Vec<Term>>,
+}
+
+impl SelectResults {
+    /// Return the number of rows in the result.
+    pub fn len(&self) -> usize {
+        self.rows.len()
+    }
+
+    /// Return true if the result has no rows.
+    pub fn is_empty(&self) -> bool {
+        self.rows.is_empty()
+    }
+}
+
+/// Run a SPARQL SELECT query against the view.
+///
+/// Returns a [`SelectResults`] with one row per solution.
+pub fn select(view: &GraphView, query: &str) -> Result<SelectResults> {
+    use oxigraph::sparql::QueryResults;
+    let results = view
+        .store
+        .query(query)
+        .context("evaluate SPARQL query")?;
+    match results {
+        QueryResults::Solutions(sols) => {
+            let columns: Vec<String> = sols
+                .variables()
+                .iter()
+                .map(|v| v.as_str().to_string())
+                .collect();
+            let mut rows = Vec::new();
+            for sol in sols {
+                let sol = sol.context("read solution")?;
+                let mut row = Vec::with_capacity(columns.len());
+                for col in &columns {
+                    let term = sol
+                        .iter()
+                        .find(|(v, _)| v.as_str() == col)
+                        .map(|(_, t)| convert_term(t))
+                        .unwrap_or_else(|| Term::Literal {
+                            value: String::new(),
+                            datatype: None,
+                            language: None,
+                        });
+                    row.push(term);
+                }
+                rows.push(row);
+            }
+            Ok(SelectResults { columns, rows })
+        }
+        QueryResults::Boolean(_) => Err(anyhow::anyhow!(
+            "expected SELECT result, got ASK boolean; use ask() for ASK queries"
+        )),
+        QueryResults::Graph(_) => Err(anyhow::anyhow!(
+            "expected SELECT result, got CONSTRUCT/DESCRIBE graph"
+        )),
+    }
+}
+
+/// Run a SPARQL ASK query against the view.
+///
+/// Returns true if the query has at least one solution.
+pub fn ask(view: &GraphView, query: &str) -> Result<bool> {
+    use oxigraph::sparql::QueryResults;
+    let results = view
+        .store
+        .query(query)
+        .context("evaluate SPARQL query")?;
+    match results {
+        QueryResults::Boolean(b) => Ok(b),
+        QueryResults::Solutions(_) => Err(anyhow::anyhow!(
+            "expected ASK result, got SELECT solutions; use select() for SELECT queries"
+        )),
+        QueryResults::Graph(_) => Err(anyhow::anyhow!(
+            "expected ASK result, got CONSTRUCT/DESCRIBE graph"
+        )),
+    }
+}
+
+fn convert_term(t: &oxigraph::model::Term) -> Term {
+    use oxigraph::model::Term as OxTerm;
+    match t {
+        OxTerm::NamedNode(n) => Term::Iri(n.as_str().to_string()),
+        OxTerm::BlankNode(b) => Term::BlankNode(b.as_str().to_string()),
+        OxTerm::Literal(l) => Term::Literal {
+            value: l.value().to_string(),
+            datatype: Some(l.datatype().as_str().to_string()),
+            language: l.language().map(|s| s.to_string()),
+        },
+        OxTerm::Triple(_) => Term::Literal {
+            value: format!("{:?}", t),
+            datatype: None,
+            language: None,
+        },
+    }
+}
+
+//
 // Rebuild: ingest the claim log union into the graph view.
 //
 
@@ -211,10 +354,27 @@ pub fn rebuild(view: &GraphView, claims_dir: &Path) -> Result<RebuildStats> {
     })
 }
 
+/// Replace a URI-form @context with the inline base context.
+///
+/// Doc-shape rules:
+/// - No @context: insert the inline base.
+/// - @context is a string (URI form): replace with the inline base.
+/// - @context is an object or array (already inline): leave alone.
+///   The doc author has declared its own prefixes; do not override.
 fn inject_inline_context(doc: &Value, inline_context: &Value) -> Value {
     let mut clone = doc.clone();
     if let Value::Object(ref mut map) = clone {
-        map.insert("@context".into(), inline_context.clone());
+        match map.get("@context") {
+            None => {
+                map.insert("@context".into(), inline_context.clone());
+            }
+            Some(Value::String(_)) => {
+                map.insert("@context".into(), inline_context.clone());
+            }
+            Some(_) => {
+                // Inline form already present; respect the doc author.
+            }
+        }
     }
     clone
 }
@@ -293,11 +453,20 @@ mod tests {
     // Rebuild tests (T2.2).
     //
 
-    fn make_claim(module: &str, id_suffix: &str, asserter_iri: &str) -> Value {
+    fn make_claim(_module: &str, id_suffix: &str, asserter_iri: &str) -> Value {
+        // Use inline context with both the base prefixes and the synth
+        // module prefix so the test doc expands correctly.
         json!({
-            "@context": "https://nomograph.org/v3/context.jsonld",
-            "@id": format!("{}:claim/{}", module, id_suffix),
-            "@type": format!("{}:Task", module),
+            "@context": {
+                "nomograph": "https://nomograph.org/v3/",
+                "prov":      "http://www.w3.org/ns/prov#",
+                "xsd":       "http://www.w3.org/2001/XMLSchema#",
+                "synth":     "https://nomograph.org/synth/",
+                "prov:generatedAtTime": {"@type": "xsd:dateTime"},
+                "prov:wasAttributedTo": {"@type": "@id"}
+            },
+            "@id": format!("synth:claim/{}", id_suffix),
+            "@type": "synth:Task",
             "prov:generatedAtTime": "2026-05-29T00:00:00.000Z",
             "prov:wasAttributedTo": asserter_iri,
             "synth:summary": format!("Test claim {}", id_suffix),
@@ -392,6 +561,111 @@ mod tests {
         // The triples count is exactly twice what it was: the rebuild
         // cleared and re-loaded from scratch.
         assert_eq!(stats_second.triples_count, 2 * stats_first.triples_count);
+    }
+
+    //
+    // Query tests (T2.3).
+    //
+
+    #[test]
+    fn select_count_by_type_matches_status_shape() {
+        let tmp = TempDir::new().unwrap();
+        let writer = LogWriter::new(tmp.path()).unwrap();
+        for i in 0..10 {
+            let doc = make_claim("synth", &format!("q{}", i), "asserter:user:local:agd");
+            writer.append("user:local:agd", &doc).unwrap();
+        }
+        let view = GraphView::open_in_memory().unwrap();
+        rebuild(&view, tmp.path()).unwrap();
+
+        let q = r#"
+            PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+            SELECT ?type (COUNT(?c) AS ?n)
+            WHERE { ?c rdf:type ?type }
+            GROUP BY ?type
+        "#;
+        let results = select(&view, q).unwrap();
+        assert_eq!(results.columns, vec!["type".to_string(), "n".to_string()]);
+        assert_eq!(results.rows.len(), 1);
+
+        let type_term = &results.rows[0][0];
+        match type_term {
+            Term::Iri(s) => assert!(s.ends_with("synth/Task")),
+            other => panic!("expected IRI for type, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn select_with_no_matches_returns_empty_rows() {
+        let view = GraphView::open_in_memory().unwrap();
+        let q = "SELECT ?s WHERE { ?s <http://nonexistent.example/> ?o }";
+        let results = select(&view, q).unwrap();
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn select_on_malformed_sparql_errors() {
+        let view = GraphView::open_in_memory().unwrap();
+        let q = "this is not SPARQL";
+        let err = select(&view, q).unwrap_err();
+        let s = err.to_string();
+        assert!(
+            s.contains("SPARQL") || s.contains("evaluate") || s.contains("parse"),
+            "error should describe SPARQL failure, got: {}",
+            s
+        );
+    }
+
+    #[test]
+    fn ask_returns_true_when_claim_exists() {
+        let tmp = TempDir::new().unwrap();
+        let writer = LogWriter::new(tmp.path()).unwrap();
+        let doc = make_claim("synth", "ask1", "asserter:user:local:agd");
+        writer.append("user:local:agd", &doc).unwrap();
+        let view = GraphView::open_in_memory().unwrap();
+        rebuild(&view, tmp.path()).unwrap();
+
+        let q = r#"
+            PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+            PREFIX synth: <https://nomograph.org/synth/>
+            ASK { ?c rdf:type synth:Task }
+        "#;
+        assert_eq!(ask(&view, q).unwrap(), true);
+    }
+
+    #[test]
+    fn ask_returns_false_on_empty_view() {
+        let view = GraphView::open_in_memory().unwrap();
+        let q = "ASK { ?s ?p ?o }";
+        assert_eq!(ask(&view, q).unwrap(), false);
+    }
+
+    #[test]
+    fn select_term_distinguishes_iri_and_literal() {
+        let tmp = TempDir::new().unwrap();
+        let writer = LogWriter::new(tmp.path()).unwrap();
+        let doc = make_claim("synth", "term1", "asserter:user:local:agd");
+        writer.append("user:local:agd", &doc).unwrap();
+        let view = GraphView::open_in_memory().unwrap();
+        rebuild(&view, tmp.path()).unwrap();
+
+        let q = r#"
+            PREFIX synth: <https://nomograph.org/synth/>
+            SELECT ?c ?s WHERE {
+              ?c synth:summary ?s .
+            }
+        "#;
+        let results = select(&view, q).unwrap();
+        assert_eq!(results.rows.len(), 1);
+        // First column: claim IRI; second column: literal summary.
+        match &results.rows[0][0] {
+            Term::Iri(_) => {}
+            other => panic!("expected IRI for ?c, got {:?}", other),
+        }
+        match &results.rows[0][1] {
+            Term::Literal { value, .. } => assert!(value.starts_with("Test claim")),
+            other => panic!("expected Literal for ?s, got {:?}", other),
+        }
     }
 
     #[test]
