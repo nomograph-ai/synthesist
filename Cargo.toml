@@ -46,8 +46,13 @@ anyhow = "1"
 time = { version = "0.3", features = ["local-offset", "formatting", "macros"] }
 chrono = { version = "0.4", features = ["serde"] }
 thiserror = "1"
-nomograph-claim = "0.2"
-nomograph-workflow = "0.3"
+# v3-alpha: path-dep both claim and workflow so they share a single
+# nomograph-claim compilation unit. workflow's v3-alpha-integration
+# branch also path-deps claim. This is the temporary integration
+# wiring; eventual T3.x folds workflow into synthesist and removes
+# the workflow crate dependency entirely.
+nomograph-claim = { path = "../claim" }
+nomograph-workflow = { path = "../workflow" }
 # `serve` uses async axum + a fs watcher. See src/cmd_serve.rs.
 # Replaced rouille (sync, smaller deps) with axum because axum has
 # the bigger community trajectory (tokio + tower) and natively
