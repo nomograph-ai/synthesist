@@ -14,6 +14,44 @@ cargo clippy --all-targets -- -D warnings       # lint (warnings are errors)
 
 CI runs the same four stages (check, fmt, clippy, test) on every push.
 
+## Estate-wide workspace (pre-3.0.0)
+
+Synthesist depends on `nomograph-claim` and `nomograph-workflow` via
+path-deps during the 3.0.0-pre.x cycle. Building the three crates
+together against a single resolved compilation unit needs a Cargo
+workspace at the shared parent directory.
+
+The expected layout:
+
+```
+~/gitlab.com/nomograph/
+  Cargo.toml          # workspace manifest (see below)
+  claim/              # checkout of nomograph/claim
+  workflow/           # checkout of nomograph/workflow
+  synthesist/         # checkout of nomograph/synthesist (this repo)
+```
+
+`Cargo.toml` should contain:
+
+```toml
+[workspace]
+resolver = "2"
+members = ["claim", "workflow", "synthesist"]
+```
+
+The workspace manifest lives outside any single repo because all
+three repos are members. After checking out all three crates as
+siblings and writing the manifest, `cargo build --workspace` from
+the parent directory resolves path-deps without symlinks and
+produces one shared `target/`.
+
+Existing per-crate `Cargo.lock` files are ignored by Cargo once the
+workspace is active; the canonical lock is `<workspace>/Cargo.lock`.
+
+When 3.0.0 final lands and the crates publish to crates.io, the
+workspace becomes optional: consumers install via `cargo install`
+and the path-deps unwind into version-pinned registry deps.
+
 ## Licensing
 
 All contributions are accepted under the [MIT License](LICENSE). By submitting
