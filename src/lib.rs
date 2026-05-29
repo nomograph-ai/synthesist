@@ -23,6 +23,11 @@ pub mod store;
 pub mod validation;
 pub mod view;
 
+// v3-alpha substrate modules. These ship alongside the v0.2 substrate
+// during the v3-alpha-integration build; the v2 modules above remain
+// until synthesist and any other consumer migrate to v3.
+pub mod jsonld;
+
 #[cfg(feature = "beacon")]
 pub mod beacon_client;
 

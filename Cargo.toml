@@ -94,6 +94,8 @@ tempfile = "3"
 proptest = "1"
 assert_cmd = "2"
 predicates = "3"
+oxjsonld = "0.1"
+oxrdf = "0.2"
 
 [profile.release]
 opt-level = 3
