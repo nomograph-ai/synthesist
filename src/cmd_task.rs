@@ -559,9 +559,13 @@ fn open_graph_view_best_effort() -> Option<nomograph_claim::graph_view::GraphVie
     let view_dir = claims_dir.join("_view.oxigraph");
 
     // Prefer on-disk view; fall back to in-memory rebuild.
-    match GraphView::open(&view_dir) {
-        Ok(v) => Some(v),
-        Err(_) => {
+    // Wrap the on-disk open in catch_unwind because Oxigraph can panic
+    // (TryFromIntError) when a brand-new RocksDB directory has not yet
+    // been fully initialized. The in-memory path is always safe.
+    let on_disk_result = std::panic::catch_unwind(|| GraphView::open(&view_dir));
+    match on_disk_result {
+        Ok(Ok(v)) => Some(v),
+        _ => {
             let v = GraphView::open_in_memory().ok()?;
             rebuild(&v, &claims_dir).ok()?;
             Some(v)

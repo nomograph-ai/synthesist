@@ -90,9 +90,17 @@ impl SynthStore {
     }
 
     pub fn discover_for(session: &Option<String>) -> Result<Self> {
-        Ok(Self::from_inner(
-            nomograph_workflow::Store::discover_for(session)?,
-        ))
+        let inner = nomograph_workflow::Store::discover_for(session)?;
+        // Mirror the asserter string from the workflow store so the v3
+        // dual-write path sees the same value the inner store uses for
+        // appends. Without this, asserted_by stays None and no v3 log
+        // lines are produced for CLI commands that call discover_for.
+        let asserter = inner.asserted_by().to_string();
+        let mut s = Self::from_inner(inner);
+        if !asserter.is_empty() {
+            s.asserted_by = Some(asserter);
+        }
+        Ok(s)
     }
 
     pub fn open_at(claims_dir: &Path) -> Result<Self> {
