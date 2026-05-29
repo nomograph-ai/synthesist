@@ -1,4 +1,4 @@
-//! nomograph-claim — bi-temporal CRDT claim substrate.
+//! nomograph-claim -- bi-temporal CRDT claim substrate.
 //!
 //! Storage (per project at `<repo_root>/claims/`):
 //!
@@ -27,6 +27,7 @@ pub mod view;
 // during the v3-alpha-integration build; the v2 modules above remain
 // until synthesist and any other consumer migrate to v3.
 pub mod jsonld;
+pub mod log;
 
 #[cfg(feature = "beacon")]
 pub mod beacon_client;
