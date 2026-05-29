@@ -266,6 +266,7 @@ fn v3_happy_path_dual_write() {
     // scope). `task ready` and `status` are read-only.
     //
     // Session-scoped dual-write claims:
+    //   session start     -> 1 Session claim (review #4 fix)
     //   phase set plan    -> 1 Phase claim
     //   tree add          -> 1 Tree claim
     //   spec add          -> 1 Spec claim
@@ -278,9 +279,9 @@ fn v3_happy_path_dual_write() {
     //   discovery add     -> 1 Discovery claim
     //   session close     -> 1 Session claim (supersession; A.2 fix)
     //
-    // Total: 11 v3 claims.
+    // Total: 12 v3 claims.
     // ------------------------------------------------------------------
-    const EXPECTED_V3_CLAIMS: usize = 11;
+    const EXPECTED_V3_CLAIMS: usize = 12;
 
     // a) v2 .amc files exist.
     assert_v2_amc_exists(&tmp);
@@ -376,8 +377,8 @@ fn v3_log_line_contains_correct_type_for_tree() {
         .assert()
         .success();
 
-    // Both `phase set plan` and `tree add` route through discover_for and
-    // dual-write, so two v3 log lines are expected.
+    // `session start`, `phase set plan`, and `tree add` all route
+    // through the session-scoped asserter and dual-write.
     let log_path = tmp
         .path()
         .join("claims")
@@ -387,8 +388,8 @@ fn v3_log_line_contains_correct_type_for_tree() {
         .expect("v3 log must exist after tree add");
     let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
     assert_eq!(
-        lines.len(), 2,
-        "expected 2 v3 log lines (phase set plan + tree add)"
+        lines.len(), 3,
+        "expected 3 v3 log lines (session start + phase set plan + tree add)"
     );
 
     let tree_line = lines

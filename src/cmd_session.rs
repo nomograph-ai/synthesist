@@ -50,8 +50,15 @@ fn asserter_base() -> String {
     format!("user:local:{user}")
 }
 
-/// `session start <id>` — append an opening `Session` claim, print
+/// `session start <id>` -- append an opening `Session` claim, print
 /// `{id, asserter, started_at}`.
+///
+/// Previously this delegated to `workflow::Session::start(store.inner())`
+/// which writes directly through the v2 substrate, bypassing
+/// `SynthStore::append` and producing no v3 dual-write entry. This
+/// routes the open claim through the SynthStore boundary so Session-open
+/// claims appear in `claims/<asserter>/log.jsonl` alongside every other
+/// typed claim (review item #4 follow-up to T3.6 / A.2).
 fn cmd_session_start(
     id: &str,
     tree: Option<&str>,
@@ -61,10 +68,30 @@ fn cmd_session_start(
     if id.is_empty() {
         bail!("session id must be non-empty");
     }
-
-    let mut store = SynthStore::discover()?;
     let base = asserter_base();
-    let handle = Session::start(store.inner(), id, &base, tree, spec, summary)
+    if base.is_empty() {
+        bail!("session asserter_base must be non-empty (set USER env var)");
+    }
+
+    // Mirror `nomograph_claim::Session::start`: the session-scoped
+    // asserter is `<asserter_base>:<id>`, and the opener carries the
+    // optional tree/spec/summary tags in props.
+    let session_asserter = format!("{}:{}", base, id);
+    let mut props = serde_json::Map::new();
+    props.insert("id".to_string(), Value::String(id.to_string()));
+    if let Some(t) = tree {
+        props.insert("tree".to_string(), Value::String(t.to_string()));
+    }
+    if let Some(s) = spec {
+        props.insert("spec".to_string(), Value::String(s.to_string()));
+    }
+    if let Some(s) = summary {
+        props.insert("summary".to_string(), Value::String(s.to_string()));
+    }
+
+    let mut store = SynthStore::discover()?.with_asserter(session_asserter.clone());
+    store
+        .append(ClaimType::Session, Value::Object(props), None)
         .map_err(|e| anyhow!("session start failed: {e}"))?;
 
     // Refresh the view so subsequent reads see the new claim.
@@ -86,8 +113,8 @@ fn cmd_session_start(
         .unwrap_or(Value::Null);
 
     json_out(&json!({
-        "id": handle.id(),
-        "asserter": handle.asserter(),
+        "id": id,
+        "asserter": session_asserter,
         "started_at": started_at,
     }))
 }
