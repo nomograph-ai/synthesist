@@ -134,7 +134,17 @@ pub enum Command {
         file: Option<String>,
     },
     /// Emit the full skill file (behavioral contract + command reference).
-    Skill,
+    ///
+    /// Without `--manifest`, the baseline v2.5 surface is used. With
+    /// `--manifest <path>`, the generated skill document reflects the surface
+    /// declared by that manifest.
+    Skill {
+        /// Path to a surface manifest TOML file. If absent, the baseline
+        /// v2.5 surface is used and the output is identical to the default
+        /// `synthesist skill` output.
+        #[arg(long, value_name = "PATH")]
+        manifest: Option<PathBuf>,
+    },
     /// Show version and check for updates from GitLab releases.
     Version {
         /// Skip the network check for latest version.
