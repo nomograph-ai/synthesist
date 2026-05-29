@@ -20,6 +20,7 @@ use nomograph_claim::graph_view::GraphView;
 use serde_json::Value;
 
 mod demo;
+mod plan_at_risk;
 
 // ---------------------------------------------------------------------------
 // Core types
@@ -110,7 +111,10 @@ pub trait Overlay: Send + Sync {
 /// Callers that need to dispatch by name call this and iterate; the list
 /// is short enough that linear scan is fine for the alpha.
 pub fn registry() -> Vec<Box<dyn Overlay>> {
-    let overlays: Vec<Box<dyn Overlay>> = vec![Box::new(demo::DemoTasksByStatus)];
+    let overlays: Vec<Box<dyn Overlay>> = vec![
+        Box::new(demo::DemoTasksByStatus),
+        Box::new(plan_at_risk::PlanAtRiskOverlay),
+    ];
 
     // Catch duplicate names early (debug builds only).
     #[cfg(debug_assertions)]
