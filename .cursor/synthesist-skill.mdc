@@ -1,0 +1,356 @@
+---
+description: >-
+  Synthesist — workflow, mediation, and CLI-only Dolt contract. Apply when
+  working with specs, tasks, estate state, sessions, or .synth/.
+alwaysApply: true
+---
+
+# Synthesist — mediation and data contract
+
+You mediate **all** Synthesist use: run `synthesist` from the workspace that contains `.synth/` (usually repo root). The human should not need to run raw CLI unless they want to.
+
+**Full workflow** (phases, AGREE, display rules, command list): read `.cursor/skills/synthesist/SKILL.md`. **Canonical text** from the installed binary: `synthesist skill`.
+
+---
+
+## 1. Single source of truth
+
+Authoritative estate data lives in the **Dolt database under `.synth/`** (e.g. `.synth/synthesist/.dolt/`). The `synthesist` binary is the **only** supported interface for reading and mutating that data.
+
+Legacy or mirrored JSON/YAML trees (e.g. under `specs/`) are **not** sources of truth unless this project explicitly documents a sync workflow. Do not edit them to “fix” estate state.
+
+---
+
+## 2. Forbidden — bypassing the tool (“hacking” the database)
+
+You **must not**:
+
+| Category | Examples (non-exhaustive) |
+|----------|---------------------------|
+| Direct SQL | `dolt sql`, `mysql` against the `.synth` Dolt data dir, any JDBC/ORM against those files |
+| Direct Dolt CLI on the store | `dolt checkout`, `dolt commit`, `dolt merge`, etc. targeting `.synth/**` |
+| Binary / storage surgery | Editing `noms` chunks, `manifest`, `journal`, copying `.dolt` trees between machines/repos, deleting locks or temp files to “unstick” state |
+| Git as an editor | `git checkout` / manual conflict resolution **inside** `.synth/**` to change rows, replay commits to rewrite history of the estate DB |
+| Impersonating the tool | Writing parsers that emit internal on-disk shapes, or using undocumented APIs if they appear |
+
+If the database is corrupted, locked, or inconsistent: use **`synthesist check`**, **`synthesist migrate`**, **`synthesist session status` / `merge` / `prune`**, or ask the human. Do not improvise file-level repairs.
+
+---
+
+## 3. Allowed read surfaces
+
+Use **`synthesist` read subcommands** (`status`, `spec show`, `task list`, `tree list`, `export`, etc.).
+
+**`synthesist export`** is a **read** of the full graph as JSON. Using export to **inspect** or answer questions is fine. Treat export as **read-only documentation** of state — not a scratchpad to edit and round-trip casually.
+
+**`synthesist import`** overwrites tables from an export-shaped JSON file. It is a **destructive, intentional** operation (restore, migration, advanced ops). Only use when the human explicitly wants bulk load/restore and understands risk; never “patch” export JSON in secret to avoid normal commands.
+
+---
+
+## 4. Allowed write surfaces
+
+All mutations go through **`synthesist` write subcommands** with a valid session:
+
+- Pass **`--session=<id>`** on every write in each shell invocation, **or**
+- Set **`SYNTHESIST_SESSION=<id>`** in that shell for a batch.
+
+Writes include (non-exhaustive): `task create|claim|done|block|wait|cancel|acceptance`, `spec create|update`, `discovery add`, `thread create`, `phase set`, `session start|merge|prune`, `archive add`, `campaign …`, `stakeholder …`, `disposition …`, `signal record`, `direction …`, `propagation add`, `retro …`, `pattern register`, `import`, etc. When unsure, run the subcommand without a session: the tool errors with the same contract.
+
+Prefer normal granular commands over import for day-to-day work.
+
+---
+
+## 5. Integrity and verification
+
+After substantive changes, run **`synthesist check`** when appropriate. Use **`synthesist task done`** (not ad-hoc claims of completion) so acceptance **verify** commands run.
+
+---
+
+## 6. Spec inventory
+
+There is **no** `synthesist spec list`. Use **`synthesist export`** (`specs` in JSON), **`synthesist status`**, and **`synthesist archive list <tree>`** as documented in the project skill.
+
+---
+
+## 7. Drift vs installed CLI
+
+Command flags and help text can change between releases. If prose disagrees with the binary, **the binary wins** — use `synthesist skill` and `synthesist <cmd> --help`.
+
+---
+
+# Specification graph manager — behavioral contract
+
+You are the complete mediation layer between the human and synthesist.
+The human never calls synthesist directly.
+
+## Behavioral contract
+
+This section defines your behavioral contract. Follow it exactly.
+
+## Session management
+
+Every write command requires `--session=<name>`. Shell state does not
+persist between Bash calls, so include `--session=<name>` on every
+write command. Read commands (status, check, task list, spec show)
+work without a session.
+
+Pattern: `S="synthesist --session=my-session"` then `$S task create ...`
+
+## Session start sequence
+
+1. `synthesist session start <descriptive-name>`
+2. `synthesist --session=<name> phase set orient`
+3. `synthesist session list` — check for abandoned sessions from previous runs
+4. `synthesist status` — estate overview and ready tasks
+5. For the spec you'll work on:
+   - `synthesist spec show <tree/spec>` — goal, decisions, propagation deps
+   - `synthesist discovery list <tree/spec>` — findings from previous sessions
+   - `synthesist retro show <tree/spec>` — if completed, read the arc and transforms
+6. Present to the human in plain language (see Display Rules)
+7. If human stated intent, acknowledge and transition to PLAN
+
+## State machine
+
+```
+ORIENT → PLAN → AGREE → EXECUTE ↔ REFLECT → REPORT
+                  ↑                    |
+                  └──── REPLAN ←───────┘
+```
+
+After every transition: `synthesist --session=<name> phase set <phase>`
+
+| Phase | Purpose | Allowed | Forbidden | Transition |
+|-------|---------|---------|-----------|------------|
+| ORIENT | Build shared mental model | Read: status, task list, spec show, discovery list, session list | Any writes | → PLAN when human indicates work |
+| PLAN | Model work before doing it | Read + spec create/update, task create, discovery add, research | Claiming tasks, writing code, modifying non-synthesist files | → AGREE when plan is complete |
+| AGREE | Human checkpoint | Nothing — present and wait | Everything | → EXECUTE on explicit approval, → PLAN on changes |
+| EXECUTE | Claim and complete tasks | task claim/done/block, discovery add, file modifications scoped to current task. If blocker discovered mid-task: `task block` with reason, then → REFLECT | Creating/cancelling tasks, modifying task tree | → REFLECT after each task |
+| REFLECT | Assess plan validity | Read + discovery add | Claiming next task before assessment | → EXECUTE if plan holds, → REPLAN if not, → REPORT if done |
+| REPLAN | Modify plan from execution learnings | task create/cancel/block, spec update, discovery add | Claiming tasks | → AGREE (always — human must re-approve) |
+| REPORT | Summarize and hand off | Read only | Writes | → ORIENT for new cycle |
+
+## AGREE protocol
+
+Present to the human before ANY execution:
+1. Full task tree in grouped table format
+2. Your assumptions
+3. Scope: what files/repos will be touched
+4. Which tasks are autonomous vs need human input
+5. What "done" looks like
+
+Then WAIT. "Ready to proceed?" followed by proceeding is NOT approval.
+The human must explicitly say "yes", "proceed", "approved", or equivalent.
+
+## Task types
+
+- **Discussion tasks** ("Discuss objectives with Andrew") — completed
+  during PLAN/AGREE. Do not claim during EXECUTE.
+- **Implementation tasks** ("Rewrite Introduction section") — claimed
+  and executed during EXECUTE.
+
+If the existing task tree is too vague, propose new tasks in PLAN.
+Do not present a 2-task plan when the work needs 10 tasks.
+
+## Display rules
+
+1. Task trees as grouped tables. Never raw JSON. Example:
+
+   **Session Store Layer**
+
+   | ID | Task | Deps |
+   |----|------|------|
+   | s1 | Add branch operations to store.go | — |
+   | s2 | Add EnsureSession for auto-checkout | s1 |
+
+2. Task changes as diff table BEFORE current state:
+
+   | Action | ID | Description |
+   |--------|----|-------------|
+   | added | s4 | Wire --session flag into main.go |
+   | cancelled | s1 | Replaced by s34 with correct deps |
+
+3. Cancelled tasks: count only ("27 cancelled, hidden").
+4. Status in ORIENT: plain language, not JSON.
+5. Always `--active` flag on task list.
+
+## Long autonomous execution
+
+When the human approves a plan and steps away:
+- Work through tasks in dependency order, one at a time
+- At human-gated tasks: skip and continue with other ready tasks.
+  Do NOT stop entirely. Record that the gated task is waiting.
+- Before context fills: enter REPORT. Write findings to synthesist
+  via `discovery add`. Commit all work. The next session picks up
+  from synthesist state, not from chat context.
+- If all remaining tasks are gated or blocked: enter REPORT with
+  a summary of what's done and what's waiting for the human.
+
+## Error protocol
+
+1. Never retry silently — explain what failed.
+2. When a task is harder than expected: REPLAN → AGREE.
+3. Record discoveries in synthesist, not just chat.
+
+## Sources
+
+- SOAR — impasse → subgoal (REPLAN)
+- Reflexion (Shinn 2023) — post-execution assessment (REFLECT)
+- LangGraph — checkpoints (AGREE)
+- OODA (Boyd) — orient as mental model (ORIENT)
+- ACT-R — per-phase production rules
+- Beads/Gastown (Yegge 2026) — task DAG persistence
+
+## Command reference
+
+You have access to the `synthesist` CLI tool. Use it for ALL specification
+management. Do not read or write spec data files directly. The tool
+owns the Dolt database at .synth/.
+
+## Concepts
+
+**Trees** are named domains of work (e.g. `mordecai` for apps and product
+specs, `packages` for shared libraries). They are explicit entities that
+must be created with `synthesist tree create` before you can add specs,
+stakeholders, or campaigns to them.
+
+**tree/spec format**: Most commands take specs as `tree/spec` -- e.g.
+`mordecai/patient-web/auth-flow`, `packages/frontend/ui/tokens`. Campaign commands
+take `<tree> <spec-id>` as two separate positional arguments instead.
+
+**Specs** capture intent (goal, constraints, decisions) via
+`synthesist spec create`. Specs can also be created implicitly when
+you add the first task.
+
+**Threads** are session pointers that track active workstreams. Create
+them with `synthesist thread create` to record what you're working on.
+`synthesist status` shows all active threads.
+
+**Propagation chains** link specs so that when a source spec's output
+changes, downstream specs are flagged as potentially stale. Use
+`synthesist propagation check` to find stale targets.
+
+**Stakeholders** are registered per-tree (`synthesist stakeholder add <tree>`).
+They are referenced by ID across specs in that tree. Dispositions and
+signals are per-spec (`tree/spec` format).
+
+**Bootstrap**: Run `synthesist init` to create the database, then
+`synthesist tree create` to set up your first tree.
+
+## Enums
+
+**stance**: supportive | cautious | opposed | neutral | unknown
+**confidence**: documented | verified | inferred | speculative
+**signal type**: pr_comment | issue_comment | review | commit_message | chat | meeting | email | other
+**influence role**: maintainer | reviewer | approver | blocker | champion | observer
+**direction status**: committed | proposed | experimental | rejected
+**task status**: pending | in_progress | done | blocked | waiting | cancelled
+**archive reason**: completed | abandoned | superseded | deferred
+
+## When to use synthesist
+
+- New project setup: `synthesist scaffold` creates CLAUDE.md, .mise.toml, and .synth/ database
+- Starting a session: `synthesist session start <name>` then `synthesist status`
+- Planning work: `synthesist spec create` then `synthesist task create`
+- Executing work: `synthesist task claim` then `synthesist task done` when verified
+- Blocking a task: `synthesist task block` for internal blockers
+- External blockers: `synthesist task wait` with a check command
+- Tracking people: `synthesist stakeholder add` and `synthesist disposition add`
+- Recording evidence: `synthesist signal record` for observable stakeholder actions
+- Recording findings: `synthesist discovery add` for institutional memory
+- Managing campaigns: `synthesist campaign active/backlog`
+- Archiving completed work: `synthesist archive add`
+- Cross-spec dependencies: `synthesist propagation add` then `synthesist propagation check`
+- Completing a spec: `synthesist retro create` with arc and transforms
+- Checking health: `synthesist check` validates everything
+- Replaying work: `synthesist replay <spec>` to get a playbook for adaptation
+- Checking schema: `synthesist migrate` to check database version and pending migrations
+- Backup: `synthesist export` dumps all tables to JSON
+- Cleaning stale sessions: `synthesist session prune` merges and removes inactive branches
+
+## Output
+
+All output is JSON. Parse it directly. Do not ask the human to
+interpret synthesist output for you. Empty collections are `[]`, never null.
+
+## Rules (workflow)
+
+1. Never write spec data files directly. Always use synthesist commands.
+2. Run `synthesist status` at session start to see active threads.
+3. Run `synthesist task ready <tree/spec>` to find what to work on next.
+4. After completing a task, run `synthesist task done` -- it verifies
+   acceptance criteria automatically. Do not self-report completion.
+5. When you encounter a stakeholder whose technical preferences
+   constrain your implementation choices, record them:
+   `synthesist stakeholder add` then `synthesist disposition add`.
+6. When a stakeholder says something that reveals their stance on a
+   technical direction, record it: `synthesist signal record`.
+7. When a body of work completes, create a retro node with transforms
+   before archiving: `synthesist retro create`.
+8. The tool auto-commits by default. Use `--no-commit` to batch
+   multiple changes without committing each one.
+
+## Core commands
+
+```
+synthesist init                                    # Scaffold estate structure in current directory
+synthesist scaffold                                # Bootstrap synthesist in a project (CLAUDE.md, .mise.toml, init)
+synthesist status                                  # Show estate overview
+synthesist check                                   # Validate referential integrity
+synthesist tree create <name> [--description  Tree description] [--status       Tree status] # Create a tree
+synthesist tree list                               # List all trees
+synthesist thread create <id> [--tree         Tree name] [--summary      Thread summary] [--spec         Spec ID] [--task         Task ID] [--date         Date YYYY-MM-DD] # Create a thread
+synthesist thread list                             # List threads
+synthesist campaign active <tree> <specid> [--summary      Summary] [--phase        Phase] [--blocked-by   Comma-separated blocked-by spec IDs] # Add spec to campaign active list
+synthesist campaign backlog <tree> <specid> [--title        Title] [--summary      Summary] [--blocked-by   Comma-separated blocked-by spec IDs] # Add spec to campaign backlog
+synthesist campaign list <tree>                    # List campaign specs
+synthesist archive add <treespec> [--reason       Archive reason (completed, abandoned, superseded, deferred)] [--outcome      Outcome description] [--archived     Archive date YYYY-MM-DD] [--patterns     Comma-separated pattern IDs] # Archive a spec
+synthesist archive list <tree>                     # List archived specs
+synthesist discovery add <treespec> [--finding      Finding description] [--impact       Impact description] [--action       Action taken] [--author       Author name] [--date         Date YYYY-MM-DD] # Record a finding
+synthesist discovery list <treespec>               # List discoveries
+synthesist task create <treespec> <summary> [--depends-on   Comma-separated dependency IDs] [--gate         Gate type (human)] [--files        Comma-separated file paths] [--status       Initial status] [--id           Task ID] [--created      Creation date YYYY-MM-DD] [--completed    Completion date YYYY-MM-DD] # Create a task
+synthesist task list <treespec> [--human        Human-readable output] [--active       Hide cancelled tasks] # List tasks
+synthesist task claim <treespec> <taskid>          # Claim a task
+synthesist task done <treespec> <taskid> [--skip-verify  Skip acceptance criteria verification] # Complete a task
+synthesist task wait <treespec> <taskid> [--reason       Wait reason] [--external     External URL] [--check        Check command] [--check-after  Check after date YYYY-MM-DD] # Set waiting status
+synthesist task block <treespec> <taskid>          # Set blocked status
+synthesist task ready <treespec>                   # Show ready tasks
+synthesist task acceptance <treespec> <taskid> [--criterion    Acceptance criterion] [--verify       Verify command] # Add acceptance criterion
+synthesist task cancel <treespec> <taskid> [--reason       Cancellation reason] # Cancel a task
+synthesist stakeholder add <tree> <id> [--context      Stakeholder role/context] [--name         Full name] [--orgs         Comma-separated organizations] # Register a stakeholder
+synthesist stakeholder list <tree>                 # List stakeholders
+synthesist disposition add <treespec> <stakeholder> [--topic        Topic] [--stance       Stance (supportive, cautious, opposed, neutral, unknown)] [--confidence   Confidence (documented, verified, inferred, speculative)] [--preferred    Preferred approach] [--detail       Reasoning or context for this assessment] [--evidence     Signal ID as evidence] # Record a disposition
+synthesist disposition list <treespec>             # List dispositions
+synthesist disposition supersede <treespec> <disposition-id> [--new-stance   New stance] [--preferred    New preferred approach] [--evidence     Signal ID as evidence] # Supersede a disposition
+synthesist signal record <treespec> <stakeholder> [--source       Source URL] [--type         Source type (pr_comment, issue_comment, review, etc.)] [--content      Signal content] [--date         Date YYYY-MM-DD] [--our-action   Our action in response] [--interpretation Interpretation of signal] # Record an observed signal
+synthesist signal list <treespec>                  # List signals
+synthesist direction add <tree> [--project      Project (org/repo)] [--topic        Topic] [--status       Status (committed, proposed, experimental, rejected)] [--impact       Impact description] [--owner        Owner stakeholder ID] [--timeline     Timeline] # Record a technical direction
+synthesist direction list <tree>                   # List directions
+synthesist direction impact <tree> <direction-id> [--affected-tree Affected tree] [--affected-spec Affected spec] [--description  Impact description] # Link direction to affected spec
+synthesist spec create <treespec> [--goal         Spec goal] [--constraints  Spec constraints] [--decisions    Spec decisions] # Create a spec
+synthesist spec show <treespec>                    # Show spec details
+synthesist spec update <treespec> [--goal         New goal] [--constraints  New constraints] [--decisions    New decisions] # Update a spec
+synthesist propagation add <source> <target> [--seq          Sequence number] [--description  Link description] # Link specs for change propagation
+synthesist propagation list <treespec>             # Show propagation links
+synthesist propagation check <treespec>            # Find stale downstream specs
+synthesist retro create <treespec> [--arc          Arc narrative] [--depends-on   Comma-separated dependency task IDs] # Create a retrospective
+synthesist retro show <treespec>                   # Show retrospective
+synthesist retro transform <treespec> [--label        Transform label] [--description  Transform description] [--transferable Mark as transferable] # Add a transform
+synthesist pattern register <tree> <id> [--name         Pattern name] [--description  Pattern description] [--transferability Transferability note] [--observed-in  Comma-separated spec IDs] # Register a pattern
+synthesist pattern list <tree>                     # List patterns
+synthesist ready <treespec>                        # Show unblocked pending tasks
+synthesist landscape show <treespec>               # Show landscape for a spec
+synthesist stance <stakeholderid> <topic>          # Stakeholder dispositions
+synthesist replay <treespec>                       # Generate replay playbook
+synthesist phase set <name>                        # Set the current phase
+synthesist phase show                              # Show the current phase
+synthesist session start <sessionid> [--spec         Advisory spec lock hint] # Start a session
+synthesist session merge <sessionid> [--ours         Resolve conflicts with ours] [--theirs       Resolve conflicts with theirs] # Merge a session
+synthesist session list                            # List sessions
+synthesist session status <sessionid>              # Show session status
+synthesist session prune [--hours        Prune sessions inactive for more than N hours] # Prune stale sessions
+synthesist migrate                                 # Check or run database migrations
+synthesist export                                  # Export all tables as JSON
+synthesist import <file>                           # Import tables from JSON (export format)
+synthesist skill                                   # Output synthesist skill file
+synthesist version                                 # Print version
+```
