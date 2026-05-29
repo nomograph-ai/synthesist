@@ -513,7 +513,7 @@ fn build_at_risk_set() -> Option<std::collections::HashSet<String>> {
 /// Extract raw spec ids from a slice of overlay results.
 ///
 /// Each `OverlayResult.detail` is expected to carry a `"spec_id"` string
-/// field (the `synth:id` literal of the at-risk spec). Results whose
+/// field (the `synthesist:id` literal of the at-risk spec). Results whose
 /// `spec_id` is absent or empty are silently ignored.
 ///
 /// Extracted as a pure helper so it can be unit tested independently of
@@ -612,11 +612,11 @@ mod tests {
     #[test]
     fn at_risk_set_includes_spec_id_from_hit_detail() {
         let hit = OverlayResult::with_detail(
-            "https://nomograph.org/synth/claim/abc123",
-            "synth:planAtRisk",
-            "https://nomograph.org/synth/claim/xyz",
+            "https://nomograph.org/synthesist/claim/abc123",
+            "synthesist:planAtRisk",
+            "https://nomograph.org/synthesist/claim/xyz",
             json!({
-                "old_claim": "https://nomograph.org/synth/claim/old",
+                "old_claim": "https://nomograph.org/synthesist/claim/old",
                 "stakeholder": "asserter:user:local:agd",
                 "new_at": "2026-05-10T09:00:00.000Z",
                 "spec_id": "deploy",
@@ -640,22 +640,22 @@ mod tests {
     fn at_risk_set_omits_entry_when_spec_id_absent() {
         // A hit with no spec_id in detail (absent field).
         let hit_no_id = OverlayResult::with_detail(
-            "https://nomograph.org/synth/claim/abc",
-            "synth:planAtRisk",
-            "https://nomograph.org/synth/claim/new",
+            "https://nomograph.org/synthesist/claim/abc",
+            "synthesist:planAtRisk",
+            "https://nomograph.org/synthesist/claim/new",
             json!({
-                "old_claim": "https://nomograph.org/synth/claim/old",
+                "old_claim": "https://nomograph.org/synthesist/claim/old",
                 "new_at": "2026-05-10T09:00:00.000Z",
             }),
         );
 
         // A hit with an empty spec_id.
         let hit_empty_id = OverlayResult::with_detail(
-            "https://nomograph.org/synth/claim/def",
-            "synth:planAtRisk",
-            "https://nomograph.org/synth/claim/new2",
+            "https://nomograph.org/synthesist/claim/def",
+            "synthesist:planAtRisk",
+            "https://nomograph.org/synthesist/claim/new2",
             json!({
-                "old_claim": "https://nomograph.org/synth/claim/old2",
+                "old_claim": "https://nomograph.org/synthesist/claim/old2",
                 "new_at": "2026-05-11T09:00:00.000Z",
                 "spec_id": "",
             }),
@@ -676,9 +676,9 @@ mod tests {
     fn at_risk_set_deduplicates_same_spec_id() {
         let make_hit = |spec_id: &str| {
             OverlayResult::with_detail(
-                "https://nomograph.org/synth/claim/some-spec",
-                "synth:planAtRisk",
-                "https://nomograph.org/synth/claim/new",
+                "https://nomograph.org/synthesist/claim/some-spec",
+                "synthesist:planAtRisk",
+                "https://nomograph.org/synthesist/claim/new",
                 json!({ "spec_id": spec_id }),
             )
         };

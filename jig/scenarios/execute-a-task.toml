@@ -103,5 +103,5 @@ check_command = "synthesist status"
 check_pattern = "EXECUTE"
 
 [expected_artifacts]
-claim_types = ["synth:Task", "synth:Discovery"]
+claim_types = ["synthesist:Task", "synthesist:Discovery"]
 claim_count_min = 2

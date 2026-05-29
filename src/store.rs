@@ -269,11 +269,11 @@ fn v3_dual_write(
     );
     doc.insert(
         "@id".into(),
-        V::String(format!("synth:claim/{}", id_short)),
+        V::String(format!("synthesist:claim/{}", id_short)),
     );
     doc.insert(
         "@type".into(),
-        V::String(format!("synth:{}", type_camel)),
+        V::String(format!("synthesist:{}", type_camel)),
     );
     doc.insert("prov:generatedAtTime".into(), V::String(format_now()));
     doc.insert(
@@ -284,15 +284,15 @@ fn v3_dual_write(
     if let Some(sup_id) = supersedes {
         let sup_short = &sup_id[..sup_id.len().min(16)];
         doc.insert(
-            "synth:supersedes".into(),
-            V::String(format!("synth:claim/{}", sup_short)),
+            "synthesist:supersedes".into(),
+            V::String(format!("synthesist:claim/{}", sup_short)),
         );
     }
 
-    // Expand props as synth:<key> predicates.
+    // Expand props as synthesist:<key> predicates.
     if let Some(props_map) = props.as_object() {
         for (k, v) in props_map {
-            doc.insert(format!("synth:{}", k), v.clone());
+            doc.insert(format!("synthesist:{}", k), v.clone());
         }
     }
 
@@ -432,16 +432,16 @@ mod tests {
         assert_eq!(lines.len(), 1, "expected exactly one v3 log line");
 
         let doc: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
-        // @id must be synth:claim/<16-hex-chars>
+        // @id must be synthesist:claim/<16-hex-chars>
         let at_id = doc["@id"].as_str().unwrap();
-        assert!(at_id.starts_with("synth:claim/"), "@id must start with synth:claim/");
+        assert!(at_id.starts_with("synthesist:claim/"), "@id must start with synthesist:claim/");
         assert_eq!(
             at_id.len(),
-            "synth:claim/".len() + 16,
+            "synthesist:claim/".len() + 16,
             "@id suffix must be 16 chars"
         );
         // @type
-        assert_eq!(doc["@type"].as_str().unwrap(), "synth:Task");
+        assert_eq!(doc["@type"].as_str().unwrap(), "synthesist:Task");
         // prov:generatedAtTime
         let gen_time = doc["prov:generatedAtTime"].as_str().unwrap();
         assert!(gen_time.ends_with('Z'), "generatedAtTime must have Z suffix");
@@ -449,8 +449,8 @@ mod tests {
         // prov:wasAttributedTo
         let attr = doc["prov:wasAttributedTo"].as_str().unwrap();
         assert_eq!(attr, format!("asserter:{}", asserter));
-        // synth:status from props
-        assert_eq!(doc["synth:status"].as_str().unwrap(), "pending");
+        // synthesist:status from props
+        assert_eq!(doc["synthesist:status"].as_str().unwrap(), "pending");
     }
 
     /// Two appends with the same asserter produce two lines in the log.
@@ -522,7 +522,7 @@ mod tests {
         );
     }
 
-    /// `discovery` claim type produces `@type: synth:Discovery`.
+    /// `discovery` claim type produces `@type: synthesist:Discovery`.
     #[test]
     fn dual_write_camel_case_discovery() {
         let dir = tempdir().unwrap();
@@ -548,8 +548,8 @@ mod tests {
             serde_json::from_str(content.lines().next().unwrap()).unwrap();
         assert_eq!(
             doc["@type"].as_str().unwrap(),
-            "synth:Discovery",
-            "discovery claim must produce @type synth:Discovery"
+            "synthesist:Discovery",
+            "discovery claim must produce @type synthesist:Discovery"
         );
     }
 

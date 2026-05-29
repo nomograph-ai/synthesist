@@ -234,7 +234,7 @@ mod tests {
     use serde_json::json;
     use tempfile::TempDir;
 
-    // Helper: build a minimal synth:Task JSON-LD doc with an inline
+    // Helper: build a minimal synthesist:Task JSON-LD doc with an inline
     // context so Oxigraph can parse it without a network fetch.
     fn make_task_claim(id_suffix: &str, status: &str) -> serde_json::Value {
         json!({
@@ -242,16 +242,16 @@ mod tests {
                 "nomograph": "https://nomograph.org/v3/",
                 "prov":      "http://www.w3.org/ns/prov#",
                 "xsd":       "http://www.w3.org/2001/XMLSchema#",
-                "synth":     "https://nomograph.org/synth/",
+                "synthesist": "https://nomograph.org/synthesist/",
                 "prov:generatedAtTime": {"@type": "xsd:dateTime"},
                 "prov:wasAttributedTo": {"@type": "@id"}
             },
-            "@id": format!("synth:claim/{}", id_suffix),
-            "@type": "synth:Task",
+            "@id": format!("synthesist:claim/{}", id_suffix),
+            "@type": "synthesist:Task",
             "prov:generatedAtTime": "2026-05-29T00:00:00.000Z",
             "prov:wasAttributedTo": "asserter:user:local:agd",
-            "synth:summary": format!("Task {}", id_suffix),
-            "synth:status":  status,
+            "synthesist:summary": format!("Task {}", id_suffix),
+            "synthesist:status":  status,
         })
     }
 
@@ -290,7 +290,7 @@ mod tests {
 
         let results = select(&view, q).unwrap();
         assert_eq!(results.columns, vec!["type".to_string(), "n".to_string()]);
-        assert_eq!(results.rows.len(), 1, "expected one type group (synth:Task)");
+        assert_eq!(results.rows.len(), 1, "expected one type group (synthesist:Task)");
 
         // The count should equal the number of claims.
         let count_term = &results.rows[0][1];
@@ -311,9 +311,9 @@ mod tests {
         let (_tmp, view) = build_test_view(3);
 
         let q = r#"
-            PREFIX synth: <https://nomograph.org/synth/>
+            PREFIX synthesist: <https://nomograph.org/synthesist/>
             SELECT ?c ?summary
-            WHERE { GRAPH ?g { ?c synth:summary ?summary } }
+            WHERE { GRAPH ?g { ?c synthesist:summary ?summary } }
             ORDER BY ?c
         "#;
 
@@ -332,7 +332,7 @@ mod tests {
             assert_eq!(cells.len(), 2);
             // First cell: IRI.
             assert!(cells[0].get("iri").is_some(), "expected iri cell: {:?}", cells[0]);
-            // Second cell: literal (synth:summary).
+            // Second cell: literal (synthesist:summary).
             assert!(cells[1].get("literal").is_some(), "expected literal cell: {:?}", cells[1]);
         }
     }

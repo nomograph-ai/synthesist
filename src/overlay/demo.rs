@@ -1,4 +1,4 @@
-//! Demo overlay: count synth:Task claims by status.
+//! Demo overlay: count synthesist:Task claims by status.
 //!
 //! This overlay demonstrates the plumbing: it runs a SPARQL SELECT
 //! counting tasks by status and returns one `OverlayResult` per
@@ -7,8 +7,8 @@
 //! registry, trait dispatch, and CLI wiring all work end to end.
 //!
 //! Output shape per hit:
-//!   subject   = the task type IRI (e.g. "https://nomograph.org/synth/Task")
-//!   predicate = "synth:status"
+//!   subject   = the task type IRI (e.g. "https://nomograph.org/synthesist/Task")
+//!   predicate = "synthesist:status"
 //!   object    = the status literal (e.g. "pending")
 //!   detail    = {"count": <n>}
 
@@ -18,7 +18,7 @@ use serde_json::json;
 
 use super::{Overlay, OverlayResult};
 
-/// Counts synth:Task claims grouped by status.
+/// Counts synthesist:Task claims grouped by status.
 ///
 /// Returns one result per distinct (type, status) pair. The result is
 /// diagnostic in nature: an agent or human can see at a glance how many
@@ -31,21 +31,21 @@ impl Overlay for DemoTasksByStatus {
     }
 
     fn description(&self) -> &str {
-        "Count synth:Task claims by status. Demo overlay; proves the registry and query plumbing."
+        "Count synthesist:Task claims by status. Demo overlay; proves the registry and query plumbing."
     }
 
     fn run(&self, view: &GraphView) -> Result<Vec<OverlayResult>> {
         // Count tasks by type and status. Uses GRAPH ?g to sweep named
         // graphs; the default graph is not queried because claim loading
-        // routes synth: types into the synth named graph.
+        // routes synthesist: types into the synth named graph.
         let query = r#"
             PREFIX rdf:   <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-            PREFIX synth: <https://nomograph.org/synth/>
+            PREFIX synthesist: <https://nomograph.org/synthesist/>
             SELECT ?type ?status (COUNT(?c) AS ?n)
             WHERE {
                 GRAPH ?g {
                     ?c rdf:type ?type .
-                    OPTIONAL { ?c synth:status ?status }
+                    OPTIONAL { ?c synthesist:status ?status }
                 }
             }
             GROUP BY ?type ?status
@@ -83,7 +83,7 @@ impl Overlay for DemoTasksByStatus {
 
             hits.push(OverlayResult::with_detail(
                 type_str,
-                "synth:status",
+                "synthesist:status",
                 status_str,
                 json!({ "count": count }),
             ));

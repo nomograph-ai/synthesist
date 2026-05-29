@@ -100,8 +100,8 @@ fn assert_jsonld_envelope(line: &str, session: &str) {
 
     let at_id = doc["@id"].as_str().expect("@id must be present");
     assert!(
-        at_id.starts_with("synth:claim/"),
-        "@id must start with synth:claim/, got: {at_id}"
+        at_id.starts_with("synthesist:claim/"),
+        "@id must start with synthesist:claim/, got: {at_id}"
     );
 
     let gen_time = doc["prov:generatedAtTime"]
@@ -389,10 +389,10 @@ fn v3_log_line_contains_correct_type_for_tree() {
     );
 
     let doc: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
-    assert_eq!(doc["@type"].as_str().unwrap(), "synth:Tree");
+    assert_eq!(doc["@type"].as_str().unwrap(), "synthesist:Tree");
     assert_eq!(
-        doc["synth:name"].as_str().unwrap(),
+        doc["synthesist:name"].as_str().unwrap(),
         "gamma",
-        "synth:name prop must propagate to v3 log"
+        "synthesist:name prop must propagate to v3 log"
     );
 }

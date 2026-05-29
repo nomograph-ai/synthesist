@@ -740,7 +740,7 @@ Synthesist's claim types are described declaratively in a SHACL Turtle
 document shipped alongside the binary:
 
 ```
-ontology/synth.shacl.ttl
+ontology/synthesist.shacl.ttl
 ```
 
 The SHACL shapes are a **documentation artifact only**. They are not
@@ -753,28 +753,28 @@ constraints, and allowed enum values for each claim type.
 
 | Claim type | Shape IRI | Key predicates |
 |------------|-----------|---------------|
-| Tree | `synth:TreeShape` | `synth:name` (required), `synth:description` |
-| Spec | `synth:SpecShape` | `synth:tree`, `synth:id`, `synth:goal`, `synth:status` |
-| Task | `synth:TaskShape` | `synth:tree`, `synth:spec`, `synth:id`, `synth:summary`, `synth:status` |
-| Discovery | `synth:DiscoveryShape` | `synth:tree`, `synth:spec`, `synth:id`, `synth:finding`, `synth:date` |
-| Session | `synth:SessionShape` | `synth:id`, `synth:summary` |
-| Phase | `synth:PhaseShape` | `synth:session_id`, `synth:name` |
-| Campaign | `synth:CampaignShape` | `synth:tree`, `synth:spec`, `synth:kind` |
-| Outcome | `synth:OutcomeShape` | `synth:tree`, `synth:spec`, `synth:status` |
+| Tree | `synthesist:TreeShape` | `synthesist:name` (required), `synthesist:description` |
+| Spec | `synthesist:SpecShape` | `synthesist:tree`, `synthesist:id`, `synthesist:goal`, `synthesist:status` |
+| Task | `synthesist:TaskShape` | `synthesist:tree`, `synthesist:spec`, `synthesist:id`, `synthesist:summary`, `synthesist:status` |
+| Discovery | `synthesist:DiscoveryShape` | `synthesist:tree`, `synthesist:spec`, `synthesist:id`, `synthesist:finding`, `synthesist:date` |
+| Session | `synthesist:SessionShape` | `synthesist:id`, `synthesist:summary` |
+| Phase | `synthesist:PhaseShape` | `synthesist:session_id`, `synthesist:name` |
+| Campaign | `synthesist:CampaignShape` | `synthesist:tree`, `synthesist:spec`, `synthesist:kind` |
+| Outcome | `synthesist:OutcomeShape` | `synthesist:tree`, `synthesist:spec`, `synthesist:status` |
 
 Every claim includes the universal PROV-O envelope:
 - `prov:generatedAtTime` -- ISO 8601 timestamp with millisecond precision
 - `prov:wasAttributedTo` -- asserter IRI identifying who wrote the claim
 
 Prefix declarations used throughout the shapes:
-- `synth:` = `<https://nomograph.org/synth/>`
+- `synthesist:` = `<https://nomograph.org/synthesist/>`
 - `prov:` = `<http://www.w3.org/ns/prov#>`
 - `xsd:` = `<http://www.w3.org/2001/XMLSchema#>`
 - `nomograph:` = `<https://nomograph.org/v3/>`
 
-Read `ontology/synth.shacl.ttl` at the synthesist repo root for the full
+Read `ontology/synthesist.shacl.ttl` at the synthesist repo root for the full
 shape definitions, including `sh:in` value sets for enumerated fields such
-as `synth:status` on Task and Spec, and `synth:name` on Phase.
+as `synthesist:status` on Task and Spec, and `synthesist:name` on Phase.
 "#;
 
 // ---------------------------------------------------------------------------
@@ -826,7 +826,7 @@ mod tests {
     #[test]
     fn skill_content_references_shacl_artifact() {
         assert!(
-            SKILL_CONTENT.contains("ontology/synth.shacl.ttl"),
+            SKILL_CONTENT.contains("ontology/synthesist.shacl.ttl"),
             "skill content must reference the SHACL Turtle artifact path"
         );
     }
@@ -834,14 +834,14 @@ mod tests {
     #[test]
     fn skill_content_references_all_claim_type_shapes() {
         let shapes = &[
-            "synth:TreeShape",
-            "synth:SpecShape",
-            "synth:TaskShape",
-            "synth:DiscoveryShape",
-            "synth:SessionShape",
-            "synth:PhaseShape",
-            "synth:CampaignShape",
-            "synth:OutcomeShape",
+            "synthesist:TreeShape",
+            "synthesist:SpecShape",
+            "synthesist:TaskShape",
+            "synthesist:DiscoveryShape",
+            "synthesist:SessionShape",
+            "synthesist:PhaseShape",
+            "synthesist:CampaignShape",
+            "synthesist:OutcomeShape",
         ];
         for shape in shapes {
             assert!(

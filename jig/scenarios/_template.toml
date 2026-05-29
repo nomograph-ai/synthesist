@@ -47,5 +47,5 @@ partial_credit = true
 
 [expected_artifacts]
 files = []                      # glob patterns relative to workspace root
-claim_types = []                # e.g. ["synth:Spec", "synth:Task"]
+claim_types = []                # e.g. ["synthesist:Spec", "synthesist:Task"]
 claim_count_min = 0
