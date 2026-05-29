@@ -12,6 +12,7 @@ mod cmd_phase;
 mod cmd_serve;
 mod cmd_session;
 mod cmd_spec;
+mod cmd_query;
 mod cmd_sql;
 mod cmd_task;
 mod cmd_tree;
@@ -108,6 +109,7 @@ fn run(cli: cli::Cli) -> anyhow::Result<()> {
             | cli::Command::Migrate { .. }
             | cli::Command::Export
             | cli::Command::Sql { .. }
+            | cli::Command::Query { .. }
             | cli::Command::Serve { .. }
             | cli::Command::Claims { .. }
             | cli::Command::Phase {
@@ -179,6 +181,11 @@ fn run(cli: cli::Cli) -> anyhow::Result<()> {
         cli::Command::Export => cmd_export::cmd_export(),
         cli::Command::Import { file } => cmd_import::cmd_import(file),
         cli::Command::Sql { query } => cmd_sql::cmd_sql(query),
+        cli::Command::Query { sparql, file } => cmd_query::cmd_query(
+            sparql.as_deref(),
+            file.as_deref(),
+            cli.data_dir.as_deref(),
+        ),
         cli::Command::Serve { port, bind_all } => cmd_serve::run(*port, *bind_all),
         cli::Command::Claims { cmd } => cmd_claims::run(cmd, &cli.session),
         cli::Command::Outcome { cmd } => cmd_outcome::run(cmd, &cli.session),
