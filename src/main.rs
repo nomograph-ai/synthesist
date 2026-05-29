@@ -8,6 +8,7 @@ mod cmd_import;
 mod cmd_init;
 mod cmd_migrate;
 mod cmd_outcome;
+mod cmd_overlay;
 mod cmd_phase;
 mod cmd_serve;
 mod cmd_session;
@@ -18,6 +19,7 @@ mod cmd_task;
 mod cmd_tree;
 mod compaction;
 mod output;
+mod overlay;
 mod schema;
 mod skill;
 mod store;
@@ -136,6 +138,8 @@ fn run(cli: cli::Cli) -> anyhow::Result<()> {
             | cli::Command::Outcome {
                 cmd: cli::OutcomeCmd::List { .. },
             }
+            // Overlay subcommands are read-only: no session or phase gate.
+            | cli::Command::Overlay { .. }
     );
 
     // Session enforcement for write operations.
@@ -189,6 +193,7 @@ fn run(cli: cli::Cli) -> anyhow::Result<()> {
         cli::Command::Serve { port, bind_all } => cmd_serve::run(*port, *bind_all),
         cli::Command::Claims { cmd } => cmd_claims::run(cmd, &cli.session),
         cli::Command::Outcome { cmd } => cmd_outcome::run(cmd, &cli.session),
+        cli::Command::Overlay { cmd } => cmd_overlay::run(cmd, cli.data_dir.as_deref()),
         // Init, Skill, Version, and the landscape family (stakeholder,
         // disposition, signal, stance) are handled in the short-circuit
         // match above.
