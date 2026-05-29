@@ -1,5 +1,9 @@
 //! Storage over the `claims/` directory.
 //!
+//! Deprecated: v3 uses `log::LogWriter` and `log::LogReader`.
+
+#![allow(deprecated)]
+//!
 //! Wraps an Automerge document whose on-disk representation is:
 //!
 //! ```text
@@ -73,6 +77,10 @@ const LOCK_FILE: &str = ".lock";
 /// writes flow. The handle owns an in-memory [`AutoCommit`] document;
 /// every call to [`Store::append`] writes an incremental change file
 /// atomically to `changes/<hash>.amc`.
+#[deprecated(
+    since = "3.0.0-pre.1",
+    note = "v3 uses `log::LogWriter` and `log::LogReader`. See nomograph-claim README v3 section."
+)]
 pub struct Store {
     /// Absolute path to the `claims/` directory.
     root: PathBuf,

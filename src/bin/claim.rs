@@ -1,5 +1,9 @@
 //! `claim` CLI entrypoint.
 //!
+//! This binary uses the v2 substrate directly; all v2 types are deprecated
+//! as of 3.0.0-pre.1. The allow below is intentional for the transition period.
+#![allow(deprecated)]
+//!
 //! Maps every subcommand to the `nomograph_claim` public API. Stays thin
 //! on purpose — no file IO or business logic lives here; this binary is
 //! the JSON-over-stdout boundary documented in `CLAUDE.md` §"CLI Shape".

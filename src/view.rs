@@ -1,5 +1,9 @@
 //! SQLite projection of the claim log.
 //!
+//! Deprecated: v3 uses `graph_view::GraphView` backed by Oxigraph.
+
+#![allow(deprecated)]
+//!
 //! The [`View`] reads the current Automerge document through [`Store`]
 //! and materializes it into `claims/view.sqlite` for fast relational
 //! queries. The projection is derived state: it may be rebuilt from
@@ -41,6 +45,10 @@ const VIEW_HEADS_FILE: &str = "view.heads";
 /// to reconcile the projection with the current heads before issuing
 /// queries. The view database file sits at `claims/view.sqlite` and is
 /// gitignored (D3).
+#[deprecated(
+    since = "3.0.0-pre.1",
+    note = "v3 uses `graph_view::GraphView` backed by Oxigraph."
+)]
 pub struct View {
     /// Absolute path to `claims/view.sqlite`.
     db_path: PathBuf,
