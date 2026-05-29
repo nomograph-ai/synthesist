@@ -259,24 +259,26 @@ fn v3_happy_path_dual_write() {
     // v3 dual-write verification
     //
     // Only commands that call SynthStore::append WITH a session-scoped
-    // asserter (via discover_for) produce v3 log lines.
-    // `phase set` uses SynthStore::discover() (no session) so Phase
-    // claims do NOT dual-write. `session start` / `session close` go
-    // through nomograph_workflow::Session and do not route through
-    // SynthStore::append. `task ready` and `status` are read-only.
+    // asserter (via discover_for) produce v3 log lines. `session start`
+    // / `session close` go through nomograph_workflow::Session and do
+    // not route through SynthStore::append. `task ready` and `status`
+    // are read-only.
     //
     // Session-scoped dual-write claims:
-    //   tree add         -> 1 Tree claim
-    //   spec add         -> 1 Spec claim
-    //   task add t1      -> 1 Task claim
-    //   task add t2      -> 1 Task claim
-    //   task claim t1    -> 1 Task claim (supersession)
-    //   task done t1     -> 1 Task claim (supersession)
-    //   discovery add    -> 1 Discovery claim
+    //   phase set plan    -> 1 Phase claim
+    //   tree add          -> 1 Tree claim
+    //   spec add          -> 1 Spec claim
+    //   task add t1       -> 1 Task claim
+    //   task add t2       -> 1 Task claim
+    //   phase set agree   -> 1 Phase claim (supersession)
+    //   phase set execute -> 1 Phase claim (supersession)
+    //   task claim t1     -> 1 Task claim (supersession)
+    //   task done t1      -> 1 Task claim (supersession)
+    //   discovery add     -> 1 Discovery claim
     //
-    // Total: 7 v3 claims.
+    // Total: 10 v3 claims.
     // ------------------------------------------------------------------
-    const EXPECTED_V3_CLAIMS: usize = 7;
+    const EXPECTED_V3_CLAIMS: usize = 10;
 
     // a) v2 .amc files exist.
     assert_v2_amc_exists(&tmp);
@@ -372,9 +374,8 @@ fn v3_log_line_contains_correct_type_for_tree() {
         .assert()
         .success();
 
-    // `phase set plan` uses SynthStore::discover() (no session-scoped asserter)
-    // so it does NOT dual-write. Only `tree add` (via discover_for) produces
-    // a v3 log line.
+    // Both `phase set plan` and `tree add` route through discover_for and
+    // dual-write, so two v3 log lines are expected.
     let log_path = tmp
         .path()
         .join("claims")
@@ -384,11 +385,21 @@ fn v3_log_line_contains_correct_type_for_tree() {
         .expect("v3 log must exist after tree add");
     let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
     assert_eq!(
-        lines.len(), 1,
-        "expected 1 v3 log line (tree only; phase set uses sessionless discover path)"
+        lines.len(), 2,
+        "expected 2 v3 log lines (phase set plan + tree add)"
     );
 
-    let doc: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
+    let tree_line = lines
+        .iter()
+        .find(|l| {
+            serde_json::from_str::<serde_json::Value>(l)
+                .ok()
+                .and_then(|doc| doc["@type"].as_str().map(str::to_string))
+                .as_deref()
+                == Some("synthesist:Tree")
+        })
+        .expect("a synthesist:Tree claim must be present in the v3 log");
+    let doc: serde_json::Value = serde_json::from_str(tree_line).unwrap();
     assert_eq!(doc["@type"].as_str().unwrap(), "synthesist:Tree");
     assert_eq!(
         doc["synthesist:name"].as_str().unwrap(),

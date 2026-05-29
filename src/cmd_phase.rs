@@ -25,10 +25,9 @@ pub fn run(cmd: &PhaseCmd, session: &Option<String>, force: bool) -> Result<()> 
     // is set but does NOT write the env when `--session=<id>` comes in
     // as a flag. So we thread the parsed value through explicitly,
     // matching the pattern used everywhere else in the adapter.
-    let session_ref = session.as_deref();
     match cmd {
-        PhaseCmd::Set { name } => cmd_phase_set(name, session_ref, force),
-        PhaseCmd::Show => cmd_phase_show(session_ref),
+        PhaseCmd::Set { name } => cmd_phase_set(name, session, force),
+        PhaseCmd::Show => cmd_phase_show(session.as_deref()),
     }
 }
 
@@ -44,15 +43,19 @@ fn resolve_session(explicit: Option<&str>) -> Result<String> {
         ))
 }
 
-fn cmd_phase_set(name: &str, session: Option<&str>, force: bool) -> Result<()> {
+fn cmd_phase_set(name: &str, session: &Option<String>, force: bool) -> Result<()> {
     let target = Phase::from_str(name).ok_or_else(|| {
         anyhow!(
             "unknown phase: {name} (valid: orient, plan, agree, execute, reflect, replan, report)"
         )
     })?;
 
-    let session_id = resolve_session(session)?;
-    let mut store = SynthStore::discover()?;
+    let session_id = resolve_session(session.as_deref())?;
+    // discover_for mirrors the asserter from the workflow store onto the
+    // v3 dual-write path so Phase claims actually land in the v3 log.
+    // Plain `discover()` leaves asserted_by None and the dual-write is
+    // a no-op (T3.6 fix).
+    let mut store = SynthStore::discover_for(session)?;
 
     let prior = current_phase_claim(&store, &session_id)?;
     if let Some((_, current_str)) = prior.as_ref()
