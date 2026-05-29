@@ -96,6 +96,7 @@ assert_cmd = "2"
 predicates = "3"
 oxjsonld = "0.1"
 oxrdf = "0.2"
+oxttl = "0.1"
 
 [profile.release]
 opt-level = 3

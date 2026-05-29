@@ -1,0 +1,93 @@
+@prefix nomograph: <https://nomograph.org/v3/> .
+@prefix prov:      <http://www.w3.org/ns/prov#> .
+@prefix rdf:       <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs:      <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix owl:       <http://www.w3.org/2002/07/owl#> .
+@prefix xsd:       <http://www.w3.org/2001/XMLSchema#> .
+
+#
+# Nomograph base vocabulary (v3 substrate).
+#
+# This ontology covers ONLY the substrate-universal envelope: asserter
+# identity, asserter classes, supersession and parent-asserter
+# predicates. Module-specific vocabularies (synth:, future modules)
+# extend the base with their own classes and predicates.
+#
+# Source of truth for this file: nomograph-claim/ontology/base.ttl.
+# Embedded as a string constant in src/ontology.rs at build time.
+#
+
+<https://nomograph.org/v3/>
+    a owl:Ontology ;
+    rdfs:label "Nomograph base substrate vocabulary"@en ;
+    rdfs:comment "Universal claim envelope and asserter taxonomy for the v3 substrate. Module-specific vocabularies extend this base."@en ;
+    owl:versionIRI <https://nomograph.org/v3/2026-05-29> ;
+    owl:versionInfo "0.1.0-alpha" .
+
+#
+# Classes
+#
+
+nomograph:Asserter a owl:Class ;
+    rdfs:label "Asserter"@en ;
+    rdfs:comment "An entity that asserts claims to the substrate. Identified by a string of the form <class>:<scope>:<id>[:<session>] and an IRI of the form asserter:<string>."@en .
+
+nomograph:AsserterClass a owl:Class ;
+    rdfs:label "Asserter class"@en ;
+    rdfs:comment "The category of an asserter: User, Agent, or Ingest."@en .
+
+nomograph:User a owl:Class ;
+    rdfs:subClassOf nomograph:AsserterClass ;
+    rdfs:label "User asserter"@en ;
+    rdfs:comment "A human asserter. May carry a session suffix to scope claims to a named workflow."@en .
+
+nomograph:Agent a owl:Class ;
+    rdfs:subClassOf nomograph:AsserterClass ;
+    rdfs:label "Agent asserter"@en ;
+    rdfs:comment "An automated asserter, typically an LLM session. May carry a session suffix and a parent asserter."@en .
+
+nomograph:Ingest a owl:Class ;
+    rdfs:subClassOf nomograph:AsserterClass ;
+    rdfs:label "Ingest asserter"@en ;
+    rdfs:comment "A data-ingestion process asserter, e.g., a forge adapter pulling MRs or issues. Does not carry a session suffix."@en .
+
+#
+# Predicates universal to every claim.
+# Re-stated here for documentation; canonical IRIs live in PROV-O.
+#
+
+prov:generatedAtTime a owl:DatatypeProperty ;
+    rdfs:label "generated at time"@en ;
+    rdfs:comment "Wall-clock UTC time at which the claim was asserted. RFC 3339 / xsd:dateTime with millisecond precision."@en ;
+    rdfs:range xsd:dateTime .
+
+prov:wasAttributedTo a owl:ObjectProperty ;
+    rdfs:label "was attributed to"@en ;
+    rdfs:comment "The asserter that wrote the claim. IRI form asserter:<class>:<scope>:<id>[:<session>]."@en ;
+    rdfs:range nomograph:Asserter .
+
+prov:wasRevisionOf a owl:ObjectProperty ;
+    rdfs:label "was revision of"@en ;
+    rdfs:comment "Universal supersession edge. The claim that this one supersedes. Modules MAY define their own supersession predicate (e.g., synth:supersedes) and the substrate treats either as a supersession edge."@en .
+
+#
+# Optional envelope predicate.
+#
+
+nomograph:parentAsserter a owl:ObjectProperty ;
+    rdfs:label "parent asserter"@en ;
+    rdfs:comment "Names the asserter that spawned this asserter, for agent hierarchy audit. Canonical example: an LLM agent session whose parent is the user that spawned it."@en ;
+    rdfs:domain nomograph:Asserter ;
+    rdfs:range nomograph:Asserter .
+
+#
+# Asserted-at convenience predicate (the substrate's own name for the
+# prov:generatedAtTime quantity). Kept as a documentation alias; tools
+# emit prov:generatedAtTime, not nomograph:assertedAt.
+#
+
+nomograph:assertedAt a owl:DatatypeProperty ;
+    rdfs:label "asserted at"@en ;
+    rdfs:comment "Legacy name for prov:generatedAtTime. Tools SHOULD emit prov:generatedAtTime; this predicate exists for documentation of the v2 to v3 migration."@en ;
+    owl:equivalentProperty prov:generatedAtTime ;
+    rdfs:range xsd:dateTime .
