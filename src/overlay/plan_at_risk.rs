@@ -13,10 +13,18 @@
 //! subject   = spec IRI  (the at-risk spec)
 //! predicate = "synth:planAtRisk"
 //! object    = new_claim IRI  (the claim that superseded a snapshot member)
-//! detail    = {"old_claim": ..., "stakeholder": ..., "new_at": ...}
+//! detail    = {"old_claim": ..., "stakeholder": ..., "new_at": ..., "spec_id": ...}
 //! ```
 //!
 //! Specs lacking `agreeSnapshot` or `generatedAtTime` are silently skipped.
+//!
+//! ## T8.2 shortcut: spec_id in detail
+//!
+//! The SPARQL query also SELECTs the spec's `synth:id` literal (via OPTIONAL)
+//! and surfaces it as `detail.spec_id`. This allows `cmd_task ready` to match
+//! overlay hits against task records by raw spec id without a second lookup.
+//! The OPTIONAL clause means specs without a `synth:id` triple still produce
+//! hits; `detail.spec_id` will be an empty string in that case.
 
 use anyhow::Result;
 use nomograph_claim::graph_view::{GraphView, Term, select};
@@ -36,11 +44,12 @@ const QUERY: &str = r#"
     PREFIX synth: <https://nomograph.org/synth/>
     PREFIX prov:  <http://www.w3.org/ns/prov#>
 
-    SELECT ?spec ?old_claim ?new_claim ?stakeholder ?new_at
+    SELECT ?spec ?spec_id ?old_claim ?new_claim ?stakeholder ?new_at
     WHERE {
       GRAPH ?g {
         ?spec a synth:Spec ; synth:agreeSnapshot ?old_claim .
         ?spec prov:generatedAtTime ?spec_agreed_at .
+        OPTIONAL { ?spec synth:id ?spec_id . }
 
         ?new_claim synth:supersedes ?old_claim ;
                    prov:wasAttributedTo ?stakeholder ;
@@ -62,14 +71,15 @@ impl Overlay for PlanAtRiskOverlay {
     fn run(&self, view: &GraphView) -> Result<Vec<OverlayResult>> {
         let results = select(view, QUERY)?;
 
-        // Column order: spec, old_claim, new_claim, stakeholder, new_at
+        // Column order: spec, spec_id, old_claim, new_claim, stakeholder, new_at
         let col_spec = results.columns.iter().position(|c| c == "spec");
+        let col_spec_id = results.columns.iter().position(|c| c == "spec_id");
         let col_old = results.columns.iter().position(|c| c == "old_claim");
         let col_new = results.columns.iter().position(|c| c == "new_claim");
         let col_stake = results.columns.iter().position(|c| c == "stakeholder");
         let col_at = results.columns.iter().position(|c| c == "new_at");
 
-        // If any expected column is absent the query returned no hits
+        // If any required column is absent the query returned no hits
         // (empty result set with no column headers). Return empty.
         let (col_spec, col_old, col_new, col_stake, col_at) =
             match (col_spec, col_old, col_new, col_stake, col_at) {
@@ -81,6 +91,10 @@ impl Overlay for PlanAtRiskOverlay {
 
         for row in &results.rows {
             let spec = term_str(row.get(col_spec));
+            let spec_id = col_spec_id
+                .and_then(|i| row.get(i))
+                .map(|t| term_str(Some(t)))
+                .unwrap_or_default();
             let old_claim = term_str(row.get(col_old));
             let new_claim = term_str(row.get(col_new));
             let stakeholder = term_str(row.get(col_stake));
@@ -99,6 +113,7 @@ impl Overlay for PlanAtRiskOverlay {
                     "old_claim": old_claim,
                     "stakeholder": stakeholder,
                     "new_at": new_at,
+                    "spec_id": spec_id,
                 }),
             ));
         }
@@ -228,6 +243,68 @@ mod tests {
             old.ends_with("claim-b"),
             "detail.old_claim should end with claim-b, got: {}",
             old
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // T8.2: spec_id surfaces in detail when synth:id is present.
+    // ------------------------------------------------------------------
+    #[test]
+    fn spec_id_surfaces_in_detail_when_present() {
+        let tmp = TempDir::new().unwrap();
+        let writer = LogWriter::new(tmp.path()).unwrap();
+
+        let mut ctx_with_id = ctx();
+        ctx_with_id["synth:id"] = json!({});
+
+        // One snapshot claim.
+        let claim_doc = json!({
+            "@context": ctx_with_id,
+            "@id": "synth:claim-for-id-test",
+            "@type": "synth:Task",
+            "prov:generatedAtTime": "2026-05-01T00:00:00.000Z",
+            "prov:wasAttributedTo": "asserter:user:local:agd",
+            "synth:summary": "Claim for id test",
+        });
+        writer.append("user:local:agd", &claim_doc).unwrap();
+
+        // Spec with synth:id "my-spec".
+        let spec_doc = json!({
+            "@context": ctx_with_id,
+            "@id": "synth:spec-with-id",
+            "@type": "synth:Spec",
+            "synth:id": "my-spec",
+            "prov:generatedAtTime": "2026-05-05T12:00:00.000Z",
+            "prov:wasAttributedTo": "asserter:user:local:agd",
+            "synth:summary": "Spec with id",
+            "synth:agreeSnapshot": ["synth:claim-for-id-test"],
+        });
+        writer.append("user:local:agd", &spec_doc).unwrap();
+
+        // Superseder after AGREE.
+        let superseder = json!({
+            "@context": ctx_with_id,
+            "@id": "synth:claim-for-id-test-v2",
+            "@type": "synth:Task",
+            "prov:generatedAtTime": "2026-05-10T09:00:00.000Z",
+            "prov:wasAttributedTo": "asserter:user:local:agd",
+            "synth:summary": "Revised",
+            "synth:supersedes": "synth:claim-for-id-test",
+        });
+        writer.append("user:local:agd", &superseder).unwrap();
+
+        let view = GraphView::open_in_memory().unwrap();
+        rebuild(&view, tmp.path()).unwrap();
+
+        let overlay = PlanAtRiskOverlay;
+        let hits = overlay.run(&view).unwrap();
+
+        assert_eq!(hits.len(), 1, "expected 1 hit, got {:?}", hits);
+        let spec_id = hits[0].detail.get("spec_id").and_then(|v| v.as_str()).unwrap_or("");
+        assert_eq!(
+            spec_id, "my-spec",
+            "detail.spec_id should be 'my-spec', got: {}",
+            spec_id
         );
     }
 

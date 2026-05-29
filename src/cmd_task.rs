@@ -449,7 +449,7 @@ fn cmd_task_status_transition(
 fn cmd_task_ready(tree: &str, spec: &str) -> Result<()> {
     let store = SynthStore::discover()?;
     let tasks = list_current_tasks(&store, tree, spec)?;
-    // Build id → status map
+    // Build id -> status map
     let status_by_id: std::collections::HashMap<String, String> = tasks
         .iter()
         .filter_map(|t| {
@@ -458,7 +458,7 @@ fn cmd_task_ready(tree: &str, spec: &str) -> Result<()> {
             Some((id, s))
         })
         .collect();
-    let ready: Vec<Value> = tasks
+    let mut ready: Vec<Value> = tasks
         .iter()
         .filter(|t| {
             let s = t.get("status").and_then(|v| v.as_str()).unwrap_or("");
@@ -476,7 +476,97 @@ fn cmd_task_ready(tree: &str, spec: &str) -> Result<()> {
         })
         .cloned()
         .collect();
+
+    // Annotate each ready task with plan_at_risk: true when its parent spec
+    // is flagged by the plan-at-risk overlay. The overlay invocation is
+    // non-fatal: if the view is unavailable or the overlay errors, we skip
+    // annotation silently and return the task list as-is.
+    if let Some(at_risk_set) = build_at_risk_set() {
+        for task in &mut ready {
+            let task_spec = task.get("spec").and_then(|v| v.as_str()).unwrap_or("");
+            if at_risk_set.contains(task_spec) {
+                task["plan_at_risk"] = json!(true);
+            }
+        }
+    }
+
     json_out(&json!({ "ready": ready }))
+}
+
+/// Build a set of raw spec ids (e.g. "deploy", "cms") that are currently
+/// plan-at-risk, by running the plan-at-risk overlay against the graph view.
+///
+/// Returns `None` if the view cannot be opened or the overlay fails.
+/// The caller treats `None` as "no annotation available" and omits the flag.
+fn build_at_risk_set() -> Option<std::collections::HashSet<String>> {
+    // Try to open the graph view the same way cmd_query does: on-disk first,
+    // fall back to an in-memory rebuild from the claims log union.
+    let view = open_graph_view_best_effort()?;
+
+    // Look up the plan-at-risk overlay via the registry so we don't need
+    // to import the private submodule directly.
+    let overlay = crate::overlay::find("plan-at-risk")?;
+    let hits = overlay.run(&view).ok()?;
+    Some(at_risk_set_from_hits(&hits))
+}
+
+/// Extract raw spec ids from a slice of overlay results.
+///
+/// Each `OverlayResult.detail` is expected to carry a `"spec_id"` string
+/// field (the `synth:id` literal of the at-risk spec). Results whose
+/// `spec_id` is absent or empty are silently ignored.
+///
+/// Extracted as a pure helper so it can be unit tested independently of
+/// the graph view and overlay infrastructure.
+fn at_risk_set_from_hits(hits: &[crate::overlay::OverlayResult]) -> std::collections::HashSet<String> {
+    let mut at_risk = std::collections::HashSet::new();
+    for hit in hits {
+        let raw_id = hit
+            .detail
+            .get("spec_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        if !raw_id.is_empty() {
+            at_risk.insert(raw_id);
+        }
+    }
+    at_risk
+}
+
+/// Open the graph view using the same on-disk-then-in-memory fallback that
+/// `cmd_query` uses. Returns `None` on any error so callers can degrade
+/// gracefully.
+fn open_graph_view_best_effort() -> Option<nomograph_claim::graph_view::GraphView> {
+    use nomograph_claim::graph_view::{GraphView, rebuild};
+
+    // Locate the claims directory by walking up from cwd.
+    let start = std::env::current_dir().ok()?;
+    let claims_dir = {
+        let mut cur = start.as_path();
+        loop {
+            let candidate = cur.join("claims");
+            if candidate.is_dir() {
+                break Some(candidate);
+            }
+            match cur.parent() {
+                Some(p) => cur = p,
+                None => break None,
+            }
+        }
+    }?;
+
+    let view_dir = claims_dir.join("_view.oxigraph");
+
+    // Prefer on-disk view; fall back to in-memory rebuild.
+    match GraphView::open(&view_dir) {
+        Ok(v) => Some(v),
+        Err(_) => {
+            let v = GraphView::open_in_memory().ok()?;
+            rebuild(&v, &claims_dir).ok()?;
+            Some(v)
+        }
+    }
 }
 
 fn cmd_task_acceptance(
@@ -499,4 +589,109 @@ fn cmd_task_acceptance(
     props["acceptance"] = Value::Array(acceptance);
     store.append(ClaimType::Task, props.clone(), Some(prior_id))?;
     json_out(&props)
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::overlay::OverlayResult;
+    use serde_json::json;
+
+    // ------------------------------------------------------------------
+    // T8.2 Acceptance criterion 1:
+    //   at_risk_set_from_hits returns the spec id when detail.spec_id is set.
+    // ------------------------------------------------------------------
+    #[test]
+    fn at_risk_set_includes_spec_id_from_hit_detail() {
+        let hit = OverlayResult::with_detail(
+            "https://nomograph.org/synth/claim/abc123",
+            "synth:planAtRisk",
+            "https://nomograph.org/synth/claim/xyz",
+            json!({
+                "old_claim": "https://nomograph.org/synth/claim/old",
+                "stakeholder": "asserter:user:local:agd",
+                "new_at": "2026-05-10T09:00:00.000Z",
+                "spec_id": "deploy",
+            }),
+        );
+
+        let set = at_risk_set_from_hits(&[hit]);
+        assert!(
+            set.contains("deploy"),
+            "expected 'deploy' in at-risk set, got: {:?}",
+            set
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // T8.2 Acceptance criterion 2:
+    //   at_risk_set_from_hits omits entries where spec_id is absent
+    //   or empty (non-risk specs produce no entry in the set).
+    // ------------------------------------------------------------------
+    #[test]
+    fn at_risk_set_omits_entry_when_spec_id_absent() {
+        // A hit with no spec_id in detail (absent field).
+        let hit_no_id = OverlayResult::with_detail(
+            "https://nomograph.org/synth/claim/abc",
+            "synth:planAtRisk",
+            "https://nomograph.org/synth/claim/new",
+            json!({
+                "old_claim": "https://nomograph.org/synth/claim/old",
+                "new_at": "2026-05-10T09:00:00.000Z",
+            }),
+        );
+
+        // A hit with an empty spec_id.
+        let hit_empty_id = OverlayResult::with_detail(
+            "https://nomograph.org/synth/claim/def",
+            "synth:planAtRisk",
+            "https://nomograph.org/synth/claim/new2",
+            json!({
+                "old_claim": "https://nomograph.org/synth/claim/old2",
+                "new_at": "2026-05-11T09:00:00.000Z",
+                "spec_id": "",
+            }),
+        );
+
+        let set = at_risk_set_from_hits(&[hit_no_id, hit_empty_id]);
+        assert!(
+            set.is_empty(),
+            "expected empty at-risk set for hits without spec_id, got: {:?}",
+            set
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // Multiple hits for the same spec id deduplicate correctly.
+    // ------------------------------------------------------------------
+    #[test]
+    fn at_risk_set_deduplicates_same_spec_id() {
+        let make_hit = |spec_id: &str| {
+            OverlayResult::with_detail(
+                "https://nomograph.org/synth/claim/some-spec",
+                "synth:planAtRisk",
+                "https://nomograph.org/synth/claim/new",
+                json!({ "spec_id": spec_id }),
+            )
+        };
+        // Two hits for "cms", one for "deploy".
+        let hits = vec![make_hit("cms"), make_hit("cms"), make_hit("deploy")];
+        let set = at_risk_set_from_hits(&hits);
+        assert_eq!(set.len(), 2, "expected 2 unique ids, got: {:?}", set);
+        assert!(set.contains("cms"));
+        assert!(set.contains("deploy"));
+    }
+
+    // ------------------------------------------------------------------
+    // Empty hit slice returns empty set.
+    // ------------------------------------------------------------------
+    #[test]
+    fn at_risk_set_from_empty_hits_is_empty() {
+        let set = at_risk_set_from_hits(&[]);
+        assert!(set.is_empty());
+    }
 }
