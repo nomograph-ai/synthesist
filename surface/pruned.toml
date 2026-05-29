@@ -1,0 +1,28 @@
+[manifest]
+name        = "pruned"
+description = "v2.5 baseline minus rarely-used commands; leaner surface for operators who do not need advanced database or migration tooling"
+
+[commands]
+include = [
+    "status",
+    "tree add", "tree list", "tree show", "tree close",
+    "spec add", "spec show", "spec update", "spec list",
+    "task add", "task list", "task show", "task update",
+    "task claim", "task done", "task reset",
+    "task cancel", "task ready", "task acceptance",
+    "discovery add", "discovery list",
+    "campaign add", "campaign list",
+    "session start", "session close", "session list", "session status",
+    "phase set",
+    "conflicts", "migrate status", "migrate v1-to-v2",
+    "init", "check", "version", "skill", "serve",
+    "claims compact",
+    "outcome add", "outcome list",
+]
+exclude = [
+    "task block", "task wait",
+    "phase show",
+    "import", "export", "sql",
+    "conflicts",
+]
+add = []
