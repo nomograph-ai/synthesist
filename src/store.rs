@@ -241,7 +241,9 @@ fn camel_case(s: &str) -> String {
     out
 }
 
-/// Inline @context for synthesist v3 JSON-LD docs.
+/// Inline @context for synthesist v3 JSON-LD docs. Shared between the
+/// dual-write path and `migrations::v2_to_v3` so freshly migrated and
+/// freshly dual-written v3 docs are byte-shape compatible.
 ///
 /// Declares the `synthesist`, `nomograph`, `prov`, `xsd` prefixes plus
 /// IRI-reference typing for substrate-level reference predicates
@@ -250,7 +252,7 @@ fn camel_case(s: &str) -> String {
 /// would not match the produced IRIs, because oxjsonld would treat
 /// `synthesist:Spec` as the URI `<synthesist:Spec>` rather than as the
 /// expanded `<https://nomograph.org/synthesist/Spec>`.
-fn synthesist_jsonld_context() -> serde_json::Value {
+pub(crate) fn synthesist_jsonld_context() -> serde_json::Value {
     use serde_json::json;
     json!({
         "nomograph":  "https://nomograph.org/v3/",
@@ -274,7 +276,7 @@ fn synthesist_jsonld_context() -> serde_json::Value {
 ///
 /// Examples: `id` -> `id`, `agree_snapshot` -> `agreeSnapshot`,
 /// `depends_on` -> `dependsOn`.
-fn lower_camel_case(s: &str) -> String {
+pub(crate) fn lower_camel_case(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut capitalize_next = false;
     for c in s.chars() {

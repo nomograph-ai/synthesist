@@ -151,10 +151,10 @@ fn v2_claim_to_v3(claim: &Claim, module: &'static str) -> Value {
     let id_short = &claim.id[..claim.id.len().min(16)];
 
     let mut doc = Map::new();
-    doc.insert(
-        "@context".into(),
-        Value::String(jsonld::BASE_CONTEXT_URI.to_string()),
-    );
+    // Match the dual-write @context shape so a store containing both
+    // freshly migrated and freshly dual-written claims yields a
+    // single, queryable graph. See store::synthesist_jsonld_context.
+    doc.insert("@context".into(), crate::store::synthesist_jsonld_context());
     doc.insert(
         "@id".into(),
         Value::String(format!("{}:claim/{}", module, id_short)),
@@ -186,10 +186,15 @@ fn v2_claim_to_v3(claim: &Claim, module: &'static str) -> Value {
         );
     }
 
-    // Expand props as <module>:<key> predicates.
+    // Expand props as <module>:<lowerCamel(key)> predicates so the
+    // migration's output aligns with the dual-write's predicate
+    // names (synthesist:agreeSnapshot, not synthesist:agree_snapshot).
     if let Some(props_map) = claim.props.as_object() {
         for (k, v) in props_map {
-            doc.insert(format!("{}:{}", module, k), v.clone());
+            doc.insert(
+                format!("{}:{}", module, crate::store::lower_camel_case(k)),
+                v.clone(),
+            );
         }
     }
 
