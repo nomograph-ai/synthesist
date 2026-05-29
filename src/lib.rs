@@ -28,6 +28,7 @@ pub mod view;
 // until synthesist and any other consumer migrate to v3.
 pub mod asserter;
 pub mod graph_view;
+pub mod heads;
 pub mod jsonld;
 pub mod log;
 pub mod ontology;
