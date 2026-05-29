@@ -1,5 +1,9 @@
 //! End-to-end encryption helpers (D4).
 //!
+//! Deprecated: scheduled for removal in 3.x; v3 substrate does not encrypt claims at rest.
+
+#![allow(deprecated)]
+//!
 //! Key derivation: Argon2id over a per-project passphrase, with a
 //! deterministic salt derived from `blake3(project_slug)[..16]`. The
 //! derivation is deterministic on purpose — the same passphrase and
@@ -35,9 +39,17 @@ use crate::error::{Error, Result};
 ///
 /// Wrapped in [`zeroize::Zeroizing`] so the key bytes never linger in
 /// memory after the `Key` goes out of scope.
+#[deprecated(
+    since = "3.0.0-pre.1",
+    note = "scheduled for removal in 3.x; v3 substrate does not encrypt claims at rest."
+)]
 pub type Key = Zeroizing<[u8; 32]>;
 
 /// 12-byte AEAD nonce for ChaCha20-Poly1305 (RFC 8439).
+#[deprecated(
+    since = "3.0.0-pre.1",
+    note = "scheduled for removal in 3.x; v3 substrate does not encrypt claims at rest."
+)]
 pub type Nonce = [u8; 12];
 
 const KEY_LEN: usize = 32;
@@ -85,6 +97,10 @@ const SALT_LEN: usize = 16;
 /// let k2 = derive_key(phrase, "nomograph/multiuse").unwrap();
 /// assert_eq!(&*k1, &*k2, "derivation is deterministic per (passphrase, project)");
 /// ```
+#[deprecated(
+    since = "3.0.0-pre.1",
+    note = "scheduled for removal in 3.x; v3 substrate does not encrypt claims at rest."
+)]
 pub fn derive_key(passphrase: &[u8], project_slug: &str) -> Result<Key> {
     if passphrase.is_empty() {
         return Err(Error::Crypto(
@@ -130,6 +146,10 @@ pub fn derive_key(passphrase: &[u8], project_slug: &str) -> Result<Key> {
 /// let pt = decrypt(&key, &nonce, &ct, b"aad").unwrap();
 /// assert_eq!(pt, b"hello");
 /// ```
+#[deprecated(
+    since = "3.0.0-pre.1",
+    note = "scheduled for removal in 3.x; v3 substrate does not encrypt claims at rest."
+)]
 pub fn encrypt(key: &Key, plaintext: &[u8], aad: &[u8]) -> Result<(Nonce, Vec<u8>)> {
     let cipher = ChaCha20Poly1305::new(ChaChaKey::from_slice(key.as_slice()));
 
@@ -165,6 +185,10 @@ pub fn encrypt(key: &Key, plaintext: &[u8], aad: &[u8]) -> Result<(Nonce, Vec<u8
 /// # Example
 ///
 /// Round-trip is shown in [`encrypt`].
+#[deprecated(
+    since = "3.0.0-pre.1",
+    note = "scheduled for removal in 3.x; v3 substrate does not encrypt claims at rest."
+)]
 pub fn decrypt(key: &Key, nonce: &Nonce, ciphertext: &[u8], aad: &[u8]) -> Result<Vec<u8>> {
     if ciphertext.len() < 16 {
         return Err(Error::Crypto(
@@ -200,6 +224,10 @@ pub fn decrypt(key: &Key, nonce: &Nonce, ciphertext: &[u8], aad: &[u8]) -> Resul
 /// Returns [`Error::Other`] if no config directory can be resolved (a
 /// no-`HOME` sandbox, for example). In that case pass an explicit path
 /// via a higher-level API rather than calling this.
+#[deprecated(
+    since = "3.0.0-pre.1",
+    note = "scheduled for removal in 3.x; v3 substrate does not encrypt claims at rest."
+)]
 pub fn key_path(project_slug: &str) -> Result<PathBuf> {
     if project_slug.is_empty() {
         return Err(Error::Other(
@@ -219,6 +247,10 @@ pub fn key_path(project_slug: &str) -> Result<PathBuf> {
 ///   [`save_key`] after [`derive_key`] to create it.
 /// - [`Error::Corrupt`] if the file length is not exactly 32 bytes.
 /// - [`Error::Io`] on other filesystem errors.
+#[deprecated(
+    since = "3.0.0-pre.1",
+    note = "scheduled for removal in 3.x; v3 substrate does not encrypt claims at rest."
+)]
 pub fn load_key(project_slug: &str) -> Result<Key> {
     let path = key_path(project_slug)?;
     if !path.exists() {
@@ -246,6 +278,10 @@ pub fn load_key(project_slug: &str) -> Result<Key> {
 /// Returns [`Error::Io`] if the directory cannot be created or the
 /// file cannot be written. On unix, returns [`Error::Io`] if the
 /// `0600` chmod fails.
+#[deprecated(
+    since = "3.0.0-pre.1",
+    note = "scheduled for removal in 3.x; v3 substrate does not encrypt claims at rest."
+)]
 pub fn save_key(project_slug: &str, key: &Key) -> Result<PathBuf> {
     let path = key_path(project_slug)?;
     if let Some(parent) = path.parent() {

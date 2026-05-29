@@ -1,5 +1,9 @@
 //! Claim schema (v0) per Decision D8.
 //!
+//! Deprecated: v3 substrate uses JSON-LD documents; see `log`, `jsonld`, and `asserter` modules.
+
+#![allow(deprecated)]
+//!
 //! 16 claim types across three families:
 //!   - workflow: Tree, Spec, Task, Discovery, Campaign, Session, Phase
 //!   - coordination: Intent, Heartbeat, Outcome, Directive
@@ -17,9 +21,22 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+#[deprecated(
+    since = "3.0.0-pre.1",
+    note = "v3 uses URN-form identifiers; see `log::ClaimRef` or equivalent."
+)]
 pub type ClaimId = String;
+
+#[deprecated(
+    since = "3.0.0-pre.1",
+    note = "v3 asserter handling lives in the `asserter` module."
+)]
 pub type AsserterId = String;
 
+#[deprecated(
+    since = "3.0.0-pre.1",
+    note = "v3 uses JSON-LD @type IRIs. See `jsonld` module constants."
+)]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ClaimType {
@@ -71,6 +88,10 @@ impl ClaimType {
     }
 }
 
+#[deprecated(
+    since = "3.0.0-pre.1",
+    note = "v3 substrate uses JSON-LD documents written through `log::LogWriter`; read via `log::LogReader`. See nomograph-claim README v3 section."
+)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Claim {
     pub id: ClaimId,

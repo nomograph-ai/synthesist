@@ -1,4 +1,9 @@
-//! Beacon client — thin WebSocket adapter over the v0 beacon protocol.
+//! Beacon client -- thin WebSocket adapter over the v0 beacon protocol.
+//!
+//! Deprecated: scheduled for removal in 3.x; v3 multi-user is via git or any
+//! filesystem-mirroring transport.
+
+#![allow(deprecated)]
 //!
 //! Behind the `beacon` feature flag. Brings in `tokio` +
 //! `tokio-tungstenite`; when the feature is off the rest of
@@ -47,6 +52,10 @@ use crate::error::{Error, Result};
 /// AAD attached to every change envelope. Must match the beacon's
 /// `ChangeAad` shape bit-for-bit; beacon validates `project` against the
 /// DO's scope and rejects mismatches.
+#[deprecated(
+    since = "3.0.0-pre.1",
+    note = "scheduled for removal in 3.x; v3 multi-user is via git or any filesystem-mirroring transport."
+)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChangeAad {
     pub project: String,
@@ -74,6 +83,10 @@ impl ChangeAad {
 }
 
 /// Server -> client greeting sent immediately after the WS upgrade.
+#[deprecated(
+    since = "3.0.0-pre.1",
+    note = "scheduled for removal in 3.x; v3 multi-user is via git or any filesystem-mirroring transport."
+)]
 #[derive(Debug, Clone, Deserialize)]
 pub struct Hello {
     pub project: String,
@@ -131,6 +144,10 @@ enum FrameIn {
 /// close the underlying WS with [`BeaconClient::close`]. The struct
 /// cannot be cloned because it owns the WS; multiplex via mpsc if
 /// multiple tasks need to send.
+#[deprecated(
+    since = "3.0.0-pre.1",
+    note = "scheduled for removal in 3.x; v3 multi-user is via git or any filesystem-mirroring transport."
+)]
 pub struct BeaconClient {
     ws: WebSocketStream<MaybeTlsStream<TcpStream>>,
     project: String,

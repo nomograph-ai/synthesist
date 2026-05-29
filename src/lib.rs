@@ -37,9 +37,14 @@ pub mod prov;
 #[cfg(feature = "beacon")]
 pub mod beacon_client;
 
+#[allow(deprecated)]
 pub use claim::{AsserterId, Claim, ClaimId, ClaimType};
 pub use error::{Error, Result};
+#[allow(deprecated)]
 pub use session::{Session, SessionHandle};
+#[allow(deprecated)]
 pub use store::Store;
+#[allow(deprecated)]
 pub use validation::{SchemaError, SchemaResult};
+#[allow(deprecated)]
 pub use view::View;

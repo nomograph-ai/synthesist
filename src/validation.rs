@@ -1,5 +1,10 @@
 //! Validation primitives for consumer-defined claim schemas.
 //!
+//! Deprecated: v3 substrate validation is imperative in consumer crates;
+//! SHACL Turtle in synthesist's ontology/ is a documentation artifact.
+
+#![allow(deprecated)]
+//!
 //! The substrate is type-agnostic: it stores any well-formed claim
 //! regardless of `claim_type`. Validation is the responsibility of the
 //! consumer's API boundary (typically the workflow or CLI layer above
@@ -47,6 +52,10 @@ use serde_json::{Map, Value};
 /// (where applicable) the actual value or expected set, so callers can
 /// diagnose without re-reading the schema or running `strings` on a
 /// binary.
+#[deprecated(
+    since = "3.0.0-pre.1",
+    note = "v3 substrate validation is imperative in consumer crates; SHACL Turtle in synthesist's ontology/ is a documentation artifact."
+)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SchemaError {
     /// Top-level value is not a JSON object.
@@ -163,6 +172,10 @@ impl fmt::Display for SchemaError {
 impl std::error::Error for SchemaError {}
 
 /// Result alias for validation functions.
+#[deprecated(
+    since = "3.0.0-pre.1",
+    note = "v3 substrate validation is imperative in consumer crates; SHACL Turtle in synthesist's ontology/ is a documentation artifact."
+)]
 pub type SchemaResult<T> = Result<T, SchemaError>;
 
 /// Coerce `props` into a JSON object, or fail with `NotAnObject`.

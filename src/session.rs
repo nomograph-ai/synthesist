@@ -1,5 +1,9 @@
 //! Session claim semantics (D14).
 //!
+//! Deprecated: v3 sessions are claims on the log; no separate session substrate.
+
+#![allow(deprecated)]
+//!
 //! A session is a tagged span of writes. [`Session::start`] writes a
 //! `Session` claim whose id becomes the session handle's anchor; every
 //! subsequent write performed through [`SessionHandle::tag`] inherits the
@@ -23,6 +27,10 @@ use crate::store::Store;
 /// Returned by [`Session::start`]. The handle owns the session's logical
 /// id, its asserter base, and the claim id of the opening `Session`
 /// claim so [`Self::close`] can write a superseding claim.
+#[deprecated(
+    since = "3.0.0-pre.1",
+    note = "v3 sessions are claims on the log; no separate session substrate."
+)]
 #[derive(Debug)]
 pub struct SessionHandle {
     id: String,
@@ -81,6 +89,10 @@ impl SessionHandle {
 }
 
 /// Namespace for session lifecycle operations against a [`Store`].
+#[deprecated(
+    since = "3.0.0-pre.1",
+    note = "v3 sessions are claims on the log; no separate session substrate."
+)]
 pub struct Session;
 
 impl Session {
@@ -215,6 +227,10 @@ impl Session {
 }
 
 /// Decoded view of a live `Session` claim returned by [`Session::list_live`].
+#[deprecated(
+    since = "3.0.0-pre.1",
+    note = "v3 sessions are claims on the log; no separate session substrate."
+)]
 pub struct SessionClaim {
     /// Logical session id (from `props.id`).
     pub id: String,
