@@ -105,11 +105,47 @@ impl GraphView {
         Ok(())
     }
 
-    /// Quick triple count via SPARQL. Used by tests; production code
-    /// will go through a richer query API.
+    /// Return the named graphs currently present in the store.
+    ///
+    /// Result is a sorted, deduplicated list of named graph IRIs.
+    /// The default graph (if it has triples) is not included; callers
+    /// query it implicitly. Used to detect which modules have
+    /// contributed claims and to drive cross-graph overlay queries.
+    pub fn modules_in_view(&self) -> Result<Vec<String>> {
+        use oxigraph::sparql::QueryResults;
+        let q = "SELECT DISTINCT ?g WHERE { GRAPH ?g { ?s ?p ?o } } ORDER BY ?g";
+        let results = self
+            .store
+            .query(q)
+            .context("query named graphs")?;
+        let mut graphs = Vec::new();
+        if let QueryResults::Solutions(sols) = results {
+            for sol in sols {
+                let sol = sol?;
+                if let Some(term) = sol.get("g") {
+                    let s = term.to_string();
+                    // Strip leading < and trailing >.
+                    let cleaned = s
+                        .trim_start_matches('<')
+                        .trim_end_matches('>')
+                        .to_string();
+                    graphs.push(cleaned);
+                }
+            }
+        }
+        Ok(graphs)
+    }
+
+    /// Quick triple count via SPARQL across all graphs (default plus
+    /// named). Used by tests; production code will go through a richer
+    /// query API.
     pub fn triple_count(&self) -> Result<usize> {
         use oxigraph::sparql::QueryResults;
-        let q = "SELECT (COUNT(*) AS ?n) WHERE { ?s ?p ?o }";
+        let q = r#"
+            SELECT (COUNT(*) AS ?n) WHERE {
+              { ?s ?p ?o } UNION { GRAPH ?g { ?s ?p ?o } }
+            }
+        "#;
         let results = self.store.query(q).context("count query")?;
         if let QueryResults::Solutions(mut sols) = results {
             if let Some(sol) = sols.next() {
@@ -292,11 +328,54 @@ pub struct RebuildStats {
     pub parse_failures: usize,
 }
 
+/// Base IRI for per-module named graphs.
+///
+/// A claim with `@type: synth:Task` lands in the named graph
+/// `<https://nomograph.org/graphs/synth>`. The prefix segment is
+/// taken from the `@type` value's first compact-prefix component.
+const NAMED_GRAPH_BASE: &str = "https://nomograph.org/graphs/";
+
+/// Construct the named graph IRI for a module prefix.
+///
+/// Example: `module_graph_iri("synth")` returns
+/// `https://nomograph.org/graphs/synth`.
+pub fn module_graph_iri(module_prefix: &str) -> String {
+    format!("{}{}", NAMED_GRAPH_BASE, module_prefix)
+}
+
+/// Extract the module prefix from a claim's `@type` value.
+///
+/// For compact form like `synth:Task`, returns `Some("synth")`. For
+/// full IRI form, attempts to identify the module by URI pattern
+/// (matches `https://nomograph.org/<module>/`); returns the module
+/// segment if so, `None` otherwise.
+fn extract_module_prefix(type_value: &str) -> Option<String> {
+    if let Some(colon_idx) = type_value.find(':') {
+        let prefix = &type_value[..colon_idx];
+        // Filter out http(s) URIs by checking that the prefix does
+        // not look like a scheme.
+        if !type_value[colon_idx + 1..].starts_with("//") {
+            return Some(prefix.to_string());
+        }
+        // Full URI form: match against the nomograph namespace.
+        if let Some(rest) = type_value.strip_prefix("https://nomograph.org/") {
+            if let Some(slash) = rest.find('/') {
+                return Some(rest[..slash].to_string());
+            }
+        }
+    }
+    None
+}
+
 /// Rebuild the graph view from the claim log union under `claims_dir`.
 ///
 /// Walks every per-asserter log via [`LogReader::iter_claims`], parses
-/// each JSON-LD document, and inserts the resulting triples into the
-/// view. The view is cleared first so the resulting state matches the
+/// each JSON-LD document, detects its module prefix from `@type`, and
+/// inserts the resulting triples into the corresponding named graph
+/// (`https://nomograph.org/graphs/<prefix>`). Claims with no
+/// detectable module prefix land in the default graph.
+///
+/// The view is cleared first so the resulting state matches the
 /// log union exactly.
 ///
 /// Parse failures (malformed lines, JSON-LD decode errors) are
@@ -326,18 +405,38 @@ pub fn rebuild(view: &GraphView, claims_dir: &Path) -> Result<RebuildStats> {
             }
         };
 
+        // Detect module prefix from @type for named graph routing.
+        let module_prefix = claim
+            .raw
+            .get("@type")
+            .and_then(|v| v.as_str())
+            .and_then(extract_module_prefix);
+
         // Inject the inline @context so Oxigraph does not need to
         // resolve the URI form over the network.
         let doc_with_context = inject_inline_context(&claim.raw, &inline_context);
         let bytes = serde_json::to_vec(&doc_with_context)
             .context("re-serialize claim doc")?;
 
-        match view.store.load_from_reader(
-            RdfFormat::JsonLd {
-                profile: JsonLdProfileSet::empty(),
-            },
-            bytes.as_slice(),
-        ) {
+        let load_result = if let Some(prefix) = module_prefix {
+            let graph_iri = module_graph_iri(&prefix);
+            // Parse into a temporary graph by loading with a
+            // target-graph hint. Oxigraph's load_from_reader accepts
+            // a target graph via the higher-level API; we use
+            // bulk_loader for explicit named-graph placement.
+            load_into_named_graph(&view.store, &graph_iri, &bytes)
+        } else {
+            view.store
+                .load_from_reader(
+                    RdfFormat::JsonLd {
+                        profile: JsonLdProfileSet::empty(),
+                    },
+                    bytes.as_slice(),
+                )
+                .map_err(anyhow::Error::from)
+        };
+
+        match load_result {
             Ok(_) => claims_loaded += 1,
             Err(_) => parse_failures += 1,
         }
@@ -352,6 +451,45 @@ pub fn rebuild(view: &GraphView, claims_dir: &Path) -> Result<RebuildStats> {
         duration_ms,
         parse_failures,
     })
+}
+
+/// Load a JSON-LD doc's triples into a specific named graph.
+///
+/// Oxigraph's `load_from_reader` lands triples in the default graph.
+/// To route into a named graph, we first parse the doc into an
+/// in-memory transient store, then copy the triples into the target
+/// store under the named graph IRI.
+fn load_into_named_graph(
+    store: &oxigraph::store::Store,
+    graph_iri: &str,
+    bytes: &[u8],
+) -> Result<()> {
+    use oxigraph::model::{GraphName, NamedNode, Quad};
+
+    let scratch = oxigraph::store::Store::new()
+        .context("create scratch store for named-graph routing")?;
+    scratch
+        .load_from_reader(
+            RdfFormat::JsonLd {
+                profile: JsonLdProfileSet::empty(),
+            },
+            bytes,
+        )
+        .context("parse JSON-LD into scratch store")?;
+
+    let target_graph: GraphName = NamedNode::new(graph_iri)
+        .context("build named-graph IRI")?
+        .into();
+
+    for quad in scratch.iter() {
+        let q = quad.context("read scratch quad")?;
+        let routed = Quad::new(q.subject, q.predicate, q.object, target_graph.clone());
+        store
+            .insert(&routed)
+            .context("insert into named graph")?;
+    }
+
+    Ok(())
 }
 
 /// Replace a URI-form @context with the inline base context.
@@ -581,7 +719,7 @@ mod tests {
         let q = r#"
             PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
             SELECT ?type (COUNT(?c) AS ?n)
-            WHERE { ?c rdf:type ?type }
+            WHERE { GRAPH ?g { ?c rdf:type ?type } }
             GROUP BY ?type
         "#;
         let results = select(&view, q).unwrap();
@@ -628,7 +766,7 @@ mod tests {
         let q = r#"
             PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
             PREFIX synth: <https://nomograph.org/synth/>
-            ASK { ?c rdf:type synth:Task }
+            ASK { GRAPH ?g { ?c rdf:type synth:Task } }
         "#;
         assert_eq!(ask(&view, q).unwrap(), true);
     }
@@ -652,7 +790,7 @@ mod tests {
         let q = r#"
             PREFIX synth: <https://nomograph.org/synth/>
             SELECT ?c ?s WHERE {
-              ?c synth:summary ?s .
+              GRAPH ?g { ?c synth:summary ?s }
             }
         "#;
         let results = select(&view, q).unwrap();
@@ -665,6 +803,149 @@ mod tests {
         match &results.rows[0][1] {
             Term::Literal { value, .. } => assert!(value.starts_with("Test claim")),
             other => panic!("expected Literal for ?s, got {:?}", other),
+        }
+    }
+
+    //
+    // Named graph routing tests (T2.4).
+    //
+
+    #[test]
+    fn extract_module_prefix_handles_compact_form() {
+        assert_eq!(extract_module_prefix("synth:Task"), Some("synth".into()));
+        assert_eq!(extract_module_prefix("lat:Disposition"), Some("lat".into()));
+        assert_eq!(extract_module_prefix("nomograph:Genesis"), Some("nomograph".into()));
+    }
+
+    #[test]
+    fn extract_module_prefix_handles_full_iri() {
+        assert_eq!(
+            extract_module_prefix("https://nomograph.org/synth/Task"),
+            Some("synth".into())
+        );
+        assert_eq!(
+            extract_module_prefix("https://nomograph.org/lat/Disposition"),
+            Some("lat".into())
+        );
+    }
+
+    #[test]
+    fn extract_module_prefix_returns_none_for_unknown_uri() {
+        assert_eq!(
+            extract_module_prefix("https://example.com/some/Thing"),
+            None
+        );
+    }
+
+    #[test]
+    fn module_graph_iri_composes_correctly() {
+        assert_eq!(
+            module_graph_iri("synth"),
+            "https://nomograph.org/graphs/synth"
+        );
+    }
+
+    #[test]
+    fn rebuild_routes_synth_claims_to_synth_named_graph() {
+        let tmp = TempDir::new().unwrap();
+        let writer = LogWriter::new(tmp.path()).unwrap();
+        for i in 0..5 {
+            let doc = make_claim("synth", &format!("g{}", i), "asserter:user:local:agd");
+            writer.append("user:local:agd", &doc).unwrap();
+        }
+
+        let view = GraphView::open_in_memory().unwrap();
+        rebuild(&view, tmp.path()).unwrap();
+
+        let graphs = view.modules_in_view().unwrap();
+        assert_eq!(graphs, vec!["https://nomograph.org/graphs/synth".to_string()]);
+    }
+
+    #[test]
+    fn rebuild_separates_two_modules_into_two_named_graphs() {
+        let tmp = TempDir::new().unwrap();
+        let writer = LogWriter::new(tmp.path()).unwrap();
+
+        // Synth claims.
+        for i in 0..3 {
+            let doc = make_claim("synth", &format!("s{}", i), "asserter:user:local:agd");
+            writer.append("user:local:agd", &doc).unwrap();
+        }
+
+        // Hypothetical lat: claims. Use a doc with @type lat:Foo so
+        // it lands in the lat named graph.
+        for i in 0..2 {
+            let doc = json!({
+                "@context": {
+                    "lat":  "https://nomograph.org/lat/",
+                    "prov": "http://www.w3.org/ns/prov#",
+                    "xsd":  "http://www.w3.org/2001/XMLSchema#",
+                    "prov:generatedAtTime": {"@type": "xsd:dateTime"},
+                    "prov:wasAttributedTo": {"@type": "@id"}
+                },
+                "@id": format!("lat:claim/x{}", i),
+                "@type": "lat:Foo",
+                "prov:generatedAtTime": "2026-05-29T00:00:00.000Z",
+                "prov:wasAttributedTo": "asserter:user:local:agd"
+            });
+            writer.append("user:local:agd", &doc).unwrap();
+        }
+
+        let view = GraphView::open_in_memory().unwrap();
+        rebuild(&view, tmp.path()).unwrap();
+
+        let mut graphs = view.modules_in_view().unwrap();
+        graphs.sort();
+        assert_eq!(
+            graphs,
+            vec![
+                "https://nomograph.org/graphs/lat".to_string(),
+                "https://nomograph.org/graphs/synth".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn graph_named_synth_filter_returns_only_synth_claims() {
+        let tmp = TempDir::new().unwrap();
+        let writer = LogWriter::new(tmp.path()).unwrap();
+
+        for i in 0..4 {
+            let doc = make_claim("synth", &format!("f{}", i), "asserter:user:local:agd");
+            writer.append("user:local:agd", &doc).unwrap();
+        }
+        for i in 0..2 {
+            let doc = json!({
+                "@context": {
+                    "lat":  "https://nomograph.org/lat/",
+                    "prov": "http://www.w3.org/ns/prov#",
+                    "xsd":  "http://www.w3.org/2001/XMLSchema#",
+                    "prov:generatedAtTime": {"@type": "xsd:dateTime"},
+                    "prov:wasAttributedTo": {"@type": "@id"}
+                },
+                "@id": format!("lat:claim/lf{}", i),
+                "@type": "lat:Other",
+                "prov:generatedAtTime": "2026-05-29T00:00:00.000Z",
+                "prov:wasAttributedTo": "asserter:user:local:agd"
+            });
+            writer.append("user:local:agd", &doc).unwrap();
+        }
+
+        let view = GraphView::open_in_memory().unwrap();
+        rebuild(&view, tmp.path()).unwrap();
+
+        let q = r#"
+            PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+            PREFIX synth: <https://nomograph.org/synth/>
+            SELECT (COUNT(?c) AS ?n)
+            WHERE { GRAPH <https://nomograph.org/graphs/synth> { ?c rdf:type synth:Task } }
+        "#;
+        let results = select(&view, q).unwrap();
+        assert_eq!(results.rows.len(), 1);
+        if let Term::Literal { value, .. } = &results.rows[0][0] {
+            assert_eq!(value, "4", "expected 4 synth:Task in the synth graph");
+        } else {
+            panic!("expected literal for count, got {:?}", results.rows[0][0]);
         }
     }
 
