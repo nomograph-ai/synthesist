@@ -54,6 +54,12 @@ pub mod tree;
 /// stakeholder/topic/signal/disposition; coordination types start
 /// being writable when their first consumer ships with a validator.
 pub fn validate_props(claim_type: &ClaimType, props: &Value) -> SchemaResult<()> {
+    // Accept both v2 (bare keys) and v3 (synth:-prefixed JSON-LD
+    // keys) shapes. The per-type validators read bare keys; we
+    // normalize before dispatching so the 8 validators stay
+    // unchanged through the v2-to-v3 migration.
+    let normalized = normalize_jsonld_props(props);
+    let props = normalized.as_ref().unwrap_or(props);
     match claim_type {
         ClaimType::Tree => tree::validate(props),
         ClaimType::Spec => spec::validate(props),
@@ -131,4 +137,141 @@ pub fn validate_claim(claim: &Claim) -> ValidationOutcome {
 #[allow(dead_code)]
 pub fn format_error(err: &SchemaError) -> String {
     err.to_string()
+}
+
+/// Module prefixes the validator strips during JSON-LD normalization.
+const MODULE_PREFIXES: &[&str] = &["synth:", "lat:", "nomograph:"];
+
+/// Envelope predicates the validator drops during JSON-LD normalization.
+const ENVELOPE_PREDICATES: &[&str] = &[
+    "@context",
+    "@id",
+    "@type",
+    "prov:generatedAtTime",
+    "prov:wasAttributedTo",
+    "prov:wasRevisionOf",
+];
+
+/// Normalize a v3 JSON-LD props object to v2 bare-key form. Returns
+/// `None` for already-bare props so callers can skip the rewrite.
+///
+/// Drops envelope predicates (@id, @type, prov:*) and strips module
+/// prefixes (synth:, lat:, nomograph:) from remaining keys. Lets the
+/// per-type validators (task.rs, spec.rs, ...) stay in bare-key form
+/// while validate_props accepts both v2 stores and v3 substrate writes.
+fn normalize_jsonld_props(props: &Value) -> Option<Value> {
+    let map = props.as_object()?;
+    let needs_rewrite = map.keys().any(|k| {
+        ENVELOPE_PREDICATES.iter().any(|p| k == p)
+            || MODULE_PREFIXES.iter().any(|p| k.starts_with(p))
+    });
+    if !needs_rewrite {
+        return None;
+    }
+    let mut out = serde_json::Map::with_capacity(map.len());
+    for (k, v) in map {
+        if ENVELOPE_PREDICATES.iter().any(|p| k == p) {
+            continue;
+        }
+        let bare_key = MODULE_PREFIXES
+            .iter()
+            .find_map(|p| k.strip_prefix(*p).map(|s| s.to_string()))
+            .unwrap_or_else(|| k.to_string());
+        out.insert(bare_key, v.clone());
+    }
+    Some(Value::Object(out))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nomograph_claim::ClaimType;
+    use serde_json::json;
+
+    #[test]
+    fn bare_v2_tree_props_validate() {
+        let p = json!({"name": "keaton", "description": "the harness"});
+        assert!(validate_props(&ClaimType::Tree, &p).is_ok());
+    }
+
+    #[test]
+    fn v3_jsonld_tree_props_validate() {
+        let p = json!({
+            "@id": "synth:claim/x",
+            "@type": "synth:Tree",
+            "prov:generatedAtTime": "2026-05-29T10:00:00.000Z",
+            "prov:wasAttributedTo": "asserter:user:local:agd",
+            "synth:name": "keaton",
+            "synth:description": "the harness"
+        });
+        assert!(validate_props(&ClaimType::Tree, &p).is_ok());
+    }
+
+    #[test]
+    fn v3_jsonld_task_with_valid_enum_passes() {
+        let p = json!({
+            "@id": "synth:claim/t1",
+            "@type": "synth:Task",
+            "prov:generatedAtTime": "2026-05-29T10:00:00.000Z",
+            "prov:wasAttributedTo": "asserter:user:local:agd",
+            "synth:tree": "keaton",
+            "synth:spec": "v3",
+            "synth:id": "t1",
+            "synth:summary": "Test",
+            "synth:status": "pending"
+        });
+        assert!(validate_props(&ClaimType::Task, &p).is_ok());
+    }
+
+    #[test]
+    fn v3_jsonld_task_with_invalid_enum_fails() {
+        let p = json!({
+            "@id": "synth:claim/t1",
+            "@type": "synth:Task",
+            "prov:generatedAtTime": "2026-05-29T10:00:00.000Z",
+            "prov:wasAttributedTo": "asserter:user:local:agd",
+            "synth:tree": "keaton",
+            "synth:spec": "v3",
+            "synth:id": "t1",
+            "synth:summary": "Test",
+            "synth:status": "not-a-status"
+        });
+        assert!(validate_props(&ClaimType::Task, &p).is_err());
+    }
+
+    #[test]
+    fn normalize_returns_none_for_bare() {
+        let p = json!({"name": "keaton", "status": "active"});
+        assert!(normalize_jsonld_props(&p).is_none());
+    }
+
+    #[test]
+    fn normalize_strips_envelope_predicates() {
+        let p = json!({
+            "@id": "synth:claim/x",
+            "@type": "synth:Task",
+            "prov:generatedAtTime": "2026-05-29T00:00:00.000Z",
+            "synth:status": "pending"
+        });
+        let n = normalize_jsonld_props(&p).unwrap();
+        let obj = n.as_object().unwrap();
+        assert!(obj.contains_key("status"));
+        assert!(!obj.contains_key("@id"));
+        assert!(!obj.contains_key("prov:generatedAtTime"));
+    }
+
+    #[test]
+    fn normalize_strips_module_prefixes() {
+        let p = json!({
+            "@id": "synth:claim/x",
+            "synth:goal": "ship v3",
+            "lat:topic": "v3-substrate",
+            "nomograph:parentAsserter": "asserter:user:local:agd"
+        });
+        let n = normalize_jsonld_props(&p).unwrap();
+        let obj = n.as_object().unwrap();
+        assert!(obj.contains_key("goal"));
+        assert!(obj.contains_key("topic"));
+        assert!(obj.contains_key("parentAsserter"));
+    }
 }
