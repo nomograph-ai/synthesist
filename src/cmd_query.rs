@@ -12,11 +12,15 @@
 //! command falls back to an in-memory view rebuilt from the log union.
 //! The help text surfaces this behavior explicitly.
 //!
-//! Known macOS issue: `GraphView::open` may fail with a TryFromIntError
-//! inside oxigraph's rocksdb_wrapper on some macOS environments. See
-//! the ignored tests in `nomograph_claim::graph_view`. Until that is
-//! resolved, the in-memory fallback is the practical path for macOS
-//! development and tests.
+//! Known macOS ARM issue: on `oxigraph 0.4.11`, `GraphView::open` (which
+//! calls `Store::open`) *panics* with `TryFromIntError` inside
+//! rocksdb_wrapper.rs:359 on macOS ARM when opening an empty or existing
+//! directory. The panic unwinds past a bare `match GraphView::open(...)`
+//! arm, so the `Err(_)` fallback never engages. `open_view` therefore
+//! wraps the call in `std::panic::catch_unwind`; see
+//! `cmd_overlay::open_view_from_claims_dir` (commit f733843) as the
+//! canonical reference. Lifting this guard into
+//! `nomograph_claim::graph_view` is 3.0.0-final territory.
 //!
 //! ## T5.2 follow-up
 //!
@@ -46,7 +50,7 @@ pub fn cmd_query(sparql: Option<&str>, file: Option<&Path>, data_dir: Option<&Pa
     let query = resolve_query(sparql, file)?;
     let claims_dir = locate_claims_dir(data_dir)?;
 
-    let view = open_view(Some(&claims_dir))?;
+    let view = open_view(data_dir)?;
 
     // Time the query and record telemetry, regardless of success or
     // failure. Telemetry record failures must not mask the query
@@ -114,18 +118,32 @@ fn resolve_query(sparql: Option<&str>, file: Option<&Path>) -> Result<String> {
 ///    `claims/` directory (mirrors how `Store::discover` works for
 ///    the SQL view).
 /// 3. Try to open the on-disk RocksDB view at `claims/_view.oxigraph/`.
-/// 4. On any failure, open an in-memory view and rebuild from the log
-///    union.
+/// 4. On any failure *or panic*, open an in-memory view and rebuild from
+///    the log union.
+///
+/// On macOS ARM, `oxigraph 0.4.11`'s `Store::open` panics with
+/// `TryFromIntError` (rocksdb_wrapper.rs:359) when opening an empty or
+/// existing directory. The panic unwinds past a bare `match` arm, so
+/// the `Err(_)` fallback never engages. `catch_unwind` is required to
+/// intercept the panic and allow the in-memory rebuild to take over.
+/// See `cmd_overlay::open_view_from_claims_dir` (commit f733843) as the
+/// canonical reference for this pattern.
 fn open_view(data_dir: Option<&Path>) -> Result<GraphView> {
     let claims_dir = find_claims_dir(data_dir)?;
     let view_dir = claims_dir.join("_view.oxigraph");
 
-    // Attempt on-disk view first; fall back to in-memory rebuild on any
-    // error (including the macOS RocksDB TryFromIntError).
-    match GraphView::open(&view_dir) {
-        Ok(view) => Ok(view),
-        Err(_) => {
-            // On-disk open failed (RocksDB issue or missing dir).
+    // Wrap in catch_unwind: on macOS ARM, oxigraph 0.4.11 panics inside
+    // Store::open (rocksdb_wrapper.rs:359) rather than returning Err.
+    // The panic unwinds past a bare match arm, so the fallback never
+    // engaged without this guard.
+    let on_disk = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        GraphView::open(&view_dir)
+    }));
+
+    match on_disk {
+        Ok(Ok(view)) => Ok(view),
+        _ => {
+            // On-disk open failed or panicked (RocksDB issue or missing dir).
             // Fall back: in-memory view rebuilt from the log union.
             let view = GraphView::open_in_memory()
                 .context("open in-memory graph view")?;
