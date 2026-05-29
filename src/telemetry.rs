@@ -70,6 +70,54 @@ use spargebra::Query;
 // Public API
 // ---------------------------------------------------------------------------
 
+/// Canonical form of a SPARQL query: a stable hash and a topology string.
+///
+/// Produced by [`canonicalize`]. Both fields are deterministic: two queries
+/// that differ only in variable names or IRI literals produce the same
+/// `query_hash` and `bgp_shape`. Two queries that differ in graph topology
+/// produce different values.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CanonForm {
+    /// BLAKE3 hex digest of `bgp_shape`. Stable across runs and Rust versions.
+    pub query_hash: String,
+    /// Normalised topology string: variables -> `?vN`, IRIs -> `<iri>`,
+    /// literals -> `"lit"`.
+    pub bgp_shape: String,
+}
+
+/// Derive the canonical form of a SPARQL query.
+///
+/// Returns `Err` if `sparql` cannot be parsed. Never panics.
+///
+/// The returned [`CanonForm`] is:
+/// - **Variable-invariant**: renaming variables does not change the output.
+/// - **IRI-invariant**: changing IRI literals does not change the output.
+/// - **Topology-sensitive**: adding or removing triple patterns, or changing
+///   join structure (OPTIONAL, UNION, GRAPH, ...) does change the output.
+pub fn canonicalize(sparql: &str) -> Result<CanonForm> {
+    let query = Query::parse(sparql, None)
+        .map_err(|e| anyhow::anyhow!("SPARQL parse error: {e}"))?;
+
+    let pattern = match &query {
+        Query::Select { pattern, .. } => pattern,
+        Query::Construct { pattern, .. } => pattern,
+        Query::Describe { pattern, .. } => pattern,
+        Query::Ask { pattern, .. } => pattern,
+    };
+
+    let mut var_map: HashMap<String, usize> = HashMap::new();
+    let mut filter_kinds: Vec<String> = vec![];
+    let bgp_shape = shape_of_pattern(pattern, &mut var_map, &mut filter_kinds);
+
+    let hash_bytes = blake3::hash(bgp_shape.as_bytes());
+    let query_hash = hash_bytes.to_hex().to_string();
+
+    Ok(CanonForm {
+        query_hash,
+        bgp_shape,
+    })
+}
+
 /// Query surface that originated the call.
 #[derive(Debug, Clone, Copy, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -479,5 +527,100 @@ mod tests {
             .unwrap();
         let lines = read_lines(tmp.path());
         assert_eq!(lines[0]["surface"].as_str().unwrap(), "http");
+    }
+
+    // -----------------------------------------------------------------------
+    // T6.6: canonicalize() tests
+    // -----------------------------------------------------------------------
+
+    /// Acceptance criterion 1: two queries that differ only in variable names
+    /// produce the same hash and shape.
+    #[test]
+    fn canonicalize_variable_rename_same_hash_and_shape() {
+        let q1 = "SELECT ?s ?p ?o WHERE { ?s ?p ?o }";
+        let q2 = "SELECT ?subject ?predicate ?object WHERE { ?subject ?predicate ?object }";
+        let c1 = canonicalize(q1).expect("q1 should parse");
+        let c2 = canonicalize(q2).expect("q2 should parse");
+        assert_eq!(
+            c1.bgp_shape, c2.bgp_shape,
+            "bgp_shape should be identical for variable-renamed queries"
+        );
+        assert_eq!(
+            c1.query_hash, c2.query_hash,
+            "query_hash should be identical for variable-renamed queries"
+        );
+    }
+
+    /// Acceptance criterion 2: two queries that differ in IRI literals but
+    /// share the same topology produce the same hash and shape.
+    ///
+    /// (They would differ in result counts at query time because the IRIs
+    /// select different data, but the canonical form is identical.)
+    #[test]
+    fn canonicalize_iri_substitution_same_hash_and_shape() {
+        let q1 = "SELECT ?s WHERE { ?s <http://schema.org/name> ?name }";
+        let q2 = "SELECT ?s WHERE { ?s <http://example.com/label> ?name }";
+        let c1 = canonicalize(q1).expect("q1 should parse");
+        let c2 = canonicalize(q2).expect("q2 should parse");
+        assert_eq!(
+            c1.bgp_shape, c2.bgp_shape,
+            "bgp_shape should be identical for IRI-substituted queries with the same topology"
+        );
+        assert_eq!(
+            c1.query_hash, c2.query_hash,
+            "query_hash should be identical for IRI-substituted queries with the same topology"
+        );
+    }
+
+    /// Different topology produces a different hash and shape.
+    #[test]
+    fn canonicalize_different_topology_different_hash() {
+        let q1 = "SELECT ?s WHERE { ?s <http://example.org/a> ?o }";
+        let q2 = "SELECT ?s WHERE { ?s <http://example.org/a> ?o . ?s <http://example.org/b> ?o2 }";
+        let c1 = canonicalize(q1).expect("q1 should parse");
+        let c2 = canonicalize(q2).expect("q2 should parse");
+        assert_ne!(
+            c1.bgp_shape, c2.bgp_shape,
+            "bgp_shape should differ for queries with different triple-pattern counts"
+        );
+        assert_ne!(
+            c1.query_hash, c2.query_hash,
+            "query_hash should differ for queries with different topology"
+        );
+    }
+
+    /// Parse failure returns Err, not a panic.
+    #[test]
+    fn canonicalize_parse_failure_returns_err() {
+        let result = canonicalize("THIS IS NOT SPARQL");
+        assert!(
+            result.is_err(),
+            "canonicalize should return Err for invalid SPARQL"
+        );
+    }
+
+    /// query_hash is a 64-character lowercase hex string (BLAKE3 256-bit output).
+    #[test]
+    fn canonicalize_hash_is_64_char_hex() {
+        let cf = canonicalize(SIMPLE_QUERY).expect("should parse");
+        assert_eq!(
+            cf.query_hash.len(),
+            64,
+            "BLAKE3 hex string should be 64 chars, got: {}",
+            cf.query_hash
+        );
+        assert!(
+            cf.query_hash.chars().all(|c| c.is_ascii_hexdigit()),
+            "query_hash should be all hex digits, got: {}",
+            cf.query_hash
+        );
+    }
+
+    /// canonicalize is deterministic: same query same hash on repeated calls.
+    #[test]
+    fn canonicalize_deterministic() {
+        let c1 = canonicalize(SIMPLE_QUERY).expect("should parse");
+        let c2 = canonicalize(SIMPLE_QUERY).expect("should parse");
+        assert_eq!(c1, c2, "canonicalize should be deterministic");
     }
 }
