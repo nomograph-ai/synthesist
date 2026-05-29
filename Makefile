@@ -1,6 +1,6 @@
 BINARY := synthesist
 
-.PHONY: help build install clean test lint check agent-skills-symlink check-symlinks dev skill
+.PHONY: help build install clean test lint check agent-skills-symlink check-symlinks dev skill shacl shacl-check
 
 # Create the .agent/skills compat symlink fresh on every build.
 # Pointing .agent/skills at .claude/skills (relative) lets agent
@@ -47,6 +47,15 @@ dev: build ## Build and run help
 
 skill: build ## Build and run skill subcommand
 	./$(BINARY) skill
+
+shacl: ## Regenerate ontology/synthesist.shacl.ttl from Rust schema constants
+	cargo run --bin emit-shacl > ontology/synthesist.shacl.ttl
+
+shacl-check: ## Verify emitter output matches committed ontology/synthesist.shacl.ttl (fails on diff)
+	@cargo run --bin emit-shacl > /tmp/synthesist.shacl.ttl.check 2>/dev/null
+	@diff /tmp/synthesist.shacl.ttl.check ontology/synthesist.shacl.ttl || \
+		(echo "FAIL: emitter output differs from committed ontology/synthesist.shacl.ttl; run 'make shacl' to regenerate" && exit 1)
+	@echo "OK: emitter output matches committed ontology/synthesist.shacl.ttl"
 
 # CI gate: fail if any committed symlink resolves to an absolute path.
 # Backstop against the .agent/skills recurrence class — even if a
