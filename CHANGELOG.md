@@ -1,5 +1,23 @@
 # Changelog
 
+## [2.5.2] - 2026-05-29
+
+### Added
+
+- **Linux ARM64 build target**. Synthesist now builds for three platforms in
+  CI/CD: macOS ARM64 (Apple Silicon), Linux x86_64 (Intel/AMD), and Linux
+  ARM64 (AWS Graviton, Raspberry Pi, etc.). All binaries are signed with
+  cosign and include Software Bill of Materials (SBOM) for compliance.
+  ([nomograph/pipeline!NNN](https://gitlab.com/nomograph/pipeline/-/merge_requests))
+
+- **Multi-platform build script** (`scripts/build-multiplatform.sh`). Flexible
+  local build orchestration with auto-platform detection, support for native
+  and cross-compilation targets, and clear error reporting.
+
+- **Cross-compilation documentation** (`.cross/linux-arm64-build.md`). Detailed
+  guide explaining system limitations, three recommended build approaches, and
+  CI/CD examples for users who need to build synthesist locally.
+
 ## [2.5.1] (unreleased)
 
 ### Fixed
