@@ -231,18 +231,19 @@ fn emit_prop(prop: &PropShape) -> String {
 }
 
 fn emit_shape(shape: &NodeShape) -> String {
+    use nomograph_synthesist::wire_format::{shape_iri, type_iri};
     let mut out = String::new();
 
     out.push_str(&format!("#\n# {}\n#\n\n", shape.comment));
 
-    out.push_str(&format!(
-        "synthesist:{}Shape a sh:NodeShape ;\n",
-        shape.class
-    ));
-    out.push_str(&format!(
-        "    sh:targetClass synthesist:{} ;\n",
-        shape.class
-    ));
+    // Use the wire_format builders so the SHACL emitter, dual-write,
+    // and migration all agree on shape and type IRI conventions.
+    // `shape.class` is the v2-era TitleCase form (e.g. "Tree"); the
+    // wire_format helpers take a snake-case input and TitleCase it.
+    // Pass `shape.class` as-is because TitleCase is idempotent under
+    // the helper (single-word TitleCase input survives unchanged).
+    out.push_str(&format!("{} a sh:NodeShape ;\n", shape_iri(shape.class)));
+    out.push_str(&format!("    sh:targetClass {} ;\n", type_iri(shape.class)));
     out.push_str(&format!(
         "    rdfs:label \"{}\"@en ;\n",
         shape.label

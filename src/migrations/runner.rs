@@ -18,8 +18,11 @@ use super::{Migration, MigrationError, MigrationOpts, MigrationReport, registry,
 ///
 /// Rules (in priority order):
 /// 1. `claims/_schema.json` present: use its `schema_version`.
-/// 2. `claims/changes/` present with no log.jsonl: v2 store, version `"2.x"`.
-/// 3. `claims/` empty or absent: fresh store, version `"fresh"`.
+/// 2. Walk the registry, ask each `Migration::detect`. The first whose
+///    `detect` returns true tells us we are at its `from_version`. This
+///    is more precise than a layout heuristic: `V2ToV3::detect`, for
+///    instance, also rejects stores that have already produced v3 logs.
+/// 3. No migration applies: fresh or unknown state, version `"fresh"`.
 fn current_version(root: &Path) -> Result<String, MigrationError> {
     let claims = root.join("claims");
 
@@ -28,9 +31,13 @@ fn current_version(root: &Path) -> Result<String, MigrationError> {
         return Ok(record.schema_version);
     }
 
-    // Rule 2: v2 layout signal.
-    if claims.join("changes").exists() {
-        return Ok("2.x".to_string());
+    // Rule 2: registry-driven detection. Closes the gap left by the
+    // previous hard-coded `claims/changes/ -> "2.x"` heuristic, which
+    // misclassified partially migrated stores.
+    for migration in registry() {
+        if migration.detect(root)? {
+            return Ok(migration.from_version().to_string());
+        }
     }
 
     // Rule 3: fresh or unknown.

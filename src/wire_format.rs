@@ -127,6 +127,12 @@ pub fn type_iri(claim_type: &str) -> String {
 }
 
 /// Build a SHACL shape IRI: `synthesist:<TitleCase(type)>Shape`.
+///
+/// Used by the `emit-shacl` binary and by tests that assert skill
+/// content references the right shape names. The lib's non-test build
+/// has no caller today; future overlays that traverse SHACL shapes
+/// would consume this.
+#[allow(dead_code)]
 pub fn shape_iri(claim_type: &str) -> String {
     format!("{}:{}Shape", MODULE_PREFIX, camel_case(claim_type))
 }
