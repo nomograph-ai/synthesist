@@ -182,7 +182,7 @@ synthesist spec list --tree <name>                # flag form (same effect)
 ```
 Status values: `draft`, `active`, `done`, `superseded`. To record
 how a spec was disposed of (`completed`, `abandoned`, `deferred`,
-`superseded_by`), use `synthesist outcome add` — those are
+`superseded_by`), use `synthesist outcome add` -- those are
 Outcome claim values, not Spec status values, and the CLI rejects
 them at parse time with a redirect message.
 
@@ -339,7 +339,7 @@ claims with `status: "completed"`, `"abandoned"`, or `"deferred"`.
 v2.3's CLI advertised those values in `--help` even though the
 schema rejected them; users sometimes wrote them via `--force`.
 v2.4.0 surfaces those claims as schema errors during `check`.
-The estate is still usable — errors are advisory.
+The estate is still usable -- errors are advisory.
 
 To clean, record the disposition as an `Outcome` claim and reset
 the spec status to a valid terminal value:
@@ -368,4 +368,176 @@ Conflict resolution is via **supersession**: concurrent writers that
 disagree produce competing supersession chains, and resolution means
 appending a new claim that supersedes the contested chain. See the
 `nomograph-claim` documentation for the substrate contract.
+
+## Schema (v3-alpha)
+
+Synthesist's claim types are described declaratively in a SHACL Turtle
+document shipped alongside the binary:
+
+```
+ontology/synth.shacl.ttl
+```
+
+The SHACL shapes are a **documentation artifact only**. They are not
+evaluated at runtime. Synthesist's imperative validators in
+`src/schema/*.rs` remain authoritative. External tools and LLM consumers
+may use the shapes to understand the predicate vocabulary, cardinality
+constraints, and allowed enum values for each claim type.
+
+### Claim types and their SHACL shapes
+
+| Claim type | Shape IRI | Key predicates |
+|------------|-----------|---------------|
+| Tree | `synth:TreeShape` | `synth:name` (required), `synth:description` |
+| Spec | `synth:SpecShape` | `synth:tree`, `synth:id`, `synth:goal`, `synth:status` |
+| Task | `synth:TaskShape` | `synth:tree`, `synth:spec`, `synth:id`, `synth:summary`, `synth:status` |
+| Discovery | `synth:DiscoveryShape` | `synth:tree`, `synth:spec`, `synth:id`, `synth:finding`, `synth:date` |
+| Session | `synth:SessionShape` | `synth:id`, `synth:summary` |
+| Phase | `synth:PhaseShape` | `synth:session_id`, `synth:name` |
+| Campaign | `synth:CampaignShape` | `synth:tree`, `synth:spec`, `synth:kind` |
+| Outcome | `synth:OutcomeShape` | `synth:tree`, `synth:spec`, `synth:status` |
+
+Every claim includes the universal PROV-O envelope:
+- `prov:generatedAtTime` -- ISO 8601 timestamp with millisecond precision
+- `prov:wasAttributedTo` -- asserter IRI identifying who wrote the claim
+
+Prefix declarations used throughout the shapes:
+- `synth:` = `<https://nomograph.org/synth/>`
+- `prov:` = `<http://www.w3.org/ns/prov#>`
+- `xsd:` = `<http://www.w3.org/2001/XMLSchema#>`
+- `nomograph:` = `<https://nomograph.org/v3/>`
+
+Read `ontology/synth.shacl.ttl` at the synthesist repo root for the full
+shape definitions, including `sh:in` value sets for enumerated fields such
+as `synth:status` on Task and Spec, and `synth:name` on Phase.
 "#;
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Enumerate every top-level section heading the skill file must contain.
+    // These are load-bearing: the LLM behavioral contract depends on them.
+    const REQUIRED_SECTIONS: &[&str] = &[
+        "## Data Model",
+        "## Worked Example: Full Session Lifecycle",
+        "## Behavioral Contract",
+        "### Workflow State Machine",
+        "### Session Protocol",
+        "### AGREE Gate",
+        "## Command Reference",
+        "### Estate",
+        "### Trees",
+        "### Specs",
+        "### Tasks",
+        "### Discoveries",
+        "### Outcomes",
+        "### Substrate maintenance",
+        "### Campaigns",
+        "### Sessions",
+        "### Phase",
+        "### Data Management",
+        "## Display Conventions",
+        "## Error Handling",
+        "## Storage",
+        // v3-alpha T3.4: SHACL schema reference section
+        "## Schema (v3-alpha)",
+    ];
+
+    #[test]
+    fn skill_content_contains_all_required_sections() {
+        for section in REQUIRED_SECTIONS {
+            assert!(
+                SKILL_CONTENT.contains(section),
+                "skill content missing required section: {section}"
+            );
+        }
+    }
+
+    #[test]
+    fn skill_content_references_shacl_artifact() {
+        assert!(
+            SKILL_CONTENT.contains("ontology/synth.shacl.ttl"),
+            "skill content must reference the SHACL Turtle artifact path"
+        );
+    }
+
+    #[test]
+    fn skill_content_references_all_claim_type_shapes() {
+        let shapes = &[
+            "synth:TreeShape",
+            "synth:SpecShape",
+            "synth:TaskShape",
+            "synth:DiscoveryShape",
+            "synth:SessionShape",
+            "synth:PhaseShape",
+            "synth:CampaignShape",
+            "synth:OutcomeShape",
+        ];
+        for shape in shapes {
+            assert!(
+                SKILL_CONTENT.contains(shape),
+                "skill content missing SHACL shape reference: {shape}"
+            );
+        }
+    }
+
+    #[test]
+    fn skill_content_contains_every_cli_command_usage_block() {
+        // Each v2.5 command group must appear in the content, identified by
+        // its usage pattern. This is the acceptance criterion from T3.4.
+        let commands = &[
+            "synthesist init",
+            "synthesist status",
+            "synthesist check",
+            "synthesist conflicts",
+            "synthesist version",
+            "synthesist skill",
+            "synthesist tree add",
+            "synthesist tree list",
+            "synthesist spec add",
+            "synthesist spec show",
+            "synthesist task add",
+            "synthesist task claim",
+            "synthesist task done",
+            "synthesist task ready",
+            "synthesist discovery add",
+            "synthesist outcome add",
+            "synthesist claims compact",
+            "synthesist campaign add",
+            "synthesist session start",
+            "synthesist session close",
+            "synthesist phase show",
+            "synthesist phase set",
+            "synthesist export",
+            "synthesist import",
+            "synthesist sql",
+            "synthesist migrate",
+        ];
+        for cmd in commands {
+            assert!(
+                SKILL_CONTENT.contains(cmd),
+                "skill content missing CLI command usage: {cmd}"
+            );
+        }
+    }
+
+    #[test]
+    fn skill_content_parses_as_text_without_em_dashes() {
+        // No em dashes per project conventions.
+        assert!(
+            !SKILL_CONTENT.contains('\u{2014}'),
+            "skill content must not contain em dashes"
+        );
+    }
+
+    #[test]
+    fn cmd_skill_returns_ok() {
+        // Smoke test: cmd_skill must not error.
+        cmd_skill().expect("cmd_skill should return Ok");
+    }
+}
