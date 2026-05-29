@@ -1,0 +1,71 @@
+@prefix nomograph: <https://nomograph.org/v3/> .
+@prefix prov:      <http://www.w3.org/ns/prov#> .
+@prefix sh:        <http://www.w3.org/ns/shacl#> .
+@prefix rdf:       <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs:      <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd:       <http://www.w3.org/2001/XMLSchema#> .
+
+#
+# Nomograph base SHACL shapes (v3 substrate).
+#
+# Documents the universal envelope every claim must carry. NOT enforced
+# as a runtime gate (the substrate's imperative validators do that
+# work); shipped as a declarative artifact for LLM and tooling
+# consumption.
+#
+# Modules define their own SHACL shapes for their claim types,
+# referencing nomograph:ClaimEnvelopeShape as a parent constraint.
+#
+
+#
+# Every claim must carry the universal envelope.
+#
+
+nomograph:ClaimEnvelopeShape a sh:NodeShape ;
+    rdfs:label "Claim envelope shape"@en ;
+    rdfs:comment "The universal predicates every claim, in any module, must carry. Modules extend this shape with per-type required predicates."@en ;
+
+    # @id is the node IRI; SHACL targets it implicitly via sh:targetNode
+    # or sh:targetClass at the module level.
+
+    # @type is required exactly once.
+    sh:property [
+        sh:path rdf:type ;
+        sh:minCount 1 ;
+        sh:nodeKind sh:IRI ;
+        sh:message "Every claim must declare an @type IRI." ;
+    ] ;
+
+    # prov:generatedAtTime is required, xsd:dateTime, exactly once.
+    sh:property [
+        sh:path prov:generatedAtTime ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:dateTime ;
+        sh:message "Every claim must carry exactly one prov:generatedAtTime as xsd:dateTime." ;
+    ] ;
+
+    # prov:wasAttributedTo is required, IRI, exactly once.
+    sh:property [
+        sh:path prov:wasAttributedTo ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:nodeKind sh:IRI ;
+        sh:message "Every claim must carry exactly one prov:wasAttributedTo as an asserter IRI." ;
+    ] ;
+
+    # prov:wasRevisionOf is optional; if present, IRI.
+    sh:property [
+        sh:path prov:wasRevisionOf ;
+        sh:maxCount 1 ;
+        sh:nodeKind sh:IRI ;
+        sh:message "If present, prov:wasRevisionOf must be a single IRI pointing at the prior claim." ;
+    ] ;
+
+    # nomograph:parentAsserter is optional; if present, IRI.
+    sh:property [
+        sh:path nomograph:parentAsserter ;
+        sh:maxCount 1 ;
+        sh:nodeKind sh:IRI ;
+        sh:message "If present, nomograph:parentAsserter must be a single asserter IRI." ;
+    ] .
