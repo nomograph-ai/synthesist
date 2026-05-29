@@ -31,6 +31,8 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use nomograph_claim::graph_view::{GraphView, SelectResults, Term, rebuild, select};
+
+use nomograph_synthesist::telemetry::{Surface, TelemetryWriter};
 use serde_json::{Value, json};
 
 use crate::store::json_out;
@@ -42,12 +44,48 @@ use crate::store::json_out;
 /// two must be provided; the clap layer enforces this.
 pub fn cmd_query(sparql: Option<&str>, file: Option<&Path>, data_dir: Option<&Path>) -> Result<()> {
     let query = resolve_query(sparql, file)?;
+    let claims_dir = locate_claims_dir(data_dir)?;
 
-    let view = open_view(data_dir)?;
-    let results = select(&view, &query)
-        .context("SPARQL query failed")?;
+    let view = open_view(Some(&claims_dir))?;
 
+    // Time the query and record telemetry, regardless of success or
+    // failure. Telemetry record failures must not mask the query
+    // result, so the writer is best-effort: log to stderr but proceed.
+    let start = std::time::Instant::now();
+    let query_result = select(&view, &query);
+    let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+
+    let (errored, result_count) = match &query_result {
+        Ok(r) => (false, r.rows.len()),
+        Err(_) => (true, 0),
+    };
+
+    if let Ok(writer) = TelemetryWriter::new(&claims_dir) {
+        if let Err(e) = writer.record_query(
+            Surface::Cli,
+            &query,
+            result_count,
+            elapsed_ms,
+            errored,
+        ) {
+            eprintln!("warning: telemetry record failed: {}", e);
+        }
+    }
+
+    let results = query_result.context("SPARQL query failed")?;
     json_out(&serialize_results(&results))
+}
+
+/// Resolve the claims dir from the optional --data-dir flag,
+/// falling back to nomograph_workflow's discover path. Shared by
+/// open_view and the telemetry writer so both observe the same dir.
+fn locate_claims_dir(data_dir: Option<&Path>) -> Result<PathBuf> {
+    if let Some(p) = data_dir {
+        return Ok(p.join("claims"));
+    }
+    // Use the same discovery synthesist uses for its store.
+    let store = crate::store::Store::discover().context("discover claims dir")?;
+    Ok(store.root().to_path_buf().join("claims"))
 }
 
 // ---------------------------------------------------------------------------
