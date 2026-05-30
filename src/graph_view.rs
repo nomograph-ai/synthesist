@@ -98,6 +98,15 @@ impl GraphView {
     /// intercepts the panic; the in-memory fallback rebuilds from the
     /// `claims_dir` log union so the caller still gets a working view.
     ///
+    /// When the on-disk store is unavailable, this function uses a
+    /// **view-cache snapshot** to amortize the rebuild cost across
+    /// CLI invocations. On the fast path: if `claims_dir/_view.snapshot.nq`
+    /// and `claims_dir/_view.heads.json` exist and the recorded heads
+    /// match the current log union, the snapshot is loaded directly
+    /// (no rebuild). On the slow path: the full rebuild runs and the
+    /// resulting store is serialized as N-Quads alongside a heads
+    /// record so the next invocation hits the fast path.
+    ///
     /// `view_dir` is the on-disk store path (e.g. `claims/_view.oxigraph`).
     /// `claims_dir` is the per-asserter log root used for the in-memory
     /// rebuild. The two are usually `claims/_view.oxigraph` and
@@ -108,13 +117,7 @@ impl GraphView {
         }));
         match on_disk {
             Ok(Ok(view)) => Ok(view),
-            _ => {
-                let view = GraphView::open_in_memory()
-                    .context("open in-memory graph view")?;
-                rebuild(&view, claims_dir)
-                    .with_context(|| format!("rebuild view from claims at {}", claims_dir.display()))?;
-                Ok(view)
-            }
+            _ => open_in_memory_with_cache(claims_dir),
         }
     }
 
@@ -529,6 +532,115 @@ fn load_into_named_graph(
             .insert(&routed)
             .context("insert into named graph")?;
     }
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// View-cache snapshot helpers (C.2)
+// ---------------------------------------------------------------------------
+
+/// Snapshot file name for the serialized in-memory store (N-Quads).
+const SNAPSHOT_FILE: &str = "_view.snapshot.nq";
+
+/// Heads record file name (plain text, one line containing the blake3 hash).
+const SNAPSHOT_HEADS_FILE: &str = "_view.heads.json";
+
+/// Open an in-memory store, using the snapshot cache if the heads match.
+///
+/// Fast path (heads match): loads `claims_dir/_view.snapshot.nq` directly.
+/// Slow path (heads stale or missing): runs the full rebuild, then writes
+/// the snapshot and heads record so the next call is fast.
+///
+/// Snapshot corruption is tolerated: on any parse error the function
+/// falls through to the full rebuild rather than propagating the error.
+///
+/// Snapshot writes are atomic-ish: the data is written to a `.tmp`
+/// sibling first, then renamed over the target so a crash mid-write
+/// does not leave a half-written snapshot.
+fn open_in_memory_with_cache(claims_dir: &Path) -> anyhow::Result<GraphView> {
+    use crate::heads;
+    use std::fs;
+
+    let snapshot_path = claims_dir.join(SNAPSHOT_FILE);
+    let heads_path = claims_dir.join(SNAPSHOT_HEADS_FILE);
+
+    // Compute current heads once -- cheap (line counts only).
+    let current = heads::current_heads(claims_dir)
+        .context("compute current heads for cache check")?;
+
+    // Try fast path: both files present AND heads match.
+    if snapshot_path.exists() && heads_path.exists() {
+        let stored = fs::read_to_string(&heads_path)
+            .ok()
+            .map(|s| s.trim().to_string());
+        if stored.as_deref() == Some(current.as_str()) {
+            // Attempt to load from snapshot. On any failure, fall through.
+            match load_snapshot(&snapshot_path) {
+                Ok(view) => return Ok(view),
+                Err(_) => {
+                    // Corrupted or unreadable snapshot; proceed to rebuild.
+                }
+            }
+        }
+    }
+
+    // Slow path: full rebuild.
+    let view = GraphView::open_in_memory().context("open in-memory graph view")?;
+    rebuild(&view, claims_dir)
+        .with_context(|| format!("rebuild view from claims at {}", claims_dir.display()))?;
+
+    // Write snapshot + heads atomically. Failures are non-fatal; the
+    // caller receives a valid (just-rebuilt) view regardless.
+    let _ = write_snapshot(&view, claims_dir, &current);
+
+    Ok(view)
+}
+
+/// Load an N-Quads snapshot file into a fresh in-memory store.
+fn load_snapshot(snapshot_path: &std::path::Path) -> anyhow::Result<GraphView> {
+    let file = std::fs::File::open(snapshot_path)
+        .with_context(|| format!("open snapshot {}", snapshot_path.display()))?;
+    let store = Store::new().context("create in-memory store for snapshot load")?;
+    store
+        .load_from_reader(RdfFormat::NQuads, std::io::BufReader::new(file))
+        .with_context(|| format!("parse snapshot {}", snapshot_path.display()))?;
+    Ok(GraphView {
+        store,
+        view_dir: None,
+    })
+}
+
+/// Serialize the store to N-Quads and write the snapshot + heads files.
+///
+/// Uses a .tmp sibling + rename for atomicity.
+fn write_snapshot(
+    view: &GraphView,
+    claims_dir: &std::path::Path,
+    heads_hash: &str,
+) -> anyhow::Result<()> {
+    let snapshot_path = claims_dir.join(SNAPSHOT_FILE);
+    let heads_path = claims_dir.join(SNAPSHOT_HEADS_FILE);
+
+    let snapshot_tmp = claims_dir.join(format!("{}.tmp", SNAPSHOT_FILE));
+    let heads_tmp = claims_dir.join(format!("{}.tmp", SNAPSHOT_HEADS_FILE));
+
+    // Write snapshot to tmp.
+    let writer = std::fs::File::create(&snapshot_tmp)
+        .with_context(|| format!("create snapshot tmp {}", snapshot_tmp.display()))?;
+    view.store
+        .dump_to_writer(RdfFormat::NQuads, writer)
+        .context("dump store to N-Quads")?;
+
+    // Write heads to tmp.
+    std::fs::write(&heads_tmp, heads_hash)
+        .with_context(|| format!("write heads tmp {}", heads_tmp.display()))?;
+
+    // Atomic rename both files.
+    std::fs::rename(&snapshot_tmp, &snapshot_path)
+        .with_context(|| format!("rename snapshot tmp to {}", snapshot_path.display()))?;
+    std::fs::rename(&heads_tmp, &heads_path)
+        .with_context(|| format!("rename heads tmp to {}", heads_path.display()))?;
 
     Ok(())
 }
@@ -971,6 +1083,156 @@ mod tests {
             "expected at least 5 triples in the rebuilt view, got {}",
             count
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // View-cache snapshot tests (C.2)
+    // -----------------------------------------------------------------------
+
+    /// Helper: write N claims to claims_dir and return the triple count.
+    fn setup_claims(claims_dir: &std::path::Path, n: usize, prefix: &str) {
+        let writer = LogWriter::new(claims_dir).unwrap();
+        for i in 0..n {
+            let doc = make_claim(
+                "synthesist",
+                &format!("{}{}", prefix, i),
+                "asserter:user:local:agd",
+            );
+            writer.append("user:local:agd", &doc).unwrap();
+        }
+    }
+
+    #[test]
+    fn view_cache_loads_from_snapshot_when_heads_match() {
+        let tmp = TempDir::new().unwrap();
+        let claims_dir = tmp.path().join("claims");
+        std::fs::create_dir_all(&claims_dir).unwrap();
+        setup_claims(&claims_dir, 5, "snap");
+
+        let view_dir = claims_dir.join("_view.oxigraph");
+
+        // First call: rebuild runs, snapshot written.
+        let view1 = GraphView::open_or_in_memory(&view_dir, &claims_dir).unwrap();
+        let count1 = view1.triple_count().unwrap();
+        assert!(count1 >= 5, "expected at least 5 triples, got {}", count1);
+
+        let snapshot_path = claims_dir.join(SNAPSHOT_FILE);
+        let heads_path = claims_dir.join(SNAPSHOT_HEADS_FILE);
+        assert!(snapshot_path.exists(), "snapshot should be written after rebuild");
+        assert!(heads_path.exists(), "heads file should be written after rebuild");
+
+        // Record mtime before second call.
+        let mtime_before = std::fs::metadata(&snapshot_path)
+            .unwrap()
+            .modified()
+            .unwrap();
+
+        // Sleep briefly so any write would produce a different mtime.
+        std::thread::sleep(std::time::Duration::from_millis(20));
+
+        // Second call: fast path -- snapshot unchanged.
+        let view2 = GraphView::open_or_in_memory(&view_dir, &claims_dir).unwrap();
+        let count2 = view2.triple_count().unwrap();
+        assert_eq!(count1, count2, "triple counts should match on cache hit");
+
+        let mtime_after = std::fs::metadata(&snapshot_path)
+            .unwrap()
+            .modified()
+            .unwrap();
+        assert_eq!(
+            mtime_before, mtime_after,
+            "snapshot mtime should not change on cache hit (rebuild was skipped)"
+        );
+    }
+
+    #[test]
+    fn view_cache_rebuilds_when_heads_change() {
+        let tmp = TempDir::new().unwrap();
+        let claims_dir = tmp.path().join("claims");
+        std::fs::create_dir_all(&claims_dir).unwrap();
+        setup_claims(&claims_dir, 3, "chg");
+
+        let view_dir = claims_dir.join("_view.oxigraph");
+
+        // First open: builds snapshot.
+        let _ = GraphView::open_or_in_memory(&view_dir, &claims_dir).unwrap();
+
+        let snapshot_path = claims_dir.join(SNAPSHOT_FILE);
+        let mtime_before = std::fs::metadata(&snapshot_path)
+            .unwrap()
+            .modified()
+            .unwrap();
+
+        // Add new claim to invalidate heads.
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        setup_claims(&claims_dir, 1, "chg_new");
+
+        // Second open: heads changed, so rebuild runs and new snapshot written.
+        let view2 = GraphView::open_or_in_memory(&view_dir, &claims_dir).unwrap();
+        let count2 = view2.triple_count().unwrap();
+        assert!(count2 > 0);
+
+        let mtime_after = std::fs::metadata(&snapshot_path)
+            .unwrap()
+            .modified()
+            .unwrap();
+        assert_ne!(
+            mtime_before, mtime_after,
+            "snapshot mtime should change when heads are stale (rebuild ran)"
+        );
+    }
+
+    #[test]
+    fn view_cache_handles_corrupted_snapshot() {
+        let tmp = TempDir::new().unwrap();
+        let claims_dir = tmp.path().join("claims");
+        std::fs::create_dir_all(&claims_dir).unwrap();
+        setup_claims(&claims_dir, 2, "corrupt");
+
+        let view_dir = claims_dir.join("_view.oxigraph");
+
+        // First open: creates a valid snapshot.
+        let _ = GraphView::open_or_in_memory(&view_dir, &claims_dir).unwrap();
+
+        // Corrupt the snapshot.
+        let snapshot_path = claims_dir.join(SNAPSHOT_FILE);
+        std::fs::write(&snapshot_path, b"this is not valid N-Quads @@@").unwrap();
+
+        // Second open: corrupt snapshot is detected, fallback to rebuild.
+        // Must not panic or return an error.
+        let view = GraphView::open_or_in_memory(&view_dir, &claims_dir).unwrap();
+        let count = view.triple_count().unwrap();
+        assert!(
+            count >= 2,
+            "expected at least 2 triples after rebuild from corrupted snapshot, got {}",
+            count
+        );
+    }
+
+    #[test]
+    fn view_cache_handles_missing_snapshot() {
+        let tmp = TempDir::new().unwrap();
+        let claims_dir = tmp.path().join("claims");
+        std::fs::create_dir_all(&claims_dir).unwrap();
+        setup_claims(&claims_dir, 4, "miss");
+
+        let view_dir = claims_dir.join("_view.oxigraph");
+
+        // No snapshot or heads file exists: rebuild must run and write them.
+        let snapshot_path = claims_dir.join(SNAPSHOT_FILE);
+        let heads_path = claims_dir.join(SNAPSHOT_HEADS_FILE);
+        assert!(!snapshot_path.exists());
+        assert!(!heads_path.exists());
+
+        let view = GraphView::open_or_in_memory(&view_dir, &claims_dir).unwrap();
+        let count = view.triple_count().unwrap();
+        assert!(
+            count >= 4,
+            "expected at least 4 triples after rebuild, got {}",
+            count
+        );
+        assert!(snapshot_path.exists(), "snapshot should be written after fresh rebuild");
+        assert!(heads_path.exists(), "heads file should be written after fresh rebuild");
     }
 
     #[test]

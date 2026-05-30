@@ -19,3 +19,5 @@ claims/view.sqlite-shm
 claims/view.heads
 claims/snapshot.amc
 claims/.lock
+claims/_view.snapshot.nq
+claims/_view.heads.json
