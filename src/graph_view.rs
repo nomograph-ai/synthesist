@@ -10,6 +10,19 @@
 //!   `claims/_view.oxigraph/`. The store persists across runs;
 //!   re-opening is fast.
 //! - Open with [`GraphView::open_in_memory`] for ephemeral test use.
+//! - Open with [`open_or_in_memory`] for the recommended production
+//!   path: try on-disk first, fall back to an in-memory rebuild.
+//!
+//! ## macOS ARM workaround
+//!
+//! `oxigraph 0.4.11`'s `Store::open` panics with `TryFromIntError`
+//! inside `rocksdb_wrapper.rs` on macOS ARM during RocksDB
+//! initialization. [`open_or_in_memory`] wraps the call in
+//! `std::panic::catch_unwind` so the in-memory fallback engages
+//! silently. Callers on macOS ARM should install a custom panic hook
+//! (see `synthesist/src/main.rs::install_panic_hook`) to suppress
+//! the panic message that the default hook prints to stderr BEFORE
+//! `catch_unwind` intercepts.
 //!
 //! ## Rebuild
 //!
@@ -75,6 +88,34 @@ impl GraphView {
             store,
             view_dir: None,
         })
+    }
+
+    /// Open the on-disk graph view, falling back to an in-memory rebuild
+    /// if the on-disk path is unavailable or panics.
+    ///
+    /// `oxigraph 0.4.11`'s `Store::open` panics on macOS ARM with
+    /// `TryFromIntError` during RocksDB initialization. `catch_unwind`
+    /// intercepts the panic; the in-memory fallback rebuilds from the
+    /// `claims_dir` log union so the caller still gets a working view.
+    ///
+    /// `view_dir` is the on-disk store path (e.g. `claims/_view.oxigraph`).
+    /// `claims_dir` is the per-asserter log root used for the in-memory
+    /// rebuild. The two are usually `claims/_view.oxigraph` and
+    /// `claims/` respectively.
+    pub fn open_or_in_memory(view_dir: &Path, claims_dir: &Path) -> anyhow::Result<GraphView> {
+        let on_disk = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            GraphView::open(view_dir)
+        }));
+        match on_disk {
+            Ok(Ok(view)) => Ok(view),
+            _ => {
+                let view = GraphView::open_in_memory()
+                    .context("open in-memory graph view")?;
+                rebuild(&view, claims_dir)
+                    .with_context(|| format!("rebuild view from claims at {}", claims_dir.display()))?;
+                Ok(view)
+            }
+        }
     }
 
     /// Borrow the underlying Oxigraph store for direct API access.
@@ -902,6 +943,34 @@ mod tests {
         } else {
             panic!("expected literal for count, got {:?}", results.rows[0][0]);
         }
+    }
+
+    #[test]
+    fn open_or_in_memory_returns_usable_view_with_claims() {
+        // Exercise open_or_in_memory against a real (non-empty) claims tree.
+        // On macOS ARM the on-disk path panics; catch_unwind intercepts and
+        // the in-memory rebuild must produce a populated GraphView.
+        let tmp = TempDir::new().unwrap();
+        let claims_dir = tmp.path().join("claims");
+        std::fs::create_dir_all(&claims_dir).unwrap();
+        let writer = LogWriter::new(&claims_dir).unwrap();
+        for i in 0..5 {
+            let doc = make_claim("synthesist", &format!("oom{}", i), "asserter:user:local:agd");
+            writer.append("user:local:agd", &doc).unwrap();
+        }
+
+        let view_dir = claims_dir.join("_view.oxigraph");
+        // open_or_in_memory must succeed regardless of whether the on-disk
+        // Store::open succeeds or panics (both paths produce a valid view).
+        let view = GraphView::open_or_in_memory(&view_dir, &claims_dir).unwrap();
+
+        // The view is populated: at least the 5 claims loaded.
+        let count = view.triple_count().unwrap();
+        assert!(
+            count >= 5,
+            "expected at least 5 triples in the rebuilt view, got {}",
+            count
+        );
     }
 
     #[test]
