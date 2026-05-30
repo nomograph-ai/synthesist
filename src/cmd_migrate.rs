@@ -109,7 +109,11 @@ fn cmd_run(target: Option<&str>, dry_run: bool, no_backup: bool) -> anyhow::Resu
             return Ok(());
         }
         Err(MigrationError::NoApplicableMigration(msg)) => {
-            anyhow::bail!("no applicable migration: {msg}");
+            anyhow::bail!(
+                "no applicable migration: {msg}. \
+                 Run `synthesist migrate list` to see available migrations, \
+                 or `synthesist migrate status` to check the current schema version."
+            );
         }
         Err(e) => return Err(e.into()),
     };

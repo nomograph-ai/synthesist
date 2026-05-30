@@ -61,7 +61,10 @@ fn cmd_add(
     session: &Option<String>,
 ) -> Result<()> {
     if finding.is_empty() {
-        anyhow::bail!("Discovery requires non-empty 'finding' field");
+        anyhow::bail!(
+            "discovery add requires a non-empty --finding value; \
+             pass it as the positional argument: synthesist discovery add <tree/spec> <finding>"
+        );
     }
 
     let today = today();

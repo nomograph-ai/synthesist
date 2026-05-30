@@ -84,6 +84,6 @@ fn discovery_add_rejects_empty_finding() {
         .assert()
         .failure()
         .stderr(predicate::str::contains(
-            "Discovery requires non-empty 'finding' field",
+            "discovery add requires a non-empty --finding value",
         ));
 }

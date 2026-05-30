@@ -113,7 +113,10 @@ fn cmd_spec_add(
 ) -> Result<()> {
     let goal = goal
         .filter(|g| !g.is_empty())
-        .ok_or_else(|| anyhow!("spec add requires non-empty --goal"))?;
+        .ok_or_else(|| anyhow!(
+            "spec add requires --goal <text>; \
+             example: synthesist --session=<id> spec add {tree}/{spec} --goal \"<description>\""
+        ))?;
 
     let mut props = Map::new();
     props.insert("tree".into(), Value::from(tree));
@@ -132,6 +135,7 @@ fn cmd_spec_add(
     store.append(ClaimType::Spec, Value::Object(props), None)?;
 
     json_out(&json!({
+        "ok": true,
         "tree": tree,
         "id": spec,
         "goal": goal,
@@ -153,7 +157,10 @@ fn cmd_spec_show(tree: &str, spec: &str) -> Result<()> {
             "status": props.get("status").cloned().unwrap_or(Value::Null),
             "outcome": props.get("outcome").cloned().unwrap_or(Value::Null),
         })),
-        None => bail!("spec not found: {tree}/{spec}"),
+        None => bail!(
+            "spec not found: {tree}/{spec}. \
+             List specs in this tree with `synthesist spec list {tree}`."
+        ),
     }
 }
 
@@ -178,7 +185,10 @@ fn cmd_spec_update(
         && outcome.is_none()
         && agree_snapshot.is_none()
     {
-        bail!("no fields to update");
+        bail!(
+            "no fields to update; pass at least one of: \
+             --goal, --constraints, --decisions, --status, --outcome, --agree-snapshot"
+        );
     }
 
     let mut store = SynthStore::discover_for(session)?;
@@ -195,7 +205,10 @@ fn cmd_spec_update(
     let prior = prior
         .into_iter()
         .next()
-        .ok_or_else(|| anyhow!("spec not found: {tree}/{spec}"))?;
+        .ok_or_else(|| anyhow!(
+            "spec not found: {tree}/{spec}. \
+             List specs in this tree with `synthesist spec list {tree}`."
+        ))?;
 
     let prior_id = prior
         .get("id")
@@ -245,7 +258,7 @@ fn cmd_spec_update(
     }
 
     store.append(ClaimType::Spec, Value::Object(props), Some(prior_id))?;
-    json_out(&json!({"tree": tree, "id": spec, "updated": true}))
+    json_out(&json!({"ok": true, "tree": tree, "id": spec}))
 }
 
 /// List every spec head in `tree`, ordered by spec id.

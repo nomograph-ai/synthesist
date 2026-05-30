@@ -57,10 +57,16 @@ fn cmd_add(
     session: &Option<String>,
 ) -> Result<()> {
     if tree.is_empty() {
-        anyhow::bail!("Campaign requires non-empty 'tree' field");
+        anyhow::bail!(
+            "campaign add requires a non-empty tree name; \
+             pass it as the first positional argument: synthesist campaign add <tree> <spec_id>"
+        );
     }
     if spec_id.is_empty() {
-        anyhow::bail!("Campaign requires non-empty 'spec' field");
+        anyhow::bail!(
+            "campaign add requires a non-empty spec id; \
+             pass it as the second positional argument: synthesist campaign add <tree> <spec_id>"
+        );
     }
 
     let mut props = serde_json::Map::new();
@@ -91,7 +97,7 @@ fn cmd_add(
         None,
     )?;
 
-    json_out(&json!({"tree": tree, "spec_id": spec_id, "list": kind}))
+    json_out(&json!({"ok": true, "tree": tree, "spec_id": spec_id, "kind": kind}))
 }
 
 /// List active and backlog `Campaign` claims for a tree.

@@ -133,7 +133,8 @@ fn find_claims_dir(data_dir: Option<&Path>) -> Result<PathBuf> {
             return Ok(candidate);
         }
         bail!(
-            "no claims/ directory found at {} (from --data-dir)",
+            "no claims/ directory found at {} (from --data-dir). \
+             Run `synthesist init` in the project root to create it.",
             base.display()
         );
     }
@@ -148,7 +149,8 @@ fn find_claims_dir(data_dir: Option<&Path>) -> Result<PathBuf> {
         match cur.parent() {
             Some(p) => cur = p,
             None => bail!(
-                "no claims/ directory found walking up from {}",
+                "no claims/ directory found walking up from {}. \
+                 Run `synthesist init` in the project root to create it.",
                 start.display()
             ),
         }

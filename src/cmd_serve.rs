@@ -333,7 +333,8 @@ fn open_graph_view_for_serve(
                 match cur.parent() {
                     Some(p) => cur = p,
                     None => anyhow::bail!(
-                        "no claims/ directory found walking up from {}",
+                        "no claims/ directory found walking up from {}. \
+                         Run `synthesist init` in the project root to create it.",
                         start.display()
                     ),
                 }

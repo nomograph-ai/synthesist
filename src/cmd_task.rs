@@ -254,7 +254,11 @@ fn cmd_task_add(
         }
     };
     if current_task(&store, tree, spec, &task_id)?.is_some() {
-        bail!("task {tree}/{spec}/{task_id} already exists");
+        bail!(
+            "task {tree}/{spec}/{task_id} already exists; \
+             use `synthesist task show {tree}/{spec} {task_id}` to inspect it, \
+             or `synthesist task update {tree}/{spec} {task_id}` to modify it"
+        );
     }
     let mut props = json!({
         "tree": tree,
@@ -296,7 +300,10 @@ fn cmd_task_show(tree: &str, spec: &str, task_id: &str) -> Result<()> {
     let store = SynthStore::discover()?;
     match current_task(&store, tree, spec, task_id)? {
         Some((_id, props)) => json_out(&props),
-        None => bail!("task {tree}/{spec}/{task_id} not found"),
+        None => bail!(
+            "task {tree}/{spec}/{task_id} not found; \
+             list tasks with `synthesist task list {tree}/{spec}`"
+        ),
     }
 }
 

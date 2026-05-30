@@ -32,6 +32,7 @@ fn cmd_tree_add(
     let props = json!({ "name": name, "description": description });
     store.append(ClaimType::Tree, props, None)?;
     json_out(&json!({
+        "ok": true,
         "name": name,
         "status": status,
         "description": description,
