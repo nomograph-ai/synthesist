@@ -23,10 +23,36 @@
 //! omitting a different subset of canonical entries, plus two
 //! independent `camel_case` definitions in store and migrations.
 
+use std::sync::LazyLock;
+
 use serde_json::{Value, json};
 
 /// Synthesist module prefix used in compact-form IRIs and `@context`.
 pub const MODULE_PREFIX: &str = "synthesist";
+
+// ---------------------------------------------------------------------------
+// Substrate-level predicate keys
+//
+// These are the four IRI keys that `jsonld_context` declares typing for
+// (`@type @id` for the supersedes and parent-asserter refs;
+// `xsd:dateTime` for generatedAtTime). Co-locating the literals here
+// closes the drift surface Scan C identified: previously both
+// `store::v3_dual_write` and `migrations::v2_to_v3::v2_claim_to_v3`
+// hand-coded the same strings, so a rename in one and not the other
+// would silently produce divergent docs.
+// ---------------------------------------------------------------------------
+
+/// Predicate key for the supersession reference. IRI-typed via `@context`.
+pub const SUPERSEDES_PRED: &str = "synthesist:supersedes";
+
+/// Predicate key for the parent-asserter reference. IRI-typed via `@context`.
+pub const PARENT_ASSERTER_PRED: &str = "nomograph:parentAsserter";
+
+/// Predicate key for the generation time. `xsd:dateTime` typed via `@context`.
+pub const GENERATED_AT_PRED: &str = "prov:generatedAtTime";
+
+/// Predicate key for the attribution. IRI-typed via `@context`.
+pub const ATTRIBUTED_TO_PRED: &str = "prov:wasAttributedTo";
 
 /// Expanded IRI the `synthesist:` prefix maps to.
 ///
@@ -43,6 +69,24 @@ pub const NAMESPACE_IRI: &str = "https://nomograph.org/synthesist/";
 /// for the storr-scale and team-scale corpora pre.1 targets.
 pub const ID_TRUNCATION: usize = 16;
 
+/// One-shot cached `@context` value. Built on first access and cloned
+/// for every caller -- the migration of a 143-claim corpus would
+/// otherwise re-run `json!{}` 143 times.
+static CACHED_CONTEXT: LazyLock<Value> = LazyLock::new(|| {
+    json!({
+        "nomograph":  "https://nomograph.org/v3/",
+        "synthesist": NAMESPACE_IRI,
+        "prov":       "http://www.w3.org/ns/prov#",
+        "xsd":        "http://www.w3.org/2001/XMLSchema#",
+        GENERATED_AT_PRED:    {"@type": "xsd:dateTime"},
+        ATTRIBUTED_TO_PRED:   {"@type": "@id"},
+        "prov:wasRevisionOf": {"@type": "@id"},
+        PARENT_ASSERTER_PRED: {"@type": "@id"},
+        SUPERSEDES_PRED:      {"@type": "@id"},
+        "synthesist:agreeSnapshot": {"@type": "@id", "@container": "@set"}
+    })
+});
+
 /// Canonical inline `@context` for v3 JSON-LD docs.
 ///
 /// Declares the `synthesist`, `nomograph`, `prov`, `xsd` prefixes plus
@@ -51,19 +95,10 @@ pub const ID_TRUNCATION: usize = 16;
 /// replaced with `base_context_inner`), so this survives the rebuild
 /// round-trip and produces IRI-typed triples matching what overlay
 /// SPARQL queries expect.
+///
+/// The value is cached (see `CACHED_CONTEXT`) and cloned per call.
 pub fn jsonld_context() -> Value {
-    json!({
-        "nomograph":  "https://nomograph.org/v3/",
-        "synthesist": NAMESPACE_IRI,
-        "prov":       "http://www.w3.org/ns/prov#",
-        "xsd":        "http://www.w3.org/2001/XMLSchema#",
-        "prov:generatedAtTime": {"@type": "xsd:dateTime"},
-        "prov:wasAttributedTo": {"@type": "@id"},
-        "prov:wasRevisionOf":   {"@type": "@id"},
-        "nomograph:parentAsserter": {"@type": "@id"},
-        "synthesist:supersedes":    {"@type": "@id"},
-        "synthesist:agreeSnapshot": {"@type": "@id", "@container": "@set"}
-    })
+    CACHED_CONTEXT.clone()
 }
 
 /// Convert a `snake_case` or `kebab-case` string to `TitleCase`.
@@ -132,8 +167,19 @@ pub fn type_iri(claim_type: &str) -> String {
 /// content references the right shape names. The lib's non-test build
 /// has no caller today; future overlays that traverse SHACL shapes
 /// would consume this.
+///
+/// **Input contract**: `claim_type` is a snake_case or single-word
+/// TitleCase claim type name (`"tree"`, `"agree_snapshot"`, `"Tree"`).
+/// Do NOT pass a string that already includes the `Shape` suffix --
+/// `shape_iri("TaskShape")` produces the malformed
+/// `"synthesist:TaskShapeShape"`. The function does not strip the
+/// suffix or otherwise sanitize the input.
 #[allow(dead_code)]
 pub fn shape_iri(claim_type: &str) -> String {
+    debug_assert!(
+        !claim_type.ends_with("Shape"),
+        "shape_iri: claim_type must not already include the 'Shape' suffix; got {claim_type:?}"
+    );
     format!("{}:{}Shape", MODULE_PREFIX, camel_case(claim_type))
 }
 

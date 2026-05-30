@@ -59,6 +59,12 @@ fn asserter_base() -> String {
 /// routes the open claim through the SynthStore boundary so Session-open
 /// claims appear in `claims/<asserter>/log.jsonl` alongside every other
 /// typed claim (review item #4 follow-up to T3.6 / A.2).
+///
+/// Schema-validation note: synthesist's `schema::session::validate`
+/// requires only a non-empty `id`; tree/spec/summary are optional.
+/// This matches the field set `workflow::Session::start` used to accept,
+/// so the refactor does not regress the accepted-input surface (verified
+/// against `synthesist/src/schema/session.rs` during round-2 review).
 fn cmd_session_start(
     id: &str,
     tree: Option<&str>,

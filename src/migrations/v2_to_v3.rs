@@ -105,15 +105,16 @@ impl Migration for V2ToV3 {
 
         for claim in &v2_claims {
             // module_for_type errors on lattice-owned types per Directive 2.
-            let module = match module_for_type(&claim.claim_type) {
-                Ok(m) => m,
-                Err(e) => {
-                    skipped.push(format!("skipped {}: {e}", claim.id));
-                    continue;
-                }
-            };
+            // The Ok branch's value is unused -- it is always `"synthesist"`
+            // because `v2_claim_to_v3` is hard-wired to the synthesist IRI
+            // builders in `wire_format`. We still call the function for its
+            // error-signaling side effect.
+            if let Err(e) = module_for_type(&claim.claim_type) {
+                skipped.push(format!("skipped {}: {e}", claim.id));
+                continue;
+            }
 
-            let doc = v2_claim_to_v3(claim, module);
+            let doc = v2_claim_to_v3(claim);
 
             let asserter_str = claim.asserted_by.as_str();
             if asserter::parse(asserter_str).is_err() {
@@ -144,17 +145,13 @@ impl Migration for V2ToV3 {
 
 /// Translate one v2 claim into a v3 JSON-LD document.
 ///
-/// `module` is currently always `"synthesist"` because `module_for_type`
-/// rejects lattice-typed claims at the migration boundary (Directive 2).
-/// The parameter is retained for forward compatibility; today's IRI
-/// builders in `wire_format` are synthesist-specific.
-fn v2_claim_to_v3(claim: &Claim, module: &'static str) -> Value {
+/// Hard-wired to the synthesist module IRI builders in `wire_format`.
+/// Lattice-typed claims are rejected upstream by `module_for_type`, so
+/// this function never sees them. A future migration that supports
+/// other modules will need parallel IRI builders in `wire_format` plus
+/// a route here; do not parameterize this function speculatively.
+fn v2_claim_to_v3(claim: &Claim) -> Value {
     use crate::wire_format as wf;
-
-    // Defensive: the only supported module string today is synthesist.
-    // If a future migration adds support for another module, the
-    // `wire_format` module will need a parallel set of IRI builders.
-    debug_assert_eq!(module, wf::MODULE_PREFIX);
 
     let mut doc = Map::new();
     // Single source of truth for the v3 shape -- see wire_format.rs.
@@ -165,23 +162,23 @@ fn v2_claim_to_v3(claim: &Claim, module: &'static str) -> Value {
         Value::String(wf::type_iri(claim.claim_type.as_str())),
     );
     doc.insert(
-        "prov:generatedAtTime".into(),
+        wf::GENERATED_AT_PRED.into(),
         Value::String(format_iso(claim.asserted_at)),
     );
     doc.insert(
-        "prov:wasAttributedTo".into(),
+        wf::ATTRIBUTED_TO_PRED.into(),
         Value::String(wf::asserter_iri(&claim.asserted_by)),
     );
 
     if let Some(sup) = &claim.supersedes {
         doc.insert(
-            "synthesist:supersedes".into(),
+            wf::SUPERSEDES_PRED.into(),
             Value::String(wf::claim_iri(sup)),
         );
     }
     if let Some(parent) = &claim.parent_asserter {
         doc.insert(
-            "nomograph:parentAsserter".into(),
+            wf::PARENT_ASSERTER_PRED.into(),
             Value::String(wf::asserter_iri(parent)),
         );
     }
@@ -281,7 +278,7 @@ mod tests {
             "abc123def456fed789",
             json!({"summary": "Test", "status": "pending"}),
         );
-        let v3 = v2_claim_to_v3(&claim, module_for_type(&claim.claim_type).unwrap());
+        let v3 = v2_claim_to_v3(&claim);
         assert_eq!(v3["@id"], Value::String("synthesist:claim/abc123def456fed7".into()));
         assert_eq!(v3["@type"], Value::String("synthesist:Task".into()));
         assert_eq!(
@@ -312,7 +309,7 @@ mod tests {
             json!({"status": "done"}),
         );
         claim.supersedes = Some("bbbb222222222222".to_string());
-        let v3 = v2_claim_to_v3(&claim, "synthesist");
+        let v3 = v2_claim_to_v3(&claim);
         assert_eq!(
             v3["synthesist:supersedes"],
             Value::String("synthesist:claim/bbbb222222222222".into())
@@ -327,7 +324,7 @@ mod tests {
             json!({"status": "pending"}),
         );
         claim.parent_asserter = Some("user:local:agd".to_string());
-        let v3 = v2_claim_to_v3(&claim, "synthesist");
+        let v3 = v2_claim_to_v3(&claim);
         assert_eq!(
             v3["nomograph:parentAsserter"],
             Value::String("asserter:user:local:agd".into())

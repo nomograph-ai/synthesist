@@ -251,18 +251,27 @@ fn v3_dual_write(
         "@type".into(),
         V::String(wf::type_iri(claim_type.as_str())),
     );
-    doc.insert("prov:generatedAtTime".into(), V::String(format_now()));
+    doc.insert(wf::GENERATED_AT_PRED.into(), V::String(format_now()));
     doc.insert(
-        "prov:wasAttributedTo".into(),
+        wf::ATTRIBUTED_TO_PRED.into(),
         V::String(wf::asserter_iri(asserter)),
     );
 
     if let Some(sup_id) = supersedes {
         doc.insert(
-            "synthesist:supersedes".into(),
+            wf::SUPERSEDES_PRED.into(),
             V::String(wf::claim_iri(sup_id)),
         );
     }
+
+    // Note: `nomograph:parentAsserter` is intentionally absent from the
+    // dual-write path. `SynthStore::append` does not currently expose a
+    // parent_asserter parameter (workflow's Store handles parent_asserter
+    // via its own state), and no synthesist CLI command sets it on new
+    // writes today. The migration in `migrations::v2_to_v3` carries
+    // parent_asserter forward for legacy v2 claims. A future feature
+    // that sets parent_asserter on a synthesist write would need to
+    // extend both `SynthStore::append`'s signature and this dual-write.
 
     // Expand props via wire_format's predicate_iri (snake -> lowerCamel
     // with the synthesist prefix). Aligns with the SHACL ontology and
