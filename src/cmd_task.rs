@@ -534,11 +534,10 @@ fn at_risk_set_from_hits(hits: &[crate::overlay::OverlayResult]) -> std::collect
     at_risk
 }
 
-/// Open the graph view using the same on-disk-then-in-memory fallback that
-/// `cmd_query` uses. Returns `None` on any error so callers can degrade
-/// gracefully.
+/// Open the graph view using the on-disk-then-in-memory fallback.
+/// Returns `None` on any error so callers can degrade gracefully.
 fn open_graph_view_best_effort() -> Option<nomograph_claim::graph_view::GraphView> {
-    use nomograph_claim::graph_view::{GraphView, rebuild};
+    use nomograph_claim::graph_view::GraphView;
 
     // Locate the claims directory by walking up from cwd.
     let start = std::env::current_dir().ok()?;
@@ -557,20 +556,9 @@ fn open_graph_view_best_effort() -> Option<nomograph_claim::graph_view::GraphVie
     }?;
 
     let view_dir = claims_dir.join("_view.oxigraph");
-
-    // Prefer on-disk view; fall back to in-memory rebuild.
-    // Wrap the on-disk open in catch_unwind because Oxigraph can panic
-    // (TryFromIntError) when a brand-new RocksDB directory has not yet
-    // been fully initialized. The in-memory path is always safe.
-    let on_disk_result = std::panic::catch_unwind(|| GraphView::open(&view_dir));
-    match on_disk_result {
-        Ok(Ok(v)) => Some(v),
-        _ => {
-            let v = GraphView::open_in_memory().ok()?;
-            rebuild(&v, &claims_dir).ok()?;
-            Some(v)
-        }
-    }
+    // Shared panic guard for macOS ARM oxigraph TryFromIntError:
+    // see nomograph_claim::graph_view::GraphView::open_or_in_memory.
+    GraphView::open_or_in_memory(&view_dir, &claims_dir).ok()
 }
 
 fn cmd_task_acceptance(

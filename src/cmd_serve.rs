@@ -313,12 +313,12 @@ fn run_sparql_query(sparql: String) -> (StatusCode, String) {
 /// passed to the telemetry writer; `None` means discovery failed and
 /// telemetry is skipped silently.
 ///
-/// Strategy: discover via `SynthStore::discover`, open on-disk RocksDB
-/// view, fall back to in-memory rebuild on failure.
-/// TODO: consolidate with `cmd_query::open_view` into a shared helper.
+/// Strategy: discover via `SynthStore::discover`, then delegate to
+/// `GraphView::open_or_in_memory` which handles the macOS ARM RocksDB
+/// TryFromIntError panic via catch_unwind.
 fn open_graph_view_for_serve(
 ) -> anyhow::Result<(nomograph_claim::graph_view::GraphView, Option<PathBuf>)> {
-    use nomograph_claim::graph_view::{rebuild, GraphView};
+    use nomograph_claim::graph_view::GraphView;
 
     let claims_dir = match crate::store::SynthStore::discover() {
         Ok(store) => store.root().to_path_buf().join("claims"),
@@ -342,28 +342,9 @@ fn open_graph_view_for_serve(
     };
 
     let view_dir = claims_dir.join("_view.oxigraph");
-
-    // Wrap in catch_unwind: on macOS ARM, oxigraph 0.4.11 panics inside
-    // Store::open (rocksdb_wrapper.rs:359) with TryFromIntError rather
-    // than returning Err. The panic unwinds past a bare match arm so the
-    // in-memory fallback never engages without this guard. See
-    // cmd_overlay::open_view_from_claims_dir (commit f733843) as the
-    // canonical reference. Lifting into nomograph_claim::graph_view is
-    // 3.0.0-final territory.
-    let on_disk = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        GraphView::open(&view_dir)
-    }));
-
-    let view = match on_disk {
-        Ok(Ok(v)) => v,
-        _ => {
-            let v = GraphView::open_in_memory().context("open in-memory graph view")?;
-            rebuild(&v, &claims_dir)
-                .with_context(|| format!("rebuild view from {}", claims_dir.display()))?;
-            v
-        }
-    };
-
+    // Shared panic guard for macOS ARM oxigraph TryFromIntError:
+    // see nomograph_claim::graph_view::GraphView::open_or_in_memory.
+    let view = GraphView::open_or_in_memory(&view_dir, &claims_dir)?;
     Ok((view, Some(claims_dir)))
 }
 

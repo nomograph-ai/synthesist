@@ -32,7 +32,41 @@ mod wire_format;
 
 use clap::Parser;
 
+/// Install a panic hook that suppresses the known macOS ARM oxigraph
+/// RocksDB `TryFromIntError` panic message. `catch_unwind` in the
+/// `nomograph_claim::graph_view::GraphView::open_or_in_memory` helper catches
+/// the panic and falls back to an in-memory view; without this hook,
+/// the default panic handler prints the panic message to stderr
+/// BEFORE catch_unwind intercepts, alarming operators who see the
+/// stderr noise on every `query`, `serve`, `overlay run`, and
+/// `task ready` invocation.
+///
+/// The hook delegates to the default for any panic that does not
+/// look like the known RocksDB issue.
+fn install_panic_hook() {
+    let default = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let payload = info.payload();
+        let is_rocksdb_tryfrom = info
+            .location()
+            .map(|loc| loc.file().contains("rocksdb_wrapper.rs"))
+            .unwrap_or(false)
+            || payload
+                .downcast_ref::<String>()
+                .map(|s| s.contains("TryFromIntError"))
+                .unwrap_or(false)
+            || payload
+                .downcast_ref::<&str>()
+                .map(|s| s.contains("TryFromIntError"))
+                .unwrap_or(false);
+        if !is_rocksdb_tryfrom {
+            default(info);
+        }
+    }));
+}
+
 fn main() {
+    install_panic_hook();
     let cli = cli::Cli::parse();
 
     if let Err(e) = run(cli) {

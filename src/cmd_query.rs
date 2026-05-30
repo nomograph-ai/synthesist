@@ -34,7 +34,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
-use nomograph_claim::graph_view::{GraphView, SelectResults, Term, rebuild, select};
+use nomograph_claim::graph_view::{GraphView, SelectResults, Term, select};
 
 use nomograph_synthesist::telemetry::{Surface, TelemetryWriter};
 use serde_json::{Value, json};
@@ -117,41 +117,14 @@ fn resolve_query(sparql: Option<&str>, file: Option<&Path>) -> Result<String> {
 /// 2. Otherwise, walk up from the current directory looking for a
 ///    `claims/` directory (mirrors how `Store::discover` works for
 ///    the SQL view).
-/// 3. Try to open the on-disk RocksDB view at `claims/_view.oxigraph/`.
-/// 4. On any failure *or panic*, open an in-memory view and rebuild from
-///    the log union.
-///
-/// On macOS ARM, `oxigraph 0.4.11`'s `Store::open` panics with
-/// `TryFromIntError` (rocksdb_wrapper.rs:359) when opening an empty or
-/// existing directory. The panic unwinds past a bare `match` arm, so
-/// the `Err(_)` fallback never engages. `catch_unwind` is required to
-/// intercept the panic and allow the in-memory rebuild to take over.
-/// See `cmd_overlay::open_view_from_claims_dir` (commit f733843) as the
-/// canonical reference for this pattern.
+/// 3. Delegate to `GraphView::open_or_in_memory` which handles the
+///    macOS ARM RocksDB TryFromIntError panic via catch_unwind.
 fn open_view(data_dir: Option<&Path>) -> Result<GraphView> {
     let claims_dir = find_claims_dir(data_dir)?;
     let view_dir = claims_dir.join("_view.oxigraph");
-
-    // Wrap in catch_unwind: on macOS ARM, oxigraph 0.4.11 panics inside
-    // Store::open (rocksdb_wrapper.rs:359) rather than returning Err.
-    // The panic unwinds past a bare match arm, so the fallback never
-    // engaged without this guard.
-    let on_disk = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        GraphView::open(&view_dir)
-    }));
-
-    match on_disk {
-        Ok(Ok(view)) => Ok(view),
-        _ => {
-            // On-disk open failed or panicked (RocksDB issue or missing dir).
-            // Fall back: in-memory view rebuilt from the log union.
-            let view = GraphView::open_in_memory()
-                .context("open in-memory graph view")?;
-            rebuild(&view, &claims_dir)
-                .with_context(|| format!("rebuild view from claims at {}", claims_dir.display()))?;
-            Ok(view)
-        }
-    }
+    // Shared panic guard for macOS ARM oxigraph TryFromIntError:
+    // see nomograph_claim::graph_view::GraphView::open_or_in_memory.
+    GraphView::open_or_in_memory(&view_dir, &claims_dir)
 }
 
 /// Find the `claims/` directory starting from `data_dir` or by walking

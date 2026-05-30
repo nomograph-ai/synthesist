@@ -15,7 +15,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
-use nomograph_claim::graph_view::{rebuild, GraphView};
+use nomograph_claim::graph_view::GraphView;
 use nomograph_synthesist::telemetry::{Surface, TelemetryWriter};
 use serde_json::{json, Value};
 
@@ -116,36 +116,13 @@ fn serialize_result(r: &OverlayResult) -> Value {
 
 /// Open the graph view given an already-resolved `claims_dir`.
 ///
-/// Attempts the on-disk RocksDB view first; falls back to an in-memory
-/// rebuild on any failure (mirrors `cmd_query::open_view`).
-///
-/// On macOS ARM, `oxigraph 0.4.11`'s `Store::open` panics during
-/// RocksDB initialization with `TryFromIntError` (rocksdb_wrapper.rs:359)
-/// when opening or creating an empty directory. The bare match below
-/// would not catch the panic, so the fallback never engaged. Wrap in
-/// `catch_unwind` so the in-memory rebuild takes over. Phase C may
-/// replace this with a working on-disk path or a snapshot cache.
+/// Delegates to `nomograph_claim::graph_view::GraphView::open_or_in_memory`
+/// which handles the macOS ARM RocksDB TryFromIntError panic via catch_unwind.
 fn open_view_from_claims_dir(claims_dir: &Path) -> Result<GraphView> {
     let view_dir = claims_dir.join("_view.oxigraph");
-
-    let on_disk = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        GraphView::open(&view_dir)
-    }));
-
-    match on_disk {
-        Ok(Ok(view)) => Ok(view),
-        _ => {
-            let view = GraphView::open_in_memory()
-                .context("open in-memory graph view")?;
-            rebuild(&view, claims_dir).with_context(|| {
-                format!(
-                    "rebuild view from claims at {}",
-                    claims_dir.display()
-                )
-            })?;
-            Ok(view)
-        }
-    }
+    // Shared panic guard for macOS ARM oxigraph TryFromIntError:
+    // see nomograph_claim::graph_view::GraphView::open_or_in_memory.
+    GraphView::open_or_in_memory(&view_dir, claims_dir)
 }
 
 /// Find the `claims/` directory from `data_dir` or by walking up from cwd.
