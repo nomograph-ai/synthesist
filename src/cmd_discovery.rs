@@ -97,29 +97,48 @@ fn cmd_add(
     json_out(&json!({"id": id, "finding": finding, "date": date}))
 }
 
-/// List every `Discovery` claim scoped to `tree/spec`.
-///
-/// Results are ordered by `asserted_at` descending so the most recently
-/// appended discovery appears first. JSON output shape matches v1.
+/// List every `Discovery` claim scoped to `tree/spec`. TODO PATH-B:
+/// only minimal SPARQL coverage here; subsequent agent ports the full
+/// (id, date, author, finding, impact, action) projection with
+/// asserted_at ordering.
 fn cmd_list(tree: &str, spec: &str) -> Result<()> {
     let store = SynthStore::discover()?;
-    let rows = store.query(
-        "SELECT \
-             json_extract(props, '$.id')       AS id, \
-             json_extract(props, '$.date')     AS date, \
-             json_extract(props, '$.author')   AS author, \
-             json_extract(props, '$.finding')  AS finding, \
-             json_extract(props, '$.impact')   AS impact, \
-             json_extract(props, '$.action')   AS action \
-         FROM claims \
-         WHERE claim_type = 'discovery' \
-           AND json_extract(props, '$.tree') = ?1 \
-           AND json_extract(props, '$.spec') = ?2 \
-         ORDER BY asserted_at DESC",
-        &[&tree, &spec],
-    )?;
-
-    json_out(&json!({"tree": tree, "spec": spec, "discoveries": rows}))
+    let q = format!(
+        r#"
+        SELECT ?id ?date ?author ?finding ?impact ?action WHERE {{
+          GRAPH ?g {{
+            ?c rdf:type synthesist:Discovery ;
+               synthesist:tree "{tree}" ;
+               synthesist:spec "{spec}" ;
+               synthesist:id ?id .
+            OPTIONAL {{ ?c synthesist:date    ?date }}
+            OPTIONAL {{ ?c synthesist:author  ?author }}
+            OPTIONAL {{ ?c synthesist:finding ?finding }}
+            OPTIONAL {{ ?c synthesist:impact  ?impact }}
+            OPTIONAL {{ ?c synthesist:action  ?action }}
+          }}
+        }}
+        ORDER BY ?id
+        "#
+    );
+    let r = store.sparql(&q)?;
+    let mut out: Vec<Value> = Vec::new();
+    for row in &r.rows {
+        use nomograph_claim::graph_view::Term;
+        let s = |i: usize| match row.get(i) {
+            Some(Term::Literal { value, .. }) if !value.is_empty() => Value::String(value.clone()),
+            _ => Value::Null,
+        };
+        out.push(json!({
+            "id": s(0),
+            "date": s(1),
+            "author": s(2),
+            "finding": s(3),
+            "impact": s(4),
+            "action": s(5),
+        }));
+    }
+    json_out(&json!({"tree": tree, "spec": spec, "discoveries": out}))
 }
 
 /// Compute a short stable id for a discovery from `finding + date`.

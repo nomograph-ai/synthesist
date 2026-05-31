@@ -1,18 +1,8 @@
-//! Spec commands (v2: claim-backed).
+//! Spec commands -- ported to the v3 SPARQL substrate.
 //!
-//! Writes and reads `Spec` claims via the synthesist claim store. Every
-//! `spec add` appends one [`nomograph_claim::ClaimType::Spec`] claim;
-//! `spec update` appends a superseding claim that propagates unchanged
-//! fields forward; `spec show` and `spec list` query the SQLite view
-//! projection and dedupe-by-(tree, id) keeping the most recent
-//! non-superseded head.
-//!
-//! The CLI surface is unchanged from v1: same subcommands, same flags,
-//! same JSON output shape (the v1 `created` column is no longer
-//! projected — the claim's `asserted_at` supersedes it, mirroring the
-//! pattern in `cmd_discovery.rs`).
-
-use std::collections::HashSet;
+//! Reads (list/show) run SPARQL queries against the cached graph view.
+//! Writes (add/update) call `SynthStore::append`, which writes one v3
+//! JSON-LD doc per call.
 
 use anyhow::{Result, anyhow, bail};
 use nomograph_claim::ClaimType;
@@ -21,7 +11,6 @@ use serde_json::{Map, Value, json};
 use crate::cli::SpecCmd;
 use crate::store::{SynthStore, json_out};
 
-/// Dispatch a `synthesist spec <...>` subcommand.
 pub fn run(cmd: &SpecCmd, session: &Option<String>) -> Result<()> {
     match cmd {
         SpecCmd::Add {
@@ -78,11 +67,6 @@ pub fn run(cmd: &SpecCmd, session: &Option<String>) -> Result<()> {
     }
 }
 
-/// Split `tree/spec` into `(tree, spec)` with a prescriptive error.
-///
-/// Inlined here to keep cmd_spec.rs self-contained; other v2 command
-/// modules (cmd_discovery, cmd_task) expect this helper on `store` — a
-/// shared helper lives on the backlog for the next port pass.
 fn parse_tree_spec(ts: &str) -> Result<(&str, &str)> {
     let (tree, spec) = ts
         .split_once('/')
@@ -93,16 +77,6 @@ fn parse_tree_spec(ts: &str) -> Result<(&str, &str)> {
     Ok((tree, spec))
 }
 
-/// Append a new `Spec` claim with status=active.
-///
-/// v1 auto-ensured the parent tree row for FK integrity; v2 has no FK
-/// layer (claims are independent append-only facts), so that INSERT OR
-/// IGNORE drops out. The schema requires a non-empty `goal`; if the
-/// caller omits `--goal`, we fail fast with a prescriptive message
-/// rather than write a claim that validation would reject downstream.
-///
-/// `topics` defaults to `[spec_id]` so validation passes; Andrew
-/// reclassifies later.
 fn cmd_spec_add(
     tree: &str,
     spec: &str,
@@ -143,12 +117,13 @@ fn cmd_spec_add(
     }))
 }
 
-/// Show the current `Spec` claim for `tree/id`, or error when absent.
 fn cmd_spec_show(tree: &str, spec: &str) -> Result<()> {
     let store = SynthStore::discover()?;
-    let rows = query_spec_heads(&store, tree)?;
-    match rows.into_iter().find(|p| spec_id(p) == spec) {
-        Some(props) => json_out(&json!({
+    let heads = live_spec_heads(&store, tree)?;
+    match heads.into_iter().find(|(_, p)| {
+        p.get("id").and_then(|v| v.as_str()) == Some(spec)
+    }) {
+        Some((_, props)) => json_out(&json!({
             "tree": tree,
             "id": spec,
             "goal": props.get("goal").cloned().unwrap_or(Value::Null),
@@ -164,8 +139,6 @@ fn cmd_spec_show(tree: &str, spec: &str) -> Result<()> {
     }
 }
 
-/// Append a superseding `Spec` claim that overlays the provided deltas
-/// onto the prior claim's props.
 #[allow(clippy::too_many_arguments)]
 fn cmd_spec_update(
     tree: &str,
@@ -192,40 +165,20 @@ fn cmd_spec_update(
     }
 
     let mut store = SynthStore::discover_for(session)?;
-
-    let prior = store.query(
-        "SELECT id, props FROM claims \
-         WHERE claim_type = 'spec' \
-           AND json_extract(props, '$.tree') = ?1 \
-           AND json_extract(props, '$.id')   = ?2 \
-         ORDER BY asserted_at DESC \
-         LIMIT 1",
-        &[&tree, &spec],
-    )?;
-    let prior = prior
+    let heads = live_spec_heads(&store, tree)?;
+    let (prior_id, prior_props) = heads
         .into_iter()
-        .next()
+        .find(|(_, p)| p.get("id").and_then(|v| v.as_str()) == Some(spec))
         .ok_or_else(|| anyhow!(
             "spec not found: {tree}/{spec}. \
              List specs in this tree with `synthesist spec list {tree}`."
         ))?;
 
-    let prior_id = prior
-        .get("id")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow!("claim row missing id"))?
-        .to_string();
-    let prior_props_str = prior
-        .get("props")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow!("claim row missing props"))?;
-    let prior_props: Value = serde_json::from_str(prior_props_str)?;
     let mut props: Map<String, Value> = prior_props
         .as_object()
         .cloned()
         .ok_or_else(|| anyhow!("prior spec props not an object"))?;
 
-    // Overlay deltas. Missing fields keep the prior value.
     if let Some(v) = goal {
         props.insert("goal".into(), Value::from(v));
     }
@@ -250,7 +203,6 @@ fn cmd_spec_update(
         props.insert("agree_snapshot".into(), Value::Array(arr));
     }
 
-    // Preserve tree/id/topics invariants in case prior was malformed.
     props.insert("tree".into(), Value::from(tree));
     props.insert("id".into(), Value::from(spec));
     if !props.get("topics").is_some_and(|v| v.is_array()) {
@@ -261,17 +213,12 @@ fn cmd_spec_update(
     json_out(&json!({"ok": true, "tree": tree, "id": spec}))
 }
 
-/// List every spec head in `tree`, ordered by spec id.
-///
-/// Heads are deduped per (tree, id) keeping the most recent non-
-/// superseded asserted_at. The view's `supersedes` column lets us
-/// exclude any claim whose id was superseded by a later one.
 fn cmd_spec_list(tree: &str) -> Result<()> {
     let store = SynthStore::discover()?;
-    let heads = query_spec_heads(&store, tree)?;
+    let heads = live_spec_heads(&store, tree)?;
     let mut specs: Vec<Value> = heads
         .into_iter()
-        .map(|props| {
+        .map(|(_, props)| {
             json!({
                 "id": props.get("id").cloned().unwrap_or(Value::Null),
                 "goal": props.get("goal").cloned().unwrap_or(Value::Null),
@@ -288,59 +235,74 @@ fn cmd_spec_list(tree: &str) -> Result<()> {
     json_out(&json!({"tree": tree, "specs": specs}))
 }
 
-/// Return the per-spec head `props` for every spec in `tree`.
-///
-/// A head is the most recent non-superseded claim for a given
-/// (tree, id) pair. We walk asserted_at DESC and keep the first props
-/// seen for each id, while tracking which claim ids have been
-/// superseded so we skip them entirely.
-fn query_spec_heads(store: &SynthStore, tree: &str) -> Result<Vec<Value>> {
-    let rows = store.query(
-        "SELECT id, props, supersedes \
-         FROM claims \
-         WHERE claim_type = 'spec' \
-           AND json_extract(props, '$.tree') = ?1 \
-         ORDER BY asserted_at DESC",
-        &[&tree],
-    )?;
-
-    let superseded: HashSet<String> = rows
-        .iter()
-        .filter_map(|r| {
-            r.get("supersedes")
-                .and_then(|v| v.as_str())
-                .map(String::from)
-        })
-        .collect();
-
-    let mut seen: HashSet<String> = HashSet::new();
-    let mut out: Vec<Value> = Vec::new();
-    for row in rows {
-        let id = match row.get("id").and_then(|v| v.as_str()) {
-            Some(s) => s.to_string(),
-            None => continue,
+/// Return `(prior_id, props)` for every live Spec head in `tree`.
+fn live_spec_heads(store: &SynthStore, tree: &str) -> Result<Vec<(String, Value)>> {
+    let q = format!(
+        r#"
+        SELECT ?c ?id ?goal ?constraints ?decisions ?status ?outcome WHERE {{
+          GRAPH ?g {{
+            ?c rdf:type synthesist:Spec ;
+               synthesist:tree   "{tree}" ;
+               synthesist:id     ?id .
+            OPTIONAL {{ ?c synthesist:goal        ?goal }}
+            OPTIONAL {{ ?c synthesist:constraints ?constraints }}
+            OPTIONAL {{ ?c synthesist:decisions   ?decisions }}
+            OPTIONAL {{ ?c synthesist:status      ?status }}
+            OPTIONAL {{ ?c synthesist:outcome     ?outcome }}
+            FILTER NOT EXISTS {{
+              GRAPH ?g2 {{ ?later synthesist:supersedes ?c }}
+            }}
+          }}
+        }}
+        ORDER BY ?id
+        "#
+    );
+    let r = store.sparql(&q)?;
+    let mut out: Vec<(String, Value)> = Vec::new();
+    for row in &r.rows {
+        use nomograph_claim::graph_view::Term;
+        let claim_iri = match row.first() {
+            Some(Term::Iri(s)) => s.clone(),
+            _ => continue,
         };
-        if superseded.contains(&id) {
-            continue;
-        }
-        let props_str = match row.get("props").and_then(|v| v.as_str()) {
+        let prior_id = short_claim_id(&claim_iri);
+        let str_at = |i: usize| -> Option<String> {
+            match row.get(i) {
+                Some(Term::Literal { value, .. }) if !value.is_empty() => Some(value.clone()),
+                _ => None,
+            }
+        };
+        let id = match str_at(1) {
             Some(s) => s,
             None => continue,
         };
-        let props: Value = match serde_json::from_str(props_str) {
-            Ok(v) => v,
-            Err(_) => continue,
-        };
-        let spec_key = spec_id(&props).to_string();
-        if spec_key.is_empty() || !seen.insert(spec_key) {
-            continue;
+        let mut props = Map::new();
+        props.insert("tree".into(), Value::String(tree.to_string()));
+        props.insert("id".into(), Value::String(id));
+        if let Some(v) = str_at(2) {
+            props.insert("goal".into(), Value::String(v));
         }
-        out.push(props);
+        if let Some(v) = str_at(3) {
+            props.insert("constraints".into(), Value::String(v));
+        }
+        if let Some(v) = str_at(4) {
+            props.insert("decisions".into(), Value::String(v));
+        }
+        if let Some(v) = str_at(5) {
+            props.insert("status".into(), Value::String(v));
+        }
+        if let Some(v) = str_at(6) {
+            props.insert("outcome".into(), Value::String(v));
+        }
+        // topics default required by schema; spec writes always set it.
+        out.push((prior_id, Value::Object(props)));
     }
     Ok(out)
 }
 
-/// Extract `props.id` as a string slice, or `""` when missing/wrong-typed.
-fn spec_id(props: &Value) -> &str {
-    props.get("id").and_then(|v| v.as_str()).unwrap_or("")
+fn short_claim_id(iri: &str) -> String {
+    iri.strip_prefix("https://nomograph.org/synthesist/claim/")
+        .or_else(|| iri.strip_prefix("synthesist:claim/"))
+        .unwrap_or(iri)
+        .to_string()
 }

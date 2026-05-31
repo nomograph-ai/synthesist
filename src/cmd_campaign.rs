@@ -106,59 +106,13 @@ fn cmd_add(
 /// re-adds over time), the most recent `asserted_at` wins. This preserves
 /// the v1 INSERT-OR-REPLACE semantic without requiring explicit
 /// supersession claims.
+/// TODO PATH-B: port to SPARQL. Subsequent agent picks this up;
+/// returns empty active/backlog for now so the dispatch compiles.
 fn cmd_list(tree: &str) -> Result<()> {
-    let store = SynthStore::discover()?;
-
-    // Latest-per-spec via GROUP BY + MAX(asserted_at). SQLite's "bare
-    // columns from aggregate" rule returns the row matching the MAX per
-    // group.
-    let active = store.query(
-        "SELECT \
-             json_extract(props, '$.spec')       AS spec_id, \
-             json_extract(props, '$.summary')    AS summary, \
-             json_extract(props, '$.blocked_by') AS blocked_by, \
-             MAX(asserted_at)                     AS _max \
-         FROM claims \
-         WHERE claim_type = 'campaign' \
-           AND json_extract(props, '$.tree') = ?1 \
-           AND json_extract(props, '$.kind') = 'active' \
-         GROUP BY json_extract(props, '$.spec') \
-         ORDER BY json_extract(props, '$.spec')",
-        &[&tree],
-    )?;
-
-    let backlog = store.query(
-        "SELECT \
-             json_extract(props, '$.spec')       AS spec_id, \
-             json_extract(props, '$.title')      AS title, \
-             json_extract(props, '$.summary')    AS summary, \
-             json_extract(props, '$.blocked_by') AS blocked_by, \
-             MAX(asserted_at)                     AS _max \
-         FROM claims \
-         WHERE claim_type = 'campaign' \
-           AND json_extract(props, '$.tree') = ?1 \
-           AND json_extract(props, '$.kind') = 'backlog' \
-         GROUP BY json_extract(props, '$.spec') \
-         ORDER BY json_extract(props, '$.spec')",
-        &[&tree],
-    )?;
-
-    // Strip the `_max` helper column from each row before returning.
-    let active = strip_max(active);
-    let backlog = strip_max(backlog);
-
-    json_out(&json!({"tree": tree, "active": active, "backlog": backlog}))
-}
-
-/// Remove the `_max` helper column used for GROUP BY latest-row selection.
-fn strip_max(rows: Vec<Value>) -> Vec<Value> {
-    rows.into_iter()
-        .map(|v| match v {
-            Value::Object(mut map) => {
-                map.remove("_max");
-                Value::Object(map)
-            }
-            other => other,
-        })
-        .collect()
+    json_out(&json!({
+        "tree": tree,
+        "active": [],
+        "backlog": [],
+        "todo_path_b": "cmd_campaign list not yet ported to v3 SPARQL"
+    }))
 }

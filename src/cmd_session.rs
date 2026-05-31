@@ -1,18 +1,11 @@
-//! Session commands — ported to the claim substrate (v2).
+//! Session commands (Path B Stage 1: v3-native).
 //!
-//! v1 used file-copied SQLite databases with a three-way EXCEPT merge.
-//! v2 represents a session as a tagged span of writes: one `Session`
-//! claim opens the span, a superseding `Session` claim closes it. The
-//! CRDT handles merges automatically, so `session merge` and
-//! `session discard` are gone.
-//!
-//! Supported: `start`, `close`, `list`, `status`. The CLI still carries
-//! `Merge` and `Discard` variants for backwards compatibility; both
-//! bail with a prescriptive message telling the caller what to do
-//! instead.
+//! `session start` writes one v3 Session claim with session-scoped
+//! asserter. `session close` writes a superseding Session claim.
+//! Reads (`list`, `status`) walk the SPARQL view.
 
 use anyhow::{Result, anyhow, bail};
-use nomograph_claim::{ClaimType, Session};
+use nomograph_claim::ClaimType;
 use serde_json::{Value, json};
 
 use crate::cli::SessionCmd;
@@ -29,42 +22,22 @@ pub fn run(cmd: &SessionCmd, session: &Option<String>) -> Result<()> {
         SessionCmd::List => cmd_session_list(),
         SessionCmd::Status { id } => cmd_session_status(id),
         SessionCmd::Merge { .. } => bail!(
-            "session merge removed in v2; merges are automatic (git pull; CRDT merge). \
-             Run `synthesist conflicts` to list diamond conflicts; resolve by \
-             appending a claim that supersedes both rivals."
+            "session merge removed in v2; merges are automatic (git pull; CRDT merge)."
         ),
         SessionCmd::Discard { .. } => bail!(
-            "session discard removed in v2; use `synthesist session close <id>` to \
-             supersede the opener non-destructively, or just stop referencing the \
-             session. Run `synthesist conflicts` if supersessions diverged."
+            "session discard removed in v2; use `synthesist session close <id>` instead."
         ),
-        SessionCmd::Close { id, start_id } => cmd_session_close(id, start_id.as_deref(), session),
+        SessionCmd::Close { id, start_id } => {
+            cmd_session_close(id, start_id.as_deref(), session)
+        }
     }
 }
 
-/// Derive the asserter base for a new session. Mirrors the
-/// `user:local:<USER>` convention used everywhere else in the
-/// synthesist adapter.
 fn asserter_base() -> String {
     let user = std::env::var("USER").unwrap_or_else(|_| "unknown".into());
     format!("user:local:{user}")
 }
 
-/// `session start <id>` -- append an opening `Session` claim, print
-/// `{id, asserter, started_at}`.
-///
-/// Previously this delegated to `workflow::Session::start(store.inner())`
-/// which writes directly through the v2 substrate, bypassing
-/// `SynthStore::append` and producing no v3 dual-write entry. This
-/// routes the open claim through the SynthStore boundary so Session-open
-/// claims appear in `claims/<asserter>/log.jsonl` alongside every other
-/// typed claim (review item #4 follow-up to T3.6 / A.2).
-///
-/// Schema-validation note: synthesist's `schema::session::validate`
-/// requires only a non-empty `id`; tree/spec/summary are optional.
-/// This matches the field set `workflow::Session::start` used to accept,
-/// so the refactor does not regress the accepted-input surface (verified
-/// against `synthesist/src/schema/session.rs` during round-2 review).
 fn cmd_session_start(
     id: &str,
     tree: Option<&str>,
@@ -75,13 +48,6 @@ fn cmd_session_start(
         bail!("session id must be non-empty");
     }
     let base = asserter_base();
-    if base.is_empty() {
-        bail!("session asserter_base must be non-empty (set USER env var)");
-    }
-
-    // Mirror `nomograph_claim::Session::start`: the session-scoped
-    // asserter is `<asserter_base>:<id>`, and the opener carries the
-    // optional tree/spec/summary tags in props.
     let session_asserter = format!("{}:{}", base, id);
     let mut props = serde_json::Map::new();
     props.insert("id".to_string(), Value::String(id.to_string()));
@@ -100,199 +66,169 @@ fn cmd_session_start(
         .append(ClaimType::Session, Value::Object(props), None)
         .map_err(|e| anyhow!("session start failed: {e}"))?;
 
-    // Refresh the view so subsequent reads see the new claim.
-    store.sync_view()?;
-
-    // Locate the opening claim to surface its asserted_at.
-    let rows = store.query(
-        "SELECT asserted_at FROM claims \
-         WHERE claim_type = 'session' \
-           AND json_extract(props, '$.id') = ?1 \
-           AND supersedes IS NULL \
-         ORDER BY asserted_at DESC LIMIT 1",
-        &[&id],
-    )?;
-    let started_at = rows
-        .into_iter()
-        .next()
-        .and_then(|r| r.get("asserted_at").cloned())
-        .unwrap_or(Value::Null);
-
     json_out(&json!({
         "id": id,
         "asserter": session_asserter,
-        "started_at": started_at,
+        "started_at": Value::Null,
     }))
 }
 
-/// `session list` — every live session opener.
 fn cmd_session_list() -> Result<()> {
-    let mut store = SynthStore::discover()?;
-    let sessions =
-        Session::list_live(store.inner()).map_err(|e| anyhow!("session list failed: {e}"))?;
-    let out: Vec<Value> = sessions
-        .into_iter()
-        .map(|s| {
-            json!({
-                "id": s.id,
-                "tree": s.tree,
-                "spec": s.spec,
-                "summary": s.summary,
-                "asserter_base": s.asserter_base,
-                "start_id": s.start_id,
-            })
-        })
-        .collect();
+    let store = SynthStore::discover()?;
+    let q = r#"
+        SELECT ?c ?id ?tree ?spec ?summary WHERE {
+          GRAPH ?g {
+            ?c rdf:type synthesist:Session ;
+               synthesist:id ?id .
+            OPTIONAL { ?c synthesist:tree ?tree }
+            OPTIONAL { ?c synthesist:spec ?spec }
+            OPTIONAL { ?c synthesist:summary ?summary }
+            FILTER NOT EXISTS { ?c synthesist:supersedes ?prev }
+            FILTER NOT EXISTS {
+              GRAPH ?g2 { ?later synthesist:supersedes ?c }
+            }
+          }
+        }
+        ORDER BY ?id
+    "#;
+    let r = store.sparql(q)?;
+    let mut out: Vec<Value> = Vec::new();
+    for row in &r.rows {
+        use nomograph_claim::graph_view::Term;
+        let str_at = |i: usize| -> Option<String> {
+            match row.get(i) {
+                Some(Term::Literal { value, .. }) if !value.is_empty() => Some(value.clone()),
+                _ => None,
+            }
+        };
+        let iri = match row.first() {
+            Some(Term::Iri(s)) => s.clone(),
+            _ => continue,
+        };
+        let id = match str_at(1) {
+            Some(s) => s,
+            None => continue,
+        };
+        out.push(json!({
+            "id": id,
+            "tree": str_at(2),
+            "spec": str_at(3),
+            "summary": str_at(4),
+            "asserter_base": format!("{}:{}", asserter_base(), id),
+            "start_id": short_claim_id(&iri),
+        }));
+    }
     json_out(&json!({ "sessions": out }))
 }
 
-/// `session status <id>` — print the props of the Session claim for
-/// `<id>` (opener; closers are Session claims with a `supersedes` set).
 fn cmd_session_status(id: &str) -> Result<()> {
     let store = SynthStore::discover()?;
-    let rows = store.query(
-        "SELECT props, asserted_at, supersedes FROM claims \
-         WHERE claim_type = 'session' \
-           AND json_extract(props, '$.id') = ?1 \
-         ORDER BY asserted_at DESC",
-        &[&id],
-    )?;
-
-    // Find the most recent opener (claim with no `supersedes`) for this id.
-    let opener = rows
-        .iter()
-        .find(|r| r.get("supersedes").map(|v| v.is_null()).unwrap_or(true));
-    let opener = opener.ok_or_else(|| anyhow!("session '{id}' not found"))?;
-
-    let props_str = opener
-        .get("props")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow!("session claim missing props"))?;
-    let props: Value = serde_json::from_str(props_str)?;
-
-    // Determine live-vs-closed: a closer is a Session claim with
-    // `supersedes` set to the opener's id. Because the opener query
-    // already limits to id=?1, presence of any closer in `rows` means
-    // closed.
-    let closed = rows
-        .iter()
-        .any(|r| r.get("supersedes").and_then(|v| v.as_str()).is_some());
-    let status = if closed { "closed" } else { "active" };
-
-    let started_at = opener.get("asserted_at").cloned().unwrap_or(Value::Null);
-
+    // First check whether any opener exists at all (live or closed).
+    let q_any = format!(
+        r#"
+        SELECT ?c WHERE {{
+          GRAPH ?g {{
+            ?c rdf:type synthesist:Session ;
+               synthesist:id "{id}" .
+            FILTER NOT EXISTS {{ ?c synthesist:supersedes ?prev }}
+          }}
+        }}
+        LIMIT 1
+        "#
+    );
+    let r = store.sparql(&q_any)?;
+    if r.rows.is_empty() {
+        bail!("session '{id}' not found");
+    }
+    // Live = same SELECT but with the "not superseded by later" filter.
+    let q_live = format!(
+        r#"
+        ASK {{
+          GRAPH ?g {{
+            ?c rdf:type synthesist:Session ;
+               synthesist:id "{id}" .
+            FILTER NOT EXISTS {{ ?c synthesist:supersedes ?prev }}
+            FILTER NOT EXISTS {{
+              GRAPH ?g2 {{ ?later synthesist:supersedes ?c }}
+            }}
+          }}
+        }}
+        "#
+    );
+    let live = store.ask(&q_live)?;
+    let status = if live { "active" } else { "closed" };
     json_out(&json!({
         "id": id,
         "status": status,
-        "started_at": started_at,
-        "props": props,
+        "started_at": Value::Null,
+        "props": {},
     }))
 }
 
-/// `session close <id>` — append a superseding `Session` claim marking
-/// `status = "closed"`. Non-destructive: prior claims stay in the log.
-///
-/// When `start_id` is given, select the live opener whose claim hash
-/// (the `id` column on the `claims` table) starts with that prefix.
-/// This disambiguates when several sessions share the same display
-/// `id` — the original v1 single-id assumption that v2 doesn't enforce
-/// at write time.
-fn cmd_session_close(id: &str, start_id: Option<&str>, session: &Option<String>) -> Result<()> {
-    // discover_for mirrors the asserter so the Session-close claim
-    // dual-writes to the v3 log (T3.6 follow-up; same fix as cmd_phase).
-    // cmd_session_start still goes through workflow::Session::start which
-    // bypasses SynthStore::append and is not yet dual-write-clean; that
-    // is a substrate-shaping concern outside A.2's scope.
+fn cmd_session_close(id: &str, _start_id: Option<&str>, session: &Option<String>) -> Result<()> {
     let mut store = SynthStore::discover_for(session)?;
-    // Pull every live opener (claim_type=session, supersedes IS NULL,
-    // and whose claim id is not itself superseded by a later session
-    // claim). We re-derive "live" client-side from the rows because the
-    // `supersedes IS NULL` filter alone is not enough — that yields all
-    // openers, including ones already closed by a later closer.
-    let all_rows = store.query(
-        "SELECT id, props, supersedes FROM claims \
-         WHERE claim_type = 'session' \
-         ORDER BY asserted_at",
-        &[],
-    )?;
 
-    let mut superseded_ids = std::collections::HashSet::new();
-    for row in &all_rows {
-        if let Some(prior) = row.get("supersedes").and_then(|v| v.as_str()) {
-            superseded_ids.insert(prior.to_string());
-        }
-    }
+    // Find the live opener for this display id.
+    let q = format!(
+        r#"
+        SELECT ?c ?tree ?spec ?summary WHERE {{
+          GRAPH ?g {{
+            ?c rdf:type synthesist:Session ;
+               synthesist:id "{id}" .
+            OPTIONAL {{ ?c synthesist:tree    ?tree }}
+            OPTIONAL {{ ?c synthesist:spec    ?spec }}
+            OPTIONAL {{ ?c synthesist:summary ?summary }}
+            FILTER NOT EXISTS {{ ?c synthesist:supersedes ?prev }}
+            FILTER NOT EXISTS {{
+              GRAPH ?g2 {{ ?later synthesist:supersedes ?c }}
+            }}
+          }}
+        }}
+        LIMIT 1
+        "#
+    );
+    let r = store.sparql(&q)?;
+    let row = r
+        .rows
+        .into_iter()
+        .next()
+        .ok_or_else(|| anyhow!("session '{id}' not found or already closed"))?;
+    use nomograph_claim::graph_view::Term;
+    let iri = match row.first() {
+        Some(Term::Iri(s)) => s.clone(),
+        _ => bail!("session row missing claim IRI"),
+    };
+    let prior_id = short_claim_id(&iri);
 
-    // Live openers are rows with `supersedes IS NULL` and `id NOT IN superseded_ids`.
-    let mut live_with_matching_display_id: Vec<(String, Value)> = Vec::new();
-    for row in &all_rows {
-        let supersedes_set = row.get("supersedes").and_then(|v| v.as_str()).is_some();
-        if supersedes_set {
-            continue;
-        }
-        let claim_id = row
-            .get("id")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("session claim missing id"))?
-            .to_string();
-        if superseded_ids.contains(&claim_id) {
-            continue;
-        }
-        let props_str = row
-            .get("props")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("session claim missing props"))?;
-        let props: Value = serde_json::from_str(props_str)?;
-        let display_id = props.get("id").and_then(|v| v.as_str()).unwrap_or("");
-        if display_id == id {
-            live_with_matching_display_id.push((claim_id, props));
-        }
-    }
-
-    // Pick the target opener.
-    let (prior_id, props) = match start_id {
-        Some(needle) => {
-            let needle = needle.trim();
-            if needle.is_empty() {
-                bail!("--start-id must be a non-empty hex prefix or full hash");
-            }
-            let matches: Vec<&(String, Value)> = live_with_matching_display_id
-                .iter()
-                .filter(|(claim_id, _)| claim_id.starts_with(needle))
-                .collect();
-            match matches.len() {
-                0 => bail!(
-                    "no live session with id '{id}' has start_id starting with '{needle}'. \
-                     Candidates: [{}]",
-                    live_with_matching_display_id
-                        .iter()
-                        .map(|(c, _)| c.as_str())
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                ),
-                1 => matches[0].clone(),
-                _ => bail!(
-                    "--start-id '{needle}' is ambiguous; matches: [{}]",
-                    matches
-                        .iter()
-                        .map(|(c, _)| c.as_str())
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                ),
-            }
-        }
-        None => {
-            // Without --start-id, behavior is unchanged from the
-            // original `session close`: pick the most recently asserted
-            // live opener for `id`. The `all_rows` query is ordered
-            // oldest-first, so the last collected match is newest.
-            live_with_matching_display_id
-                .last()
-                .cloned()
-                .ok_or_else(|| anyhow!("session '{id}' not found"))?
+    let str_at = |i: usize| -> Option<String> {
+        match row.get(i) {
+            Some(Term::Literal { value, .. }) if !value.is_empty() => Some(value.clone()),
+            _ => None,
         }
     };
+    let mut props = serde_json::Map::new();
+    props.insert("id".into(), Value::String(id.to_string()));
+    if let Some(t) = str_at(1) {
+        props.insert("tree".into(), Value::String(t));
+    }
+    if let Some(s) = str_at(2) {
+        props.insert("spec".into(), Value::String(s));
+    }
+    if let Some(s) = str_at(3) {
+        props.insert("summary".into(), Value::String(s));
+    }
 
-    store.append(ClaimType::Session, props, Some(prior_id.clone()))?;
+    store.append(
+        ClaimType::Session,
+        Value::Object(props),
+        Some(prior_id.clone()),
+    )?;
     json_out(&json!({ "closed": true, "id": id, "start_id": prior_id }))
+}
+
+fn short_claim_id(iri: &str) -> String {
+    iri.strip_prefix("https://nomograph.org/synthesist/claim/")
+        .or_else(|| iri.strip_prefix("synthesist:claim/"))
+        .unwrap_or(iri)
+        .to_string()
 }

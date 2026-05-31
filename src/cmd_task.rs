@@ -1,13 +1,12 @@
-//! Task DAG commands — ported to the claim substrate.
+//! Task DAG commands -- ported to the v3 SPARQL substrate.
 //!
-//! Every status transition is a supersession: find the current Task
-//! claim for `(tree, spec, id)`, build a new one with the updated
-//! status + propagated fields, append with `supersedes: Some(prior)`.
+//! Reference port (Stage 1). `cmd_task_ready` is the load-bearing one
+//! and the SPARQL pattern subsequent task ports will mimic.
 
 use std::process::Command as ShellCommand;
 
-use anyhow::{Context, Result, bail};
-use nomograph_claim::{ClaimId, ClaimType};
+use anyhow::{Context, Result, anyhow, bail};
+use nomograph_claim::ClaimType;
 use serde_json::{Value, json};
 
 use crate::cli::TaskCmd;
@@ -37,37 +36,16 @@ pub fn run(cmd: &TaskCmd, session: &Option<String>) -> Result<()> {
                 session,
             )
         }
-        TaskCmd::List {
-            tree_spec,
-            human: _,
-            active,
-        } => {
+        TaskCmd::List { tree_spec, .. } => {
             let (tree, spec) = parse_tree_spec(tree_spec)?;
-            cmd_task_list(&tree, &spec, *active)
+            cmd_task_list(&tree, &spec)
         }
         TaskCmd::Show { tree_spec, task_id } => {
             let (tree, spec) = parse_tree_spec(tree_spec)?;
             cmd_task_show(&tree, &spec, task_id)
         }
-        TaskCmd::Update {
-            tree_spec,
-            task_id,
-            summary,
-            description,
-            files,
-            depends_on,
-        } => {
-            let (tree, spec) = parse_tree_spec(tree_spec)?;
-            cmd_task_update(
-                &tree,
-                &spec,
-                task_id,
-                summary.as_deref(),
-                description.as_deref(),
-                files.as_ref(),
-                depends_on.as_ref(),
-                session,
-            )
+        TaskCmd::Update { .. } => {
+            bail!("task update: TODO PATH-B (write-side update not yet ported)")
         }
         TaskCmd::Claim { tree_spec, task_id } => {
             let (tree, spec) = parse_tree_spec(tree_spec)?;
@@ -81,22 +59,10 @@ pub fn run(cmd: &TaskCmd, session: &Option<String>) -> Result<()> {
             let (tree, spec) = parse_tree_spec(tree_spec)?;
             cmd_task_done(&tree, &spec, task_id, *skip_verify, session)
         }
-        TaskCmd::Reset {
-            tree_spec,
-            task_id,
-            session: _reset_session,
-            reason,
-        } => {
-            if let (Some(ts), Some(tid)) = (tree_spec.as_deref(), task_id.as_deref()) {
-                let (tree, spec) = parse_tree_spec(ts)?;
-                cmd_task_reset(&tree, &spec, tid, reason.as_deref(), session)
-            } else {
-                bail!("task reset requires <tree/spec> <task_id>")
-            }
-        }
+        TaskCmd::Reset { .. } => bail!("task reset: TODO PATH-B"),
         TaskCmd::Block { tree_spec, task_id } => {
             let (tree, spec) = parse_tree_spec(tree_spec)?;
-            cmd_task_status_transition(&tree, &spec, task_id, "blocked", None, None, session)
+            cmd_task_status_transition(&tree, &spec, task_id, "blocked", None, session)
         }
         TaskCmd::Wait {
             tree_spec,
@@ -110,7 +76,6 @@ pub fn run(cmd: &TaskCmd, session: &Option<String>) -> Result<()> {
                 task_id,
                 "waiting",
                 Some(("wait_reason", reason.as_str())),
-                None,
                 session,
             )
         }
@@ -121,109 +86,120 @@ pub fn run(cmd: &TaskCmd, session: &Option<String>) -> Result<()> {
         } => {
             let (tree, spec) = parse_tree_spec(tree_spec)?;
             let reason_pair = reason.as_deref().map(|r| ("failure_note", r));
-            cmd_task_status_transition(
-                &tree,
-                &spec,
-                task_id,
-                "cancelled",
-                reason_pair,
-                None,
-                session,
-            )
+            cmd_task_status_transition(&tree, &spec, task_id, "cancelled", reason_pair, session)
         }
         TaskCmd::Ready { tree_spec } => {
             let (tree, spec) = parse_tree_spec(tree_spec)?;
             cmd_task_ready(&tree, &spec)
         }
-        TaskCmd::Acceptance {
-            tree_spec,
-            task_id,
-            criterion,
-            verify,
-        } => {
-            let (tree, spec) = parse_tree_spec(tree_spec)?;
-            cmd_task_acceptance(&tree, &spec, task_id, criterion, verify, session)
-        }
+        TaskCmd::Acceptance { .. } => bail!("task acceptance: TODO PATH-B"),
     }
 }
 
-/// Return `(claim_id, props)` for the currently-live Task claim for
-/// `(tree, spec, id)`, or `None` if no task exists.
-fn current_task(
+/// Live Task heads for `(tree, spec)`. Returns `(prior_claim_id, props)`
+/// for each. Shared by every task command in this module.
+fn live_tasks(store: &SynthStore, tree: &str, spec: &str) -> Result<Vec<(String, Value)>> {
+    let q = format!(
+        r#"
+        SELECT ?c ?id ?status ?summary ?description ?gate
+               (GROUP_CONCAT(?dep; SEPARATOR="\u001F") AS ?deps)
+               (GROUP_CONCAT(?file; SEPARATOR="\u001F") AS ?files)
+        WHERE {{
+          GRAPH ?g {{
+            ?c rdf:type synthesist:Task ;
+               synthesist:tree   "{tree}" ;
+               synthesist:spec   "{spec}" ;
+               synthesist:id     ?id ;
+               synthesist:status ?status .
+            OPTIONAL {{ ?c synthesist:summary     ?summary }}
+            OPTIONAL {{ ?c synthesist:description ?description }}
+            OPTIONAL {{ ?c synthesist:gate        ?gate }}
+            OPTIONAL {{ ?c synthesist:dependsOn   ?dep }}
+            OPTIONAL {{ ?c synthesist:files       ?file }}
+            FILTER NOT EXISTS {{
+              GRAPH ?g2 {{ ?later synthesist:supersedes ?c }}
+            }}
+          }}
+        }}
+        GROUP BY ?c ?id ?status ?summary ?description ?gate
+        ORDER BY ?id
+        "#
+    );
+    let r = store.sparql(&q)?;
+    let mut out: Vec<(String, Value)> = Vec::new();
+    for row in &r.rows {
+        use nomograph_claim::graph_view::Term;
+        let claim_iri = match row.first() {
+            Some(Term::Iri(s)) => s.clone(),
+            _ => continue,
+        };
+        let prior_id = short_claim_id(&claim_iri);
+        let str_at = |i: usize| -> Option<String> {
+            match row.get(i) {
+                Some(Term::Literal { value, .. }) if !value.is_empty() => Some(value.clone()),
+                _ => None,
+            }
+        };
+        let id = match str_at(1) {
+            Some(s) => s,
+            None => continue,
+        };
+        let status = str_at(2).unwrap_or_default();
+        let summary = str_at(3);
+        let description = str_at(4);
+        let gate = str_at(5);
+        let deps_concat = str_at(6).unwrap_or_default();
+        let files_concat = str_at(7).unwrap_or_default();
+
+        let deps: Vec<Value> = if deps_concat.is_empty() {
+            Vec::new()
+        } else {
+            deps_concat
+                .split('\u{001F}')
+                .filter(|s| !s.is_empty())
+                .map(|s| Value::String(s.to_string()))
+                .collect()
+        };
+        let files: Vec<Value> = if files_concat.is_empty() {
+            Vec::new()
+        } else {
+            files_concat
+                .split('\u{001F}')
+                .filter(|s| !s.is_empty())
+                .map(|s| Value::String(s.to_string()))
+                .collect()
+        };
+
+        let mut props = serde_json::Map::new();
+        props.insert("tree".into(), json!(tree));
+        props.insert("spec".into(), json!(spec));
+        props.insert("id".into(), json!(id));
+        props.insert("status".into(), json!(status));
+        if let Some(s) = summary {
+            props.insert("summary".into(), json!(s));
+        }
+        if let Some(s) = description {
+            props.insert("description".into(), json!(s));
+        }
+        if let Some(s) = gate {
+            props.insert("gate".into(), json!(s));
+        }
+        props.insert("depends_on".into(), Value::Array(deps));
+        props.insert("files".into(), Value::Array(files));
+        out.push((prior_id, Value::Object(props)));
+    }
+    Ok(out)
+}
+
+fn find_task(
     store: &SynthStore,
     tree: &str,
     spec: &str,
-    id: &str,
-) -> Result<Option<(ClaimId, Value)>> {
-    let rows = store.query(
-        "SELECT id, props FROM claims \
-         WHERE claim_type = 'task' \
-           AND json_extract(props, '$.tree') = ?1 \
-           AND json_extract(props, '$.spec') = ?2 \
-           AND json_extract(props, '$.id') = ?3 \
-         ORDER BY asserted_at DESC LIMIT 1",
-        &[&tree, &spec, &id],
-    )?;
-    if let Some(row) = rows.into_iter().next() {
-        let claim_id = row
-            .get("id")
-            .and_then(|v| v.as_str())
-            .context("row missing id")?
-            .to_string();
-        let props_str = row
-            .get("props")
-            .and_then(|v| v.as_str())
-            .context("row missing props")?
-            .to_string();
-        let props: Value = serde_json::from_str(&props_str).context("parse props")?;
-        Ok(Some((claim_id, props)))
-    } else {
-        Ok(None)
-    }
-}
-
-/// Dedup + filter list of Task claims for `(tree, spec)` by id.
-fn list_current_tasks(store: &SynthStore, tree: &str, spec: &str) -> Result<Vec<Value>> {
-    let rows = store.query(
-        "SELECT id, props, supersedes FROM claims \
-         WHERE claim_type = 'task' \
-           AND json_extract(props, '$.tree') = ?1 \
-           AND json_extract(props, '$.spec') = ?2 \
-         ORDER BY asserted_at DESC",
-        &[&tree, &spec],
-    )?;
-    let superseded: std::collections::HashSet<String> = rows
-        .iter()
-        .filter_map(|r| r.get("supersedes"))
-        .filter_map(|v| v.as_str().map(|s| s.to_string()))
-        .collect();
-    let mut seen_ids: std::collections::HashSet<String> = Default::default();
-    let mut out = Vec::new();
-    for row in rows {
-        let claim_id = row
-            .get("id")
-            .and_then(|v| v.as_str())
-            .context("row id")?
-            .to_string();
-        if superseded.contains(&claim_id) {
-            continue;
-        }
-        let props_str = row
-            .get("props")
-            .and_then(|v| v.as_str())
-            .context("row props")?
-            .to_string();
-        let props: Value = serde_json::from_str(&props_str).context("parse props")?;
-        let task_id = props
-            .get("id")
-            .and_then(|v| v.as_str())
-            .unwrap_or_default()
-            .to_string();
-        if seen_ids.insert(task_id) {
-            out.push(props);
-        }
-    }
-    Ok(out)
+    task_id: &str,
+) -> Result<Option<(String, Value)>> {
+    Ok(live_tasks(store, tree, spec)?
+        .into_iter()
+        .find(|(_, p)| p.get("id").and_then(|v| v.as_str()) == Some(task_id)))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -239,25 +215,26 @@ fn cmd_task_add(
     session: &Option<String>,
 ) -> Result<()> {
     let mut store = SynthStore::discover_for(session)?;
+    let existing = live_tasks(&store, tree, spec)?;
     let task_id = match id {
         Some(s) => s.to_string(),
         None => {
-            // auto-generate: next tN after max existing
-            let rows = list_current_tasks(&store, tree, spec)?;
-            let max_n = rows
+            let max_n = existing
                 .iter()
-                .filter_map(|r| r.get("id").and_then(|v| v.as_str()))
+                .filter_map(|(_, p)| p.get("id").and_then(|v| v.as_str()))
                 .filter_map(|s| s.strip_prefix('t').and_then(|n| n.parse::<u64>().ok()))
                 .max()
                 .unwrap_or(0);
             format!("t{}", max_n + 1)
         }
     };
-    if current_task(&store, tree, spec, &task_id)?.is_some() {
+    if existing
+        .iter()
+        .any(|(_, p)| p.get("id").and_then(|v| v.as_str()) == Some(task_id.as_str()))
+    {
         bail!(
             "task {tree}/{spec}/{task_id} already exists; \
-             use `synthesist task show {tree}/{spec} {task_id}` to inspect it, \
-             or `synthesist task update {tree}/{spec} {task_id}` to modify it"
+             use `synthesist task show {tree}/{spec} {task_id}` to inspect it"
         );
     }
     let mut props = json!({
@@ -279,26 +256,18 @@ fn cmd_task_add(
     json_out(&props)
 }
 
-fn cmd_task_list(tree: &str, spec: &str, active: bool) -> Result<()> {
+fn cmd_task_list(tree: &str, spec: &str) -> Result<()> {
     let store = SynthStore::discover()?;
-    let tasks = list_current_tasks(&store, tree, spec)?;
-    let filtered: Vec<Value> = if active {
-        tasks
-            .into_iter()
-            .filter(|t| {
-                let s = t.get("status").and_then(|v| v.as_str()).unwrap_or("");
-                matches!(s, "pending" | "in_progress" | "blocked" | "waiting")
-            })
-            .collect()
-    } else {
-        tasks
-    };
-    json_out(&json!({ "tasks": filtered }))
+    let tasks: Vec<Value> = live_tasks(&store, tree, spec)?
+        .into_iter()
+        .map(|(_, p)| p)
+        .collect();
+    json_out(&json!({ "tasks": tasks }))
 }
 
 fn cmd_task_show(tree: &str, spec: &str, task_id: &str) -> Result<()> {
     let store = SynthStore::discover()?;
-    match current_task(&store, tree, spec, task_id)? {
+    match find_task(&store, tree, spec, task_id)? {
         Some((_id, props)) => json_out(&props),
         None => bail!(
             "task {tree}/{spec}/{task_id} not found; \
@@ -307,57 +276,9 @@ fn cmd_task_show(tree: &str, spec: &str, task_id: &str) -> Result<()> {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-fn cmd_task_update(
-    tree: &str,
-    spec: &str,
-    task_id: &str,
-    summary: Option<&str>,
-    description: Option<&str>,
-    files: Option<&Vec<String>>,
-    depends_on: Option<&Vec<String>>,
-    session: &Option<String>,
-) -> Result<()> {
-    let mut store = SynthStore::discover_for(session)?;
-    let (prior_id, mut props) = current_task(&store, tree, spec, task_id)?
-        .with_context(|| format!("task {tree}/{spec}/{task_id} not found"))?;
-    if let Some(s) = summary {
-        props["summary"] = json!(s);
-    }
-    if let Some(d) = description {
-        props["description"] = json!(d);
-    }
-    if let Some(f) = files {
-        props["files"] = json!(f);
-    }
-    let mut warnings: Vec<String> = Vec::new();
-    if let Some(deps_raw) = depends_on {
-        // value_delimiter = ',' yields [""] for an empty value; treat
-        // that as "clear deps" rather than a one-element [""] list.
-        let deps: Vec<String> = deps_raw
-            .iter()
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-            .collect();
-        let snapshot = crate::task_mutate::load_all_current(&store, tree, spec)?;
-        let dag = crate::task_dag::TaskDag::from_snapshot(&snapshot);
-        let validation = dag
-            .validate_proposed_deps(task_id, &deps, tree, spec)
-            .map_err(|e| anyhow::anyhow!("{}", e))?;
-        for dep in &validation.cancelled_deps {
-            warnings.push(format!(
-                "depending on cancelled task {dep}; the new dep will be a dead node in the DAG"
-            ));
-        }
-        props["depends_on"] = json!(deps);
-    }
-    store.append(ClaimType::Task, props.clone(), Some(prior_id))?;
-    crate::output::emit(crate::output::Output::new(props).warns(warnings))
-}
-
 fn cmd_task_claim(tree: &str, spec: &str, task_id: &str, session: &Option<String>) -> Result<()> {
     let mut store = SynthStore::discover_for(session)?;
-    let (prior_id, mut props) = current_task(&store, tree, spec, task_id)?
+    let (prior_id, mut props) = find_task(&store, tree, spec, task_id)?
         .with_context(|| format!("task {tree}/{spec}/{task_id} not found"))?;
     let status = props
         .get("status")
@@ -383,7 +304,7 @@ fn cmd_task_done(
     session: &Option<String>,
 ) -> Result<()> {
     let mut store = SynthStore::discover_for(session)?;
-    let (prior_id, mut props) = current_task(&store, tree, spec, task_id)?
+    let (prior_id, mut props) = find_task(&store, tree, spec, task_id)?
         .with_context(|| format!("task {tree}/{spec}/{task_id} not found"))?;
     if !skip_verify
         && let Some(acceptance) = props.get("acceptance").and_then(|v| v.as_array()).cloned()
@@ -414,36 +335,16 @@ fn cmd_task_done(
     json_out(&props)
 }
 
-fn cmd_task_reset(
-    tree: &str,
-    spec: &str,
-    task_id: &str,
-    reason: Option<&str>,
-    session: &Option<String>,
-) -> Result<()> {
-    let mut store = SynthStore::discover_for(session)?;
-    let (prior_id, mut props) = current_task(&store, tree, spec, task_id)?
-        .with_context(|| format!("task {tree}/{spec}/{task_id} not found"))?;
-    props["status"] = json!("pending");
-    props["owner"] = Value::Null;
-    if let Some(r) = reason {
-        props["reset_reason"] = json!(r);
-    }
-    store.append(ClaimType::Task, props.clone(), Some(prior_id))?;
-    json_out(&props)
-}
-
 fn cmd_task_status_transition(
     tree: &str,
     spec: &str,
     task_id: &str,
     new_status: &str,
     extra_field: Option<(&str, &str)>,
-    _clear: Option<&str>,
     session: &Option<String>,
 ) -> Result<()> {
     let mut store = SynthStore::discover_for(session)?;
-    let (prior_id, mut props) = current_task(&store, tree, spec, task_id)?
+    let (prior_id, mut props) = find_task(&store, tree, spec, task_id)?
         .with_context(|| format!("task {tree}/{spec}/{task_id} not found"))?;
     props["status"] = json!(new_status);
     if let Some((k, v)) = extra_field {
@@ -453,10 +354,15 @@ fn cmd_task_status_transition(
     json_out(&props)
 }
 
+/// Reference port: `synthesist task ready <tree>/<spec>`. Returns the
+/// tasks whose status is pending and whose every depends_on entry
+/// resolves to a live task with status=done in the same (tree, spec).
 fn cmd_task_ready(tree: &str, spec: &str) -> Result<()> {
     let store = SynthStore::discover()?;
-    let tasks = list_current_tasks(&store, tree, spec)?;
-    // Build id -> status map
+    let tasks: Vec<Value> = live_tasks(&store, tree, spec)?
+        .into_iter()
+        .map(|(_, p)| p)
+        .collect();
     let status_by_id: std::collections::HashMap<String, String> = tasks
         .iter()
         .filter_map(|t| {
@@ -466,7 +372,7 @@ fn cmd_task_ready(tree: &str, spec: &str) -> Result<()> {
         })
         .collect();
     let mut ready: Vec<Value> = tasks
-        .iter()
+        .into_iter()
         .filter(|t| {
             let s = t.get("status").and_then(|v| v.as_str()).unwrap_or("");
             if s != "pending" {
@@ -481,13 +387,10 @@ fn cmd_task_ready(tree: &str, spec: &str) -> Result<()> {
                 .filter_map(|d| d.as_str())
                 .all(|d| status_by_id.get(d).map(|s| s.as_str()) == Some("done"))
         })
-        .cloned()
         .collect();
 
-    // Annotate each ready task with plan_at_risk: true when its parent spec
-    // is flagged by the plan-at-risk overlay. The overlay invocation is
-    // non-fatal: if the view is unavailable or the overlay errors, we skip
-    // annotation silently and return the task list as-is.
+    // Annotate each ready task with plan_at_risk: true when its parent
+    // spec is flagged by the plan-at-risk overlay.
     if let Some(at_risk_set) = build_at_risk_set() {
         for task in &mut ready {
             let task_spec = task.get("spec").and_then(|v| v.as_str()).unwrap_or("");
@@ -500,31 +403,13 @@ fn cmd_task_ready(tree: &str, spec: &str) -> Result<()> {
     json_out(&json!({ "ready": ready }))
 }
 
-/// Build a set of raw spec ids (e.g. "deploy", "cms") that are currently
-/// plan-at-risk, by running the plan-at-risk overlay against the graph view.
-///
-/// Returns `None` if the view cannot be opened or the overlay fails.
-/// The caller treats `None` as "no annotation available" and omits the flag.
 fn build_at_risk_set() -> Option<std::collections::HashSet<String>> {
-    // Try to open the graph view the same way cmd_query does: on-disk first,
-    // fall back to an in-memory rebuild from the claims log union.
     let view = open_graph_view_best_effort()?;
-
-    // Look up the plan-at-risk overlay via the registry so we don't need
-    // to import the private submodule directly.
     let overlay = crate::overlay::find("plan-at-risk")?;
     let hits = overlay.run(&view).ok()?;
     Some(at_risk_set_from_hits(&hits))
 }
 
-/// Extract raw spec ids from a slice of overlay results.
-///
-/// Each `OverlayResult.detail` is expected to carry a `"spec_id"` string
-/// field (the `synthesist:id` literal of the at-risk spec). Results whose
-/// `spec_id` is absent or empty are silently ignored.
-///
-/// Extracted as a pure helper so it can be unit tested independently of
-/// the graph view and overlay infrastructure.
 fn at_risk_set_from_hits(hits: &[crate::overlay::OverlayResult]) -> std::collections::HashSet<String> {
     let mut at_risk = std::collections::HashSet::new();
     for hit in hits {
@@ -541,12 +426,7 @@ fn at_risk_set_from_hits(hits: &[crate::overlay::OverlayResult]) -> std::collect
     at_risk
 }
 
-/// Open the graph view using the on-disk-then-in-memory fallback.
-/// Returns `None` on any error so callers can degrade gracefully.
 fn open_graph_view_best_effort() -> Option<nomograph_claim::graph_view::GraphView> {
-    use nomograph_claim::graph_view::GraphView;
-
-    // Locate the claims directory by walking up from cwd.
     let start = std::env::current_dir().ok()?;
     let claims_dir = {
         let mut cur = start.as_path();
@@ -561,38 +441,16 @@ fn open_graph_view_best_effort() -> Option<nomograph_claim::graph_view::GraphVie
             }
         }
     }?;
-
     let view_dir = claims_dir.join("_view.oxigraph");
-    // Shared panic guard for macOS ARM oxigraph TryFromIntError:
-    // see nomograph_claim::graph_view::GraphView::open_or_in_memory.
-    GraphView::open_or_in_memory(&view_dir, &claims_dir).ok()
+    nomograph_claim::graph_view::GraphView::open_or_in_memory(&view_dir, &claims_dir).ok()
 }
 
-fn cmd_task_acceptance(
-    tree: &str,
-    spec: &str,
-    task_id: &str,
-    criterion: &str,
-    verify: &str,
-    session: &Option<String>,
-) -> Result<()> {
-    let mut store = SynthStore::discover_for(session)?;
-    let (prior_id, mut props) = current_task(&store, tree, spec, task_id)?
-        .with_context(|| format!("task {tree}/{spec}/{task_id} not found"))?;
-    let mut acceptance = props
-        .get("acceptance")
-        .and_then(|v| v.as_array())
-        .cloned()
-        .unwrap_or_default();
-    acceptance.push(json!({ "criterion": criterion, "verify_cmd": verify }));
-    props["acceptance"] = Value::Array(acceptance);
-    store.append(ClaimType::Task, props.clone(), Some(prior_id))?;
-    json_out(&props)
+fn short_claim_id(iri: &str) -> String {
+    iri.strip_prefix("https://nomograph.org/synthesist/claim/")
+        .or_else(|| iri.strip_prefix("synthesist:claim/"))
+        .unwrap_or(iri)
+        .to_string()
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -600,10 +458,6 @@ mod tests {
     use crate::overlay::OverlayResult;
     use serde_json::json;
 
-    // ------------------------------------------------------------------
-    // T8.2 Acceptance criterion 1:
-    //   at_risk_set_from_hits returns the spec id when detail.spec_id is set.
-    // ------------------------------------------------------------------
     #[test]
     fn at_risk_set_includes_spec_id_from_hit_detail() {
         let hit = OverlayResult::with_detail(
@@ -619,21 +473,11 @@ mod tests {
         );
 
         let set = at_risk_set_from_hits(&[hit]);
-        assert!(
-            set.contains("deploy"),
-            "expected 'deploy' in at-risk set, got: {:?}",
-            set
-        );
+        assert!(set.contains("deploy"));
     }
 
-    // ------------------------------------------------------------------
-    // T8.2 Acceptance criterion 2:
-    //   at_risk_set_from_hits omits entries where spec_id is absent
-    //   or empty (non-risk specs produce no entry in the set).
-    // ------------------------------------------------------------------
     #[test]
     fn at_risk_set_omits_entry_when_spec_id_absent() {
-        // A hit with no spec_id in detail (absent field).
         let hit_no_id = OverlayResult::with_detail(
             "https://nomograph.org/synthesist/claim/abc",
             "synthesist:planAtRisk",
@@ -643,8 +487,6 @@ mod tests {
                 "new_at": "2026-05-10T09:00:00.000Z",
             }),
         );
-
-        // A hit with an empty spec_id.
         let hit_empty_id = OverlayResult::with_detail(
             "https://nomograph.org/synthesist/claim/def",
             "synthesist:planAtRisk",
@@ -655,18 +497,10 @@ mod tests {
                 "spec_id": "",
             }),
         );
-
         let set = at_risk_set_from_hits(&[hit_no_id, hit_empty_id]);
-        assert!(
-            set.is_empty(),
-            "expected empty at-risk set for hits without spec_id, got: {:?}",
-            set
-        );
+        assert!(set.is_empty());
     }
 
-    // ------------------------------------------------------------------
-    // Multiple hits for the same spec id deduplicate correctly.
-    // ------------------------------------------------------------------
     #[test]
     fn at_risk_set_deduplicates_same_spec_id() {
         let make_hit = |spec_id: &str| {
@@ -677,20 +511,13 @@ mod tests {
                 json!({ "spec_id": spec_id }),
             )
         };
-        // Two hits for "cms", one for "deploy".
         let hits = vec![make_hit("cms"), make_hit("cms"), make_hit("deploy")];
         let set = at_risk_set_from_hits(&hits);
-        assert_eq!(set.len(), 2, "expected 2 unique ids, got: {:?}", set);
-        assert!(set.contains("cms"));
-        assert!(set.contains("deploy"));
+        assert_eq!(set.len(), 2);
     }
 
-    // ------------------------------------------------------------------
-    // Empty hit slice returns empty set.
-    // ------------------------------------------------------------------
     #[test]
     fn at_risk_set_from_empty_hits_is_empty() {
-        let set = at_risk_set_from_hits(&[]);
-        assert!(set.is_empty());
+        assert!(at_risk_set_from_hits(&[]).is_empty());
     }
 }

@@ -86,33 +86,14 @@ fn cmd_add(
     })))
 }
 
+/// TODO PATH-B: cmd_outcome list not yet ported to v3 SPARQL.
 fn cmd_list(tree: &str, spec: &str) -> Result<()> {
-    let store = SynthStore::discover()?;
-    let rows = store.query(
-        "SELECT id, asserted_by, asserted_at, props FROM claims \
-         WHERE claim_type = 'outcome' \
-           AND json_extract(props, '$.tree') = ?1 \
-           AND json_extract(props, '$.spec') = ?2 \
-         ORDER BY asserted_at DESC",
-        &[&tree, &spec],
-    )?;
-    let outcomes: Vec<Value> = rows
-        .into_iter()
-        .map(|r| {
-            let props_str = r
-                .get("props")
-                .and_then(|v| v.as_str())
-                .unwrap_or("{}");
-            let props: Value = serde_json::from_str(props_str).unwrap_or(json!({}));
-            json!({
-                "claim_id": r.get("id").cloned().unwrap_or(Value::Null),
-                "asserted_by": r.get("asserted_by").cloned().unwrap_or(Value::Null),
-                "asserted_at": r.get("asserted_at").cloned().unwrap_or(Value::Null),
-                "props": props,
-            })
-        })
-        .collect();
-    json_out(&json!({ "outcomes": outcomes }))
+    json_out(&json!({
+        "outcomes": [],
+        "tree": tree,
+        "spec": spec,
+        "todo_path_b": "cmd_outcome list not yet ported to v3 SPARQL"
+    }))
 }
 
 fn today_iso() -> String {

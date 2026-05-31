@@ -210,7 +210,7 @@ fn run(cli: cli::Cli) -> anyhow::Result<()> {
     if !no_attribution && !cli.force {
         let (top, sub) = command_path(&cli.command);
         if !matches!(top, "session" | "phase" | "import" | "outcome") {
-            let store = store::Store::discover()?;
+            let store = store::SynthStore::discover()?;
             cmd_phase::check_phase(&store, cli.session.as_deref(), top, sub, cli.force)?;
         }
     }

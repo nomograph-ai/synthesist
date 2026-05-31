@@ -1,30 +1,76 @@
-//! `synthesist phase ...` CLI handlers.
+//! `synthesist phase ...` CLI handlers (Path B Stage 1: SPARQL-native).
 //!
-//! v2.1 moved the [`Phase`] enum, transition rules, and `check_phase`
-//! enforcer into [`nomograph_workflow::phase`]. This file only owns
-//! the CLI-facing `phase set` / `phase show` handlers; cross-tool
-//! consumers (future `seer`) share the state machine automatically.
+//! Phase claims carry `{session_id, name}` and supersede earlier
+//! phase claims for the same session. Queries go through SPARQL
+//! against the cached graph view.
 
 use anyhow::{Result, anyhow, bail};
 use nomograph_claim::ClaimType;
-use nomograph_workflow::Phase;
-use nomograph_workflow::phase::current_phase_claim;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::cli::PhaseCmd;
 use crate::store::{SynthStore, json_out};
 
-/// Re-exported for `main.rs` so command dispatch can keep calling
-/// `cmd_phase::check_phase(..)` without every caller learning the
-/// workflow crate path.
-pub use nomograph_workflow::phase::check_phase;
+/// Workflow phase. Mirror of the v2 `nomograph_workflow::Phase` so
+/// callers don't depend on the v2 crate's runtime surface.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Phase {
+    Orient,
+    Plan,
+    Agree,
+    Execute,
+    Reflect,
+    Replan,
+    Report,
+}
+
+impl Phase {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Orient => "orient",
+            Self::Plan => "plan",
+            Self::Agree => "agree",
+            Self::Execute => "execute",
+            Self::Reflect => "reflect",
+            Self::Replan => "replan",
+            Self::Report => "report",
+        }
+    }
+
+    #[allow(clippy::should_implement_trait)]
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "orient" => Some(Self::Orient),
+            "plan" => Some(Self::Plan),
+            "agree" => Some(Self::Agree),
+            "execute" => Some(Self::Execute),
+            "reflect" => Some(Self::Reflect),
+            "replan" => Some(Self::Replan),
+            "report" => Some(Self::Report),
+            _ => None,
+        }
+    }
+
+    pub fn valid_transitions(&self) -> &'static [Phase] {
+        match self {
+            Self::Orient => &[Self::Plan],
+            Self::Plan => &[Self::Agree],
+            Self::Agree => &[Self::Execute],
+            Self::Execute => &[Self::Reflect, Self::Report],
+            Self::Reflect => &[Self::Execute, Self::Replan, Self::Report],
+            Self::Replan => &[Self::Agree],
+            Self::Report => &[],
+        }
+    }
+
+    pub fn can_transition_to(&self, target: Phase) -> bool {
+        self.valid_transitions().contains(&target)
+    }
+}
 
 pub fn run(cmd: &PhaseCmd, session: &Option<String>, force: bool) -> Result<()> {
-    // Clap's `env = "SYNTHESIST_SESSION"` on the top-level `--session`
-    // flag is read-only: it populates `cli.session` when the env var
-    // is set but does NOT write the env when `--session=<id>` comes in
-    // as a flag. So we thread the parsed value through explicitly,
-    // matching the pattern used everywhere else in the adapter.
     match cmd {
         PhaseCmd::Set { name } => cmd_phase_set(name, session, force),
         PhaseCmd::Show => cmd_phase_show(session.as_deref()),
@@ -51,10 +97,6 @@ fn cmd_phase_set(name: &str, session: &Option<String>, force: bool) -> Result<()
     })?;
 
     let session_id = resolve_session(session.as_deref())?;
-    // discover_for mirrors the asserter from the workflow store onto the
-    // v3 dual-write path so Phase claims actually land in the v3 log.
-    // Plain `discover()` leaves asserted_by None and the dual-write is
-    // a no-op (T3.6 fix).
     let mut store = SynthStore::discover_for(session)?;
 
     let prior = current_phase_claim(&store, &session_id)?;
@@ -90,8 +132,130 @@ fn cmd_phase_set(name: &str, session: &Option<String>, force: bool) -> Result<()
 fn cmd_phase_show(session: Option<&str>) -> Result<()> {
     let session_id = resolve_session(session)?;
     let store = SynthStore::discover()?;
-    let phase = current_phase_claim(&store, &session_id)?
-        .map(|(_, name)| name)
+    let phase = current_phase_name(&store, &session_id)?
         .unwrap_or_else(|| "orient".to_string());
     json_out(&json!({"phase": phase, "session_id": session_id}))
+}
+
+/// Per-phase write gate. Returns Err with a phase-violation message
+/// when the (top_cmd, sub_cmd) tuple is forbidden in the session's
+/// current phase. `force=true` short-circuits the check.
+pub fn check_phase(
+    store: &SynthStore,
+    session: Option<&str>,
+    top_cmd: &str,
+    sub_cmd: &str,
+    force: bool,
+) -> Result<()> {
+    if force {
+        return Ok(());
+    }
+
+    let session_id = session
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| anyhow!(
+            "phase enforcement requires a session id; phase is per-session in v2"
+        ))?;
+
+    let phase = current_phase_name(store, session_id)?
+        .unwrap_or_else(|| Phase::Orient.as_str().to_string());
+
+    let violation = match phase.as_str() {
+        "orient" => Some("no writes allowed in ORIENT phase"),
+        "plan" => {
+            if top_cmd == "task" && matches!(sub_cmd, "claim" | "done" | "block") {
+                Some("cannot claim/complete tasks in PLAN phase")
+            } else {
+                None
+            }
+        }
+        "agree" => Some("no operations in AGREE phase -- present plan and wait for human approval"),
+        "execute" => {
+            if top_cmd == "task" && matches!(sub_cmd, "add" | "cancel") {
+                Some("cannot add/cancel tasks in EXECUTE phase -- transition to REPLAN")
+            } else if top_cmd == "spec" && sub_cmd == "add" {
+                Some("cannot add specs in EXECUTE phase -- transition to REPLAN")
+            } else {
+                None
+            }
+        }
+        "reflect" => {
+            if top_cmd == "task" && sub_cmd == "claim" {
+                Some("cannot claim tasks in REFLECT phase")
+            } else {
+                None
+            }
+        }
+        "replan" => {
+            if top_cmd == "task" && sub_cmd == "claim" {
+                Some("cannot claim tasks in REPLAN phase")
+            } else {
+                None
+            }
+        }
+        "report" => Some("no writes allowed in REPORT phase"),
+        _ => None,
+    };
+
+    if let Some(msg) = violation {
+        bail!("phase violation ({phase}): {msg}");
+    }
+    Ok(())
+}
+
+/// Return the current phase name for `session_id` via SPARQL.
+///
+/// Walks the Phase supersession chain by selecting Phase claims for
+/// `session_id` that have no later claim superseding them. SPARQL
+/// answers this with a `FILTER NOT EXISTS`.
+pub fn current_phase_name(store: &SynthStore, session_id: &str) -> Result<Option<String>> {
+    Ok(current_phase_claim(store, session_id)?.map(|(_, name)| name))
+}
+
+/// Return `(claim_iri, phase_name)` for the head of the Phase
+/// supersession chain for `session_id`, or `None` if no phase claim
+/// exists.
+pub fn current_phase_claim(
+    store: &SynthStore,
+    session_id: &str,
+) -> Result<Option<(String, String)>> {
+    let q = format!(
+        r#"
+        SELECT ?c ?name WHERE {{
+          GRAPH ?g {{
+            ?c rdf:type synthesist:Phase ;
+               synthesist:sessionId "{session_id}" ;
+               synthesist:name      ?name .
+            FILTER NOT EXISTS {{
+              GRAPH ?g2 {{ ?later synthesist:supersedes ?c }}
+            }}
+          }}
+        }}
+        LIMIT 1
+        "#
+    );
+    let results = store.sparql(&q)?;
+    if let Some(row) = results.rows.into_iter().next() {
+        use nomograph_claim::graph_view::Term;
+        let claim_iri = match row.first() {
+            Some(Term::Iri(s)) => s.clone(),
+            _ => return Ok(None),
+        };
+        let name = match row.get(1) {
+            Some(Term::Literal { value, .. }) => value.clone(),
+            _ => return Ok(None),
+        };
+        // Strip the expanded IRI prefix back to the bare hash so the
+        // caller can pass it straight to `SynthStore::append` as
+        // `supersedes`. The append helper will re-prefix it via
+        // `wire_format::claim_iri`.
+        let short = claim_iri
+            .strip_prefix("https://nomograph.org/synthesist/claim/")
+            .or_else(|| claim_iri.strip_prefix("synthesist:claim/"))
+            .unwrap_or(&claim_iri)
+            .to_string();
+        Ok(Some((short, name)))
+    } else {
+        Ok(None)
+    }
 }

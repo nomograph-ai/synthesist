@@ -56,16 +56,14 @@ fn asserter_dir(session: &str) -> String {
     format!("user-local-t3test-{session}")
 }
 
-/// Assert v2 .amc files exist under claims/changes/.
-fn assert_v2_amc_exists(dir: &TempDir) {
+/// Path B Stage 1: v2 `.amc` files no longer exist. The helper is
+/// retired; subsequent tests assert their absence rather than presence.
+fn assert_no_v2_amc(dir: &TempDir) {
     let changes = dir.path().join("claims").join("changes");
-    assert!(changes.is_dir(), "claims/changes/ must exist after writes");
-    let amc_count = fs::read_dir(&changes)
-        .unwrap()
-        .filter_map(|e| e.ok())
-        .filter(|e| e.path().extension().map(|x| x == "amc").unwrap_or(false))
-        .count();
-    assert!(amc_count > 0, "at least one .amc file must exist in claims/changes/");
+    assert!(
+        !changes.exists(),
+        "Path B retired v2 substrate; claims/changes/ must NOT exist"
+    );
 }
 
 /// Assert v3 log exists with expected line count; return the first line.
@@ -283,8 +281,8 @@ fn v3_happy_path_dual_write() {
     // ------------------------------------------------------------------
     const EXPECTED_V3_CLAIMS: usize = 12;
 
-    // a) v2 .amc files exist.
-    assert_v2_amc_exists(&tmp);
+    // a) v2 .amc files MUST NOT exist (Path B Stage 1).
+    assert_no_v2_amc(&tmp);
 
     // b) v3 log exists with the correct line count.
     let first_line = assert_v3_log(&tmp, session, EXPECTED_V3_CLAIMS);

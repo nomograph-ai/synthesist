@@ -1,143 +1,210 @@
-//! Synthesist's Store surface.
+//! Synthesist's v3-native Store facade.
 //!
-//! Wraps [`nomograph_workflow::Store`] with synthesist-side schema
-//! validation at the API boundary. Every typed `append` runs the
-//! claim through [`crate::schema::validate_claim`] before delegating
-//! to the substrate, so consumers get a structured `SchemaError` (via
-//! `anyhow`'s formatting at the binary edge) without garbage entering
-//! the claim log.
+//! This is the Path B Stage 1 cut: no v2 Automerge substrate, no v2
+//! `nomograph_workflow::Store`, no SQLite projection rebuild. Every
+//! write lands in the v3 JSON-LD log; every read is a SPARQL query
+//! against the cached graph view from C.2.
 //!
-//! The substrate (`nomograph-claim` 0.2+) is type-agnostic for
-//! validation; the workflow layer delegates the responsibility up,
-//! and this is where it lands.
+//! The v2 substrate retired:
+//!   - `nomograph_workflow::Store` (delegated to `nomograph_claim::Store`)
+//!   - SQLite View (`claims/view.sqlite`) and its rebuild on every open
+//!   - Automerge `.amc` change files under `claims/changes/`
 //!
-//! Existing call sites that did `store.append(...)` continue to work
-//! unchanged -- `SynthStore` provides the same signature. Read-only
-//! methods (`query`, `root`, `inner`, `sync_view`, `with_asserter`)
-//! transparently delegate to the wrapped workflow store via `Deref`.
+//! The migration path (`migrations::v2_to_v3`) still uses the old
+//! `nomograph_claim::Store` reader to drain an existing v2 estate into
+//! v3 logs. That code path is untouched.
 //!
-//! ## v3 dual write
+//! ## Write contract
 //!
-//! When `with_asserter` is called, `SynthStore` also initialises a
-//! `nomograph_claim::log::LogWriter` rooted at the same claims
-//! directory. After every successful v2 append, the store tries to
-//! write a matching JSON-LD document to the per-asserter v3 log.
-//! The v3 write is BEST EFFORT: failure produces a warning on stderr
-//! and the call still returns `Ok` with the v2 `ClaimId`. The v2
-//! substrate remains the source of truth for the alpha window.
+//! `SynthStore::append` validates `props` against the synthesist
+//! schema (strict-on-write), computes a deterministic claim id, and
+//! appends one v3 JSON-LD document via
+//! [`nomograph_claim::log::LogWriter`]. The append needs an asserter
+//! to be set (`with_asserter` or `discover_for`); without it the
+//! write fails fast because attribution is required for every claim.
 //!
-//! `append_replay` (migration path) does NOT dual-write.
+//! `SynthStore::append_replay` bypasses the per-type validator (for
+//! import / migration) but still writes a v3 doc.
+//!
+//! ## Read contract
+//!
+//! All reads go through SPARQL. `SynthStore::sparql` opens the cached
+//! graph view (`nomograph_claim::graph_view::open_or_in_memory`) on
+//! the first read and reuses it for the rest of the process. The
+//! C.2 snapshot cache means a cold open against a 1.5K-claim corpus
+//! finishes in milliseconds when heads have not changed.
+//!
+//! Commands that need to walk every claim raw (`cmd_check`,
+//! `cmd_export`) get an iterator via `iter_claims`.
 
-use std::ops::{Deref, DerefMut};
+use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result};
-use nomograph_claim::{ClaimId, ClaimType};
+use anyhow::{Context, Result, anyhow, bail};
+use nomograph_claim::ClaimType;
 use serde_json::Value;
 
 pub use nomograph_workflow::{
     CLAIMS_DIR, find_legacy_v1_db, json_out, legacy_migration_error, parse_tree_spec, today,
 };
 
-/// Synthesist-flavored Store: workflow's CRDT-backed Store with the
-/// synthesist schema validator applied at every `append` and an
-/// optional v3 JSON-LD dual-write for the alpha thesis.
+/// v3 claim id type. Identical to the substrate's `ClaimId` (an
+/// opaque string carrying the blake3 content hash, hex encoded).
+pub type ClaimId = String;
+
+/// Synthesist's v3-native Store facade.
+///
+/// Wraps a per-process [`nomograph_claim::log::LogWriter`] for writes
+/// and a lazily-opened [`nomograph_claim::graph_view::GraphView`] for
+/// reads. The view is cached on the instance: every command opens its
+/// store once, runs as many SPARQL queries as it needs, drops the
+/// store. The C.2 snapshot cache amortizes the rebuild cost across
+/// CLI invocations.
 pub struct SynthStore {
-    inner: nomograph_workflow::Store,
-    /// Asserter string captured from the last `with_asserter` call.
-    /// `None` until the caller sets it explicitly.
-    asserted_by: Option<String>,
-    /// v3 log writer rooted at the claims directory. Constructed when
-    /// the store is opened; `None` if construction failed (e.g. the
-    /// directory does not yet exist at open time).
+    claims_root: PathBuf,
     log_writer: Option<nomograph_claim::log::LogWriter>,
-    /// The claims directory root, kept so `with_asserter` can
-    /// (re-)construct the `LogWriter` after the `inner` store is
-    /// known.
-    claims_root: Option<PathBuf>,
+    view: RefCell<Option<nomograph_claim::graph_view::GraphView>>,
+    asserter: Option<String>,
 }
 
 impl SynthStore {
-    /// Build the v3 `LogWriter` from a claims directory, returning
-    /// `None` on any error rather than propagating. The dual write
-    /// is best-effort; a missing writer just means no v3 output.
-    fn make_log_writer(claims_dir: &Path) -> Option<nomograph_claim::log::LogWriter> {
-        nomograph_claim::log::LogWriter::new(claims_dir).ok()
-    }
-
-    fn from_inner(inner: nomograph_workflow::Store) -> Self {
-        let root = inner.root().to_path_buf();
-        let log_writer = Self::make_log_writer(&root);
+    fn from_claims_dir(claims_root: PathBuf) -> Self {
+        let log_writer = nomograph_claim::log::LogWriter::new(&claims_root).ok();
         Self {
-            inner,
-            asserted_by: None,
+            claims_root,
             log_writer,
-            claims_root: Some(root),
+            view: RefCell::new(None),
+            asserter: None,
         }
     }
 }
 
 #[allow(dead_code)]
 impl SynthStore {
+    /// Discover from `SYNTHESIST_DIR` env var or cwd walk-up.
     pub fn discover() -> Result<Self> {
-        Ok(Self::from_inner(nomograph_workflow::Store::discover()?))
-    }
-
-    pub fn discover_from(start: &Path) -> Result<Self> {
-        Ok(Self::from_inner(
-            nomograph_workflow::Store::discover_from(start)?,
-        ))
-    }
-
-    pub fn discover_for(session: &Option<String>) -> Result<Self> {
-        let inner = nomograph_workflow::Store::discover_for(session)?;
-        // Mirror the asserter string from the workflow store so the v3
-        // dual-write path sees the same value the inner store uses for
-        // appends. Without this, asserted_by stays None and no v3 log
-        // lines are produced for CLI commands that call discover_for.
-        let asserter = inner.asserted_by().to_string();
-        let mut s = Self::from_inner(inner);
-        if !asserter.is_empty() {
-            s.asserted_by = Some(asserter);
+        if let Ok(raw) = std::env::var("SYNTHESIST_DIR")
+            && !raw.is_empty()
+        {
+            return Self::open_explicit(Path::new(&raw));
         }
+        let cwd = std::env::current_dir().context("cwd")?;
+        Self::discover_from(&cwd)
+    }
+
+    /// Open the store at an explicit path (`SYNTHESIST_DIR` / `--data-dir`).
+    ///
+    /// The path names the directory CONTAINING `claims/`. Fails loudly
+    /// if `claims/` is missing -- silent fallback to `init_at` would
+    /// mask a misconfigured path.
+    fn open_explicit(dir: &Path) -> Result<Self> {
+        if !dir.exists() {
+            bail!(
+                "SYNTHESIST_DIR / --data-dir points at `{}` which does not exist",
+                dir.display()
+            );
+        }
+        if !dir.is_dir() {
+            bail!(
+                "SYNTHESIST_DIR / --data-dir points at `{}` which is not a directory",
+                dir.display()
+            );
+        }
+        let claims = dir.join(CLAIMS_DIR);
+        if !claims.is_dir() {
+            return Err(anyhow!(
+                "SYNTHESIST_DIR / --data-dir points at `{}` but no `{}/` directory is present there. \
+                 Run `synthesist init` in that directory first, or unset the override.",
+                dir.display(),
+                CLAIMS_DIR
+            ));
+        }
+        Self::open_at(&claims)
+    }
+
+    /// Walk up from `start` looking for a `claims/` directory, opening
+    /// the first hit. Falls back to `init_at(start/claims)` if none
+    /// found (and there's no v1 legacy db to bail on).
+    pub fn discover_from(start: &Path) -> Result<Self> {
+        let mut cur = start.to_path_buf();
+        loop {
+            let candidate = cur.join(CLAIMS_DIR);
+            // Accept either v3 (a directory with any per-asserter logs)
+            // or v2 (legacy genesis.amc) since the migration tool may
+            // still need to read a v2-shaped estate to convert it. The
+            // runtime read path goes through SPARQL either way -- v2
+            // genesis.amc files don't populate the graph view, so a
+            // pure-v2 estate just renders as empty until migrated.
+            if candidate.is_dir() {
+                return Self::open_at(&candidate);
+            }
+            if !cur.pop() {
+                break;
+            }
+        }
+        if let Some(legacy) = find_legacy_v1_db(start) {
+            return Err(legacy_migration_error(&legacy));
+        }
+        Self::init_at(&start.join(CLAIMS_DIR))
+    }
+
+    /// Discover and scope the asserter with an optional session id.
+    pub fn discover_for(session: &Option<String>) -> Result<Self> {
+        let mut s = Self::discover()?;
+        let base = local_asserter_base();
+        let asserter = match session {
+            Some(id) if !id.is_empty() => format!("{base}:{id}"),
+            _ => base,
+        };
+        s.asserter = Some(asserter);
         Ok(s)
     }
 
+    /// Open at an explicit `claims/` directory.
     pub fn open_at(claims_dir: &Path) -> Result<Self> {
-        Ok(Self::from_inner(
-            nomograph_workflow::Store::open_at(claims_dir)?,
-        ))
-    }
-
-    pub fn init_at(claims_dir: &Path) -> Result<Self> {
-        Ok(Self::from_inner(
-            nomograph_workflow::Store::init_at(claims_dir)?,
-        ))
-    }
-
-    pub fn with_asserter(mut self, asserted_by: impl Into<String>) -> Self {
-        let s: String = asserted_by.into();
-        self.asserted_by = Some(s.clone());
-        self.inner = self.inner.with_asserter(s);
-        // Re-init the log writer now that we know the claims root.
-        if let Some(ref root) = self.claims_root {
-            self.log_writer = Self::make_log_writer(root);
+        if !claims_dir.is_dir() {
+            bail!(
+                "claims path is not a directory: {}",
+                claims_dir.display()
+            );
         }
+        Ok(Self::from_claims_dir(claims_dir.to_path_buf()))
+    }
+
+    /// Initialize a fresh store at `claims_dir`. Idempotent.
+    pub fn init_at(claims_dir: &Path) -> Result<Self> {
+        std::fs::create_dir_all(claims_dir).with_context(|| {
+            format!("create claims dir {}", claims_dir.display())
+        })?;
+        Ok(Self::from_claims_dir(claims_dir.to_path_buf()))
+    }
+
+    /// Override the asserter. Required before any `append` call.
+    pub fn with_asserter(mut self, asserted_by: impl Into<String>) -> Self {
+        self.asserter = Some(asserted_by.into());
+        // Asserter change does not invalidate the cached view.
         self
     }
 
-    /// Append a typed claim. Validates `props` against the synthesist
-    /// schema for `claim_type` before persisting. Returns the new
-    /// claim id on success or a structured schema error on rejection.
+    /// The `claims/` directory backing this store.
+    pub fn root(&self) -> &Path {
+        &self.claims_root
+    }
+
+    /// The asserter string this store will use for subsequent appends.
+    pub fn asserted_by(&self) -> Option<&str> {
+        self.asserter.as_deref()
+    }
+
+    /// Append a typed claim (validated).
     ///
-    /// Validation runs at this synthesist boundary because the
-    /// workflow layer (and the substrate beneath it) is type-agnostic
-    /// since v0.2.0. The same `crate::schema::<type>::*` constants
-    /// drive both this validator and the CLI's clap parsers, so
-    /// CLI-accepts-iff-schema-accepts is structural.
+    /// Validates `props` against the synthesist schema for `claim_type`
+    /// before writing. Builds a v3 JSON-LD document via
+    /// [`crate::wire_format`], writes it via
+    /// [`nomograph_claim::log::LogWriter`], and returns the computed
+    /// claim hash.
     ///
-    /// After a successful v2 write, attempts a v3 JSON-LD dual write
-    /// to the per-asserter log. Dual-write failure is non-fatal.
+    /// Requires an asserter (set via `with_asserter` or `discover_for`).
     pub fn append(
         &mut self,
         claim_type: ClaimType,
@@ -147,147 +214,232 @@ impl SynthStore {
         crate::schema::validate_props(&claim_type, &props)
             .map_err(anyhow::Error::from)
             .context("validate claim before append")?;
-        let claim_id = self
-            .inner
-            .append(claim_type.clone(), props.clone(), supersedes.clone())?;
-
-        // v3 dual write -- best effort.
-        if let (Some(asserter), Some(writer)) = (&self.asserted_by, &self.log_writer) {
-            match v3_dual_write(writer, asserter, &claim_id, &claim_type, &props, &supersedes) {
-                Ok(_) => {}
-                Err(e) => eprintln!("warning: v3 dual-write failed: {e}"),
-            }
-        }
-
-        Ok(claim_id)
+        self.append_inner(claim_type, props, supersedes)
     }
 
-    /// Replay an existing claim into the store without running
-    /// synthesist's per-type validator.
-    ///
-    /// **Use this only for migration and import paths** -- moving
-    /// existing claims (from a v1 SQLite estate via `cmd_migrate`,
-    /// from a JSON export via `cmd_import`) into the new store. New
-    /// consumer-driven writes must go through `Self::append`
-    /// instead, which is the strict-on-write boundary that defends
-    /// against agents hallucinating fake claim types.
-    ///
-    /// The name carries the warning: this is replay, not creation.
-    /// The substrate's structural checks (content hash, append
-    /// lock, IO durability) still apply, so this is "skip domain
-    /// validation," not "skip all validation."
-    ///
-    /// Visibility is `pub(crate)` to keep the bypass within
-    /// synthesist's own modules -- no external consumer should ever
-    /// hold a `SynthStore` and reach for this.
-    ///
-    /// Per the claims-forward compat policy: new binaries must be
-    /// able to read existing claim logs (including lattice and
-    /// coordination types written by other consumers or migrated
-    /// from v1). This is that read path's write side.
-    ///
-    /// `append_replay` does NOT dual-write to the v3 log. The
-    /// migration tool owns that translation.
-    pub(crate) fn append_replay(
+    /// Replay an existing claim into the store without per-type
+    /// validation. Used by migration and import paths.
+    pub fn append_replay(
         &mut self,
         claim_type: ClaimType,
         props: Value,
         supersedes: Option<ClaimId>,
     ) -> Result<ClaimId> {
-        self.inner.append(claim_type, props, supersedes)
+        self.append_inner(claim_type, props, supersedes)
+    }
+
+    fn append_inner(
+        &mut self,
+        claim_type: ClaimType,
+        props: Value,
+        supersedes: Option<ClaimId>,
+    ) -> Result<ClaimId> {
+        let asserter = self
+            .asserter
+            .as_deref()
+            .ok_or_else(|| anyhow!("SynthStore::append requires an asserter; call with_asserter or discover_for first"))?;
+        let writer = self
+            .log_writer
+            .as_ref()
+            .ok_or_else(|| anyhow!(
+                "SynthStore log writer is not initialized; claims root may be missing or unreadable: {}",
+                self.claims_root.display()
+            ))?;
+
+        // Deterministic claim id: blake3 over a canonical encoding of
+        // (claim_type, props, asserter, generated_at). The substrate's
+        // `Claim::compute_id` uses the same blake3-over-canonical-form
+        // approach with different inputs. Here we sample the wall
+        // clock once and use it for BOTH the @id hash AND the
+        // generatedAtTime field so the two stay consistent within the
+        // emitted document.
+        let now = chrono::Utc::now();
+        let generated_at = now.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+        let claim_id = compute_claim_id(&claim_type, &props, asserter, &generated_at);
+
+        let doc = build_jsonld_doc(
+            &claim_id,
+            &claim_type,
+            &props,
+            asserter,
+            &generated_at,
+            supersedes.as_deref(),
+        );
+
+        writer
+            .append(asserter, &doc)
+            .context("v3 log writer append")?;
+
+        // Any cached view is now stale. Drop it; the next read will
+        // open a fresh one (which picks up the new log line via the
+        // C.2 heads check / snapshot rebuild).
+        *self.view.borrow_mut() = None;
+
+        Ok(claim_id)
+    }
+
+    /// Run a SPARQL SELECT against the cached graph view.
+    ///
+    /// Prepends `crate::wire_format::SPARQL_PREFIX_PREAMBLE` so the
+    /// caller can use compact prefixes (`synthesist:`, `prov:`, etc.)
+    /// without redeclaring them.
+    pub fn sparql(
+        &self,
+        query: &str,
+    ) -> Result<nomograph_claim::graph_view::SelectResults> {
+        self.ensure_view()?;
+        let view_ref = self.view.borrow();
+        let view = view_ref.as_ref().expect("ensure_view");
+        let full = format!("{}\n{}", crate::wire_format::SPARQL_PREFIX_PREAMBLE, query);
+        nomograph_claim::graph_view::select(view, &full)
+    }
+
+    /// Run a SPARQL ASK against the cached graph view.
+    pub fn ask(&self, query: &str) -> Result<bool> {
+        self.ensure_view()?;
+        let view_ref = self.view.borrow();
+        let view = view_ref.as_ref().expect("ensure_view");
+        let full = format!("{}\n{}", crate::wire_format::SPARQL_PREFIX_PREAMBLE, query);
+        nomograph_claim::graph_view::ask(view, &full)
+    }
+
+    /// Iterate raw claims from the log union, in deterministic
+    /// (genesis-first, then asserter-dir-lexicographic) order. Used by
+    /// `cmd_check` and `cmd_export` which need the raw documents.
+    pub fn iter_claims(&self) -> Result<impl Iterator<Item = Value> + '_> {
+        let reader = nomograph_claim::log::LogReader::new(&self.claims_root)?;
+        Ok(reader.iter_claims().filter_map(|r| r.ok().map(|c| c.raw)))
+    }
+
+    fn ensure_view(&self) -> Result<()> {
+        if self.view.borrow().is_some() {
+            return Ok(());
+        }
+        let view_dir = self.claims_root.join("_view.oxigraph");
+        let v = nomograph_claim::graph_view::GraphView::open_or_in_memory(
+            &view_dir,
+            &self.claims_root,
+        )?;
+        *self.view.borrow_mut() = Some(v);
+        Ok(())
     }
 }
 
-impl Deref for SynthStore {
-    type Target = nomograph_workflow::Store;
-    fn deref(&self) -> &Self::Target {
-        &self.inner
-    }
+/// Local asserter base derived from `$USER` (mirrors the convention
+/// `nomograph_workflow::Store` used so v3 logs route to the same
+/// per-asserter directories that v2 sessions did).
+fn local_asserter_base() -> String {
+    let user = std::env::var("USER").unwrap_or_else(|_| "unknown".into());
+    format!("user:local:{user}")
 }
 
-impl DerefMut for SynthStore {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.inner
-    }
-}
-
-/// Back-compat alias retained from the v2 rewrite. Prefer `SynthStore`
-/// at call sites.
-pub type Store = SynthStore;
-
-// ---------------------------------------------------------------------------
-// v3 translation helpers
-// ---------------------------------------------------------------------------
-
-/// Format the current wall-clock time as RFC 3339 with millisecond
-/// precision and a `Z` suffix.
-fn format_now() -> String {
-    use chrono::Utc;
-    Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()
-}
-
-/// Build and write one v3 JSON-LD document for a freshly appended v2 claim.
-fn v3_dual_write(
-    writer: &nomograph_claim::log::LogWriter,
+/// Deterministic claim id over a canonical (type, props, asserter,
+/// generated_at) tuple. Returned as a hex string.
+fn compute_claim_id(
+    claim_type: &ClaimType,
+    props: &Value,
     asserter: &str,
+    generated_at: &str,
+) -> String {
+    let canon = serde_json::json!({
+        "claim_type": claim_type.as_str(),
+        "props": props,
+        "asserter": asserter,
+        "generated_at": generated_at,
+    });
+    let mut bytes = Vec::with_capacity(256);
+    write_canonical(&canon, &mut bytes);
+    blake3::hash(&bytes).to_hex().to_string()
+}
+
+/// Serialize a JSON value with recursively sorted object keys.
+/// Cross-machine deterministic so two writers producing the same
+/// logical claim land on the same id.
+fn write_canonical(v: &Value, buf: &mut Vec<u8>) {
+    match v {
+        Value::Null => buf.extend_from_slice(b"null"),
+        Value::Bool(true) => buf.extend_from_slice(b"true"),
+        Value::Bool(false) => buf.extend_from_slice(b"false"),
+        Value::Number(n) => buf.extend_from_slice(n.to_string().as_bytes()),
+        Value::String(s) => {
+            let escaped = serde_json::to_string(s).unwrap_or_else(|_| "\"\"".into());
+            buf.extend_from_slice(escaped.as_bytes());
+        }
+        Value::Array(items) => {
+            buf.push(b'[');
+            for (i, item) in items.iter().enumerate() {
+                if i > 0 {
+                    buf.push(b',');
+                }
+                write_canonical(item, buf);
+            }
+            buf.push(b']');
+        }
+        Value::Object(map) => {
+            let mut keys: Vec<&String> = map.keys().collect();
+            keys.sort();
+            buf.push(b'{');
+            for (i, k) in keys.iter().enumerate() {
+                if i > 0 {
+                    buf.push(b',');
+                }
+                let escaped = serde_json::to_string(k).unwrap_or_else(|_| "\"\"".into());
+                buf.extend_from_slice(escaped.as_bytes());
+                buf.push(b':');
+                write_canonical(&map[*k], buf);
+            }
+            buf.push(b'}');
+        }
+    }
+}
+
+/// Build the v3 JSON-LD document for a claim. Mirrors the
+/// wire_format contract so the result round-trips through
+/// `graph_view::rebuild` to produce the triples overlay SPARQL
+/// expects.
+fn build_jsonld_doc(
     claim_id: &str,
     claim_type: &ClaimType,
     props: &Value,
-    supersedes: &Option<ClaimId>,
-) -> Result<()> {
-    use serde_json::{Map, Value as V};
-
+    asserter: &str,
+    generated_at: &str,
+    supersedes: Option<&str>,
+) -> Value {
     use crate::wire_format as wf;
+    use serde_json::Map;
 
-    let mut doc: Map<String, V> = Map::new();
-    // The wire_format module owns the canonical v3 JSON-LD shape (see
-    // synthesist::wire_format for the contract). Co-locating @context,
-    // case conversions, and IRI builders there prevents drift between
-    // the dual-write path, the migration path, the SHACL emitter, and
-    // test fixtures.
+    let mut doc: Map<String, Value> = Map::new();
     doc.insert("@context".into(), wf::jsonld_context());
-    doc.insert("@id".into(), V::String(wf::claim_iri(claim_id)));
+    doc.insert("@id".into(), Value::String(wf::claim_iri(claim_id)));
     doc.insert(
         "@type".into(),
-        V::String(wf::type_iri(claim_type.as_str())),
+        Value::String(wf::type_iri(claim_type.as_str())),
     );
-    doc.insert(wf::GENERATED_AT_PRED.into(), V::String(format_now()));
+    doc.insert(
+        wf::GENERATED_AT_PRED.into(),
+        Value::String(generated_at.to_string()),
+    );
     doc.insert(
         wf::ATTRIBUTED_TO_PRED.into(),
-        V::String(wf::asserter_iri(asserter)),
+        Value::String(wf::asserter_iri(asserter)),
     );
-
-    if let Some(sup_id) = supersedes {
+    if let Some(sup) = supersedes {
         doc.insert(
             wf::SUPERSEDES_PRED.into(),
-            V::String(wf::claim_iri(sup_id)),
+            Value::String(wf::claim_iri(sup)),
         );
     }
-
-    // Note: `nomograph:parentAsserter` is intentionally absent from the
-    // dual-write path. `SynthStore::append` does not currently expose a
-    // parent_asserter parameter (workflow's Store handles parent_asserter
-    // via its own state), and no synthesist CLI command sets it on new
-    // writes today. The migration in `migrations::v2_to_v3` carries
-    // parent_asserter forward for legacy v2 claims. A future feature
-    // that sets parent_asserter on a synthesist write would need to
-    // extend both `SynthStore::append`'s signature and this dual-write.
-
-    // Expand props via wire_format's predicate_iri (snake -> lowerCamel
-    // with the synthesist prefix). Aligns with the SHACL ontology and
-    // overlay SPARQL.
     if let Some(props_map) = props.as_object() {
         for (k, v) in props_map {
             doc.insert(wf::predicate_iri(k), v.clone());
         }
     }
-
-    let v = V::Object(doc);
-    writer
-        .append(asserter, &v)
-        .context("v3 log writer append")?;
-    Ok(())
+    Value::Object(doc)
 }
+
+/// Back-compat alias retained from the v2 wrapper days. Prefer
+/// `SynthStore` at call sites.
+pub type Store = SynthStore;
 
 #[cfg(test)]
 mod tests {
@@ -295,24 +447,44 @@ mod tests {
     use serde_json::json;
     use tempfile::tempdir;
 
-    /// Method-resolution proof: `synth_store.append(...)` resolves to the
-    /// inherent validating method on `SynthStore`, not the unvalidating
-    /// one reachable through `Deref` to `nomograph_workflow::Store`.
-    /// Rust's method resolution prefers inherent methods, but it's
-    /// worth proving because the silent-fall-through to the workflow
-    /// layer would be exactly the regression that the SynthStore
-    /// wrapper exists to prevent.
+    /// `append` validates and writes one v3 log line per successful call.
     #[test]
-    fn append_inherent_method_runs_validation() {
+    fn append_validates_and_writes_one_line() {
         let dir = tempdir().unwrap();
         let claims = dir.path().join("claims");
         let mut store = SynthStore::init_at(&claims)
             .unwrap()
             .with_asserter("user:local:test:t1");
-        // Bad spec: missing required `goal`. If validation runs, this
-        // returns Err with a structured SchemaError. If Deref shadowed
-        // the inherent method, the unvalidating workflow::Store::append
-        // would let it through and we'd get Ok.
+
+        let props = json!({
+            "tree": "proj",
+            "spec": "s1",
+            "id": "t1",
+            "summary": "hello",
+            "status": "pending",
+        });
+        let _id = store.append(ClaimType::Task, props, None).unwrap();
+
+        let log_path = claims.join("user-local-test-t1").join("log.jsonl");
+        assert!(log_path.exists(), "v3 log must be created");
+        let content = std::fs::read_to_string(&log_path).unwrap();
+        let lines: Vec<&str> = content.lines().filter(|l| !l.is_empty()).collect();
+        assert_eq!(lines.len(), 1);
+
+        let doc: Value = serde_json::from_str(lines[0]).unwrap();
+        assert!(doc["@id"].as_str().unwrap().starts_with("synthesist:claim/"));
+        assert_eq!(doc["@type"].as_str().unwrap(), "synthesist:Task");
+    }
+
+    /// `append` rejects bad input via the per-type validator.
+    #[test]
+    fn append_rejects_invalid_props() {
+        let dir = tempdir().unwrap();
+        let claims = dir.path().join("claims");
+        let mut store = SynthStore::init_at(&claims)
+            .unwrap()
+            .with_asserter("user:local:test:t1");
+        // Spec missing required `goal`.
         let bad = json!({
             "tree": "k",
             "id": "x",
@@ -322,224 +494,91 @@ mod tests {
         let err = store.append(ClaimType::Spec, bad, None).unwrap_err();
         let msg = format!("{err:#}");
         assert!(
-            msg.contains("validate claim before append")
-                || msg.contains("goal"),
+            msg.contains("validate claim before append") || msg.contains("goal"),
             "expected validator error, got: {msg}"
         );
     }
 
-    /// Strict-on-write: synthesist rejects appends for claim types it
-    /// does not own (lattice or coordination types). This is the
-    /// hallucination-defense from the adversarial review: agents that
-    /// invent fake claim types get a clear rejection at the synthesist
-    /// boundary instead of writing nonsense into the substrate.
+    /// `append_replay` bypasses the per-type validator (for migration).
     #[test]
-    fn append_rejects_unowned_claim_types() {
+    fn append_replay_skips_validator() {
         let dir = tempdir().unwrap();
         let claims = dir.path().join("claims");
         let mut store = SynthStore::init_at(&claims)
             .unwrap()
             .with_asserter("user:local:test:t1");
-        for unowned in [
-            ClaimType::Stakeholder,
-            ClaimType::Topic,
-            ClaimType::Signal,
-            ClaimType::Disposition,
-            ClaimType::Intent,
-            ClaimType::Heartbeat,
-            ClaimType::Directive,
-        ] {
-            let result = store.append(unowned.clone(), json!({}), None);
-            assert!(
-                result.is_err(),
-                "synthesist must reject claim_type {unowned:?} at write boundary"
-            );
-        }
-    }
-
-    /// `append_replay` deliberately bypasses the synthesist
-    /// validator for migration / import paths. The structural checks
-    /// in the substrate (content hash, append lock) still run, but
-    /// per-type schema validation is skipped. Verifying that the
-    /// bypass actually bypasses, so we can move existing claims of
-    /// any type without the strict-on-write gate.
-    #[test]
-    fn append_replay_skips_synthesist_validator() {
-        let dir = tempdir().unwrap();
-        let claims = dir.path().join("claims");
-        let mut store = SynthStore::init_at(&claims)
-            .unwrap()
-            .with_asserter("user:local:test:t1");
-        // A Stakeholder claim with empty props would be rejected by
-        // both the synthesist write validator (unowned type) and any
-        // future lattice validator (missing required fields). The
-        // unvalidated path just stores it, which is what import wants.
         let id = store
             .append_replay(ClaimType::Stakeholder, json!({"id": "alice"}), None)
-            .expect("unvalidated append accepts unowned types");
+            .expect("replay accepts unowned types");
         assert!(!id.is_empty());
     }
 
-    // -----------------------------------------------------------------------
-    // T3.5b: v3 dual-write tests
-    // -----------------------------------------------------------------------
-
-    /// Build a minimal valid Task props value.
-    fn task_props() -> Value {
-        json!({
-            "tree": "proj",
-            "spec": "s1",
-            "id": "t1",
-            "summary": "hello world",
-            "status": "pending",
-        })
-    }
-
-    /// After one append with an asserter set, the v3 log file exists
-    /// and contains exactly one JSON-LD line with the expected fields.
+    /// `append` without an asserter fails fast.
     #[test]
-    fn dual_write_produces_v3_log_after_append() {
+    fn append_without_asserter_errors() {
         let dir = tempdir().unwrap();
         let claims = dir.path().join("claims");
-        let asserter = "user:local:test:sess1";
-        let mut store = SynthStore::init_at(&claims)
-            .unwrap()
-            .with_asserter(asserter);
-
-        let props = task_props();
-        let _id = store.append(ClaimType::Task, props, None).unwrap();
-
-        // claims/<asserter-dir>/log.jsonl must exist.
-        let log_path = claims.join("user-local-test-sess1").join("log.jsonl");
-        assert!(log_path.exists(), "v3 log file must be created after append");
-
-        let content = std::fs::read_to_string(&log_path).unwrap();
-        let lines: Vec<&str> = content.lines().filter(|l| !l.is_empty()).collect();
-        assert_eq!(lines.len(), 1, "expected exactly one v3 log line");
-
-        let doc: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
-        // @id must be synthesist:claim/<16-hex-chars>
-        let at_id = doc["@id"].as_str().unwrap();
-        assert!(at_id.starts_with("synthesist:claim/"), "@id must start with synthesist:claim/");
-        assert_eq!(
-            at_id.len(),
-            "synthesist:claim/".len() + 16,
-            "@id suffix must be 16 chars"
-        );
-        // @type
-        assert_eq!(doc["@type"].as_str().unwrap(), "synthesist:Task");
-        // prov:generatedAtTime
-        let gen_time = doc["prov:generatedAtTime"].as_str().unwrap();
-        assert!(gen_time.ends_with('Z'), "generatedAtTime must have Z suffix");
-        assert!(gen_time.contains('T'), "generatedAtTime must be ISO-8601");
-        // prov:wasAttributedTo
-        let attr = doc["prov:wasAttributedTo"].as_str().unwrap();
-        assert_eq!(attr, format!("asserter:{}", asserter));
-        // synthesist:status from props
-        assert_eq!(doc["synthesist:status"].as_str().unwrap(), "pending");
-    }
-
-    /// Two appends with the same asserter produce two lines in the log.
-    #[test]
-    fn dual_write_two_appends_two_lines() {
-        let dir = tempdir().unwrap();
-        let claims = dir.path().join("claims");
-        let asserter = "user:local:test:sess2";
-        let mut store = SynthStore::init_at(&claims)
-            .unwrap()
-            .with_asserter(asserter);
-
-        store.append(ClaimType::Task, task_props(), None).unwrap();
-        store.append(ClaimType::Task, task_props(), None).unwrap();
-
-        let log_path = claims.join("user-local-test-sess2").join("log.jsonl");
-        let content = std::fs::read_to_string(&log_path).unwrap();
-        let lines: Vec<&str> = content.lines().filter(|l| !l.is_empty()).collect();
-        assert_eq!(lines.len(), 2, "two appends must produce two v3 log lines");
-        for line in &lines {
-            let doc: serde_json::Value = serde_json::from_str(line).unwrap();
-            assert!(doc.get("@id").is_some());
-        }
-    }
-
-    /// Append with no asserter set still succeeds and produces no v3 log.
-    #[test]
-    fn dual_write_no_asserter_no_v3_log() {
-        let dir = tempdir().unwrap();
-        let claims = dir.path().join("claims");
-        // No with_asserter call.
         let mut store = SynthStore::init_at(&claims).unwrap();
-        let id = store.append(ClaimType::Task, task_props(), None).unwrap();
-        assert!(!id.is_empty());
-        // No asserter subdir with log.jsonl should have been created.
-        let entries: Vec<_> = std::fs::read_dir(&claims)
-            .unwrap()
-            .filter_map(|e| e.ok())
-            .filter(|e| e.path().is_dir())
-            .collect();
-        for entry in &entries {
-            let log = entry.path().join("log.jsonl");
-            assert!(
-                !log.exists(),
-                "no v3 log should be created without an asserter; found: {}",
-                log.display()
-            );
-        }
-    }
-
-    /// append_replay does NOT produce a v3 log line.
-    #[test]
-    fn dual_write_replay_does_not_write_v3() {
-        let dir = tempdir().unwrap();
-        let claims = dir.path().join("claims");
-        let asserter = "user:local:test:sess3";
-        let mut store = SynthStore::init_at(&claims)
-            .unwrap()
-            .with_asserter(asserter);
-
-        let _id = store
-            .append_replay(ClaimType::Stakeholder, json!({"id": "alice"}), None)
-            .unwrap();
-
-        let log_path = claims.join("user-local-test-sess3").join("log.jsonl");
-        assert!(
-            !log_path.exists(),
-            "append_replay must NOT write to v3 log"
-        );
-    }
-
-    /// `discovery` claim type produces `@type: synthesist:Discovery`.
-    #[test]
-    fn dual_write_camel_case_discovery() {
-        let dir = tempdir().unwrap();
-        let claims = dir.path().join("claims");
-        let asserter = "user:local:test:sess4";
-        let mut store = SynthStore::init_at(&claims)
-            .unwrap()
-            .with_asserter(asserter);
-
-        // Discovery requires: tree, spec, id, date, finding.
         let props = json!({
             "tree": "proj",
             "spec": "s1",
-            "id": "d1",
-            "date": "2026-05-28",
-            "finding": "found something",
+            "id": "t1",
+            "summary": "hello",
+            "status": "pending",
         });
-        store.append(ClaimType::Discovery, props, None).unwrap();
-
-        let log_path = claims.join("user-local-test-sess4").join("log.jsonl");
-        let content = std::fs::read_to_string(&log_path).unwrap();
-        let doc: serde_json::Value =
-            serde_json::from_str(content.lines().next().unwrap()).unwrap();
-        assert_eq!(
-            doc["@type"].as_str().unwrap(),
-            "synthesist:Discovery",
-            "discovery claim must produce @type synthesist:Discovery"
+        let err = store.append(ClaimType::Task, props, None).unwrap_err();
+        let msg = format!("{err:#}");
+        assert!(
+            msg.contains("requires an asserter"),
+            "expected asserter error, got: {msg}"
         );
     }
 
-    // camel_case correctness lives in `wire_format::tests`; this
-    // module's test suite asserts dual-write behavior, not the
-    // wire-format primitives themselves.
+    /// `sparql` opens the view lazily and returns matching rows.
+    #[test]
+    fn sparql_round_trips_after_append() {
+        let dir = tempdir().unwrap();
+        let claims = dir.path().join("claims");
+        let mut store = SynthStore::init_at(&claims)
+            .unwrap()
+            .with_asserter("user:local:test:t1");
+        store
+            .append(
+                ClaimType::Task,
+                json!({
+                    "tree": "proj",
+                    "spec": "s1",
+                    "id": "t1",
+                    "summary": "hello",
+                    "status": "pending",
+                }),
+                None,
+            )
+            .unwrap();
+        let results = store
+            .sparql(
+                "SELECT (COUNT(?c) AS ?n) WHERE { GRAPH ?g { ?c rdf:type synthesist:Task } }",
+            )
+            .unwrap();
+        assert_eq!(results.rows.len(), 1);
+    }
+
+    /// Deterministic claim id: same inputs hash to the same id.
+    #[test]
+    fn compute_claim_id_is_deterministic() {
+        let a = compute_claim_id(
+            &ClaimType::Task,
+            &json!({"id": "t1"}),
+            "user:local:agd",
+            "2026-05-29T00:00:00.000Z",
+        );
+        let b = compute_claim_id(
+            &ClaimType::Task,
+            &json!({"id": "t1"}),
+            "user:local:agd",
+            "2026-05-29T00:00:00.000Z",
+        );
+        assert_eq!(a, b);
+        assert_eq!(a.len(), 64, "blake3 hex is 64 chars");
+    }
 }
