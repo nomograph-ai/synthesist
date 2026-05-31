@@ -1,12 +1,17 @@
-//! Discovery commands (v2: claim-backed).
+//! Discovery commands -- ported to the v3 SPARQL substrate.
 //!
 //! Writes and reads `Discovery` claims via the synthesist claim store.
 //! Every `discovery add` appends one [`nomograph_claim::ClaimType::Discovery`]
-//! claim; `discovery list` queries the SQLite view projection.
+//! claim through `SynthStore::append`; `discovery list` projects the live
+//! Discovery heads scoped to `(tree, spec)` via SPARQL.
 //!
 //! The CLI surface is unchanged from v1.2.x: same subcommands, same flags,
-//! same JSON output shape. Implementation moved from the v1 `discoveries`
-//! SQL table to the claim substrate per D9/BUILDING-wave4-synthesist.md §M3.
+//! same JSON output shape. Path B Stage 2 finishes the port to v3:
+//! `discovery list` now projects asserted_at / asserted_by from the
+//! substrate-level `prov:generatedAtTime` / `prov:wasAttributedTo`
+//! predicates and applies the standard live-head FILTER NOT EXISTS
+//! supersession filter, matching the pattern Stage 1 reference ports
+//! use across `cmd_tree`, `cmd_spec`, `cmd_task`.
 
 use anyhow::Result;
 use serde_json::{Value, json};
@@ -97,28 +102,38 @@ fn cmd_add(
     json_out(&json!({"id": id, "finding": finding, "date": date}))
 }
 
-/// List every `Discovery` claim scoped to `tree/spec`. TODO PATH-B:
-/// only minimal SPARQL coverage here; subsequent agent ports the full
-/// (id, date, author, finding, impact, action) projection with
-/// asserted_at ordering.
+/// List every live `Discovery` head scoped to `tree/spec`.
+///
+/// Projects the v2 contract columns: id, date, author, finding, impact,
+/// action, asserted_at, asserted_by. The first six come from
+/// `synthesist:*` predicates on the Discovery claim itself; the last
+/// two come from the substrate-level `prov:generatedAtTime` and
+/// `prov:wasAttributedTo` predicates the v3 wire format emits on every
+/// claim. Filters out claims that have been superseded (live-head
+/// pattern shared with the rest of the Stage 1/2 ports).
 fn cmd_list(tree: &str, spec: &str) -> Result<()> {
     let store = SynthStore::discover()?;
     let q = format!(
         r#"
-        SELECT ?id ?date ?author ?finding ?impact ?action WHERE {{
+        SELECT ?id ?date ?author ?finding ?impact ?action ?asserted_at ?asserted_by WHERE {{
           GRAPH ?g {{
             ?c rdf:type synthesist:Discovery ;
                synthesist:tree "{tree}" ;
                synthesist:spec "{spec}" ;
                synthesist:id ?id .
-            OPTIONAL {{ ?c synthesist:date    ?date }}
-            OPTIONAL {{ ?c synthesist:author  ?author }}
-            OPTIONAL {{ ?c synthesist:finding ?finding }}
-            OPTIONAL {{ ?c synthesist:impact  ?impact }}
-            OPTIONAL {{ ?c synthesist:action  ?action }}
+            OPTIONAL {{ ?c synthesist:date           ?date }}
+            OPTIONAL {{ ?c synthesist:author         ?author }}
+            OPTIONAL {{ ?c synthesist:finding        ?finding }}
+            OPTIONAL {{ ?c synthesist:impact         ?impact }}
+            OPTIONAL {{ ?c synthesist:action         ?action }}
+            OPTIONAL {{ ?c prov:generatedAtTime      ?asserted_at }}
+            OPTIONAL {{ ?c prov:wasAttributedTo      ?asserted_by }}
+            FILTER NOT EXISTS {{
+              GRAPH ?g2 {{ ?later synthesist:supersedes ?c }}
+            }}
           }}
         }}
-        ORDER BY ?id
+        ORDER BY DESC(?date)
         "#
     );
     let r = store.sparql(&q)?;
@@ -127,15 +142,20 @@ fn cmd_list(tree: &str, spec: &str) -> Result<()> {
         use nomograph_claim::graph_view::Term;
         let s = |i: usize| match row.get(i) {
             Some(Term::Literal { value, .. }) if !value.is_empty() => Value::String(value.clone()),
+            // asserted_by is an IRI (asserter:user:local:...), surfaced
+            // as a string so the JSON contract stays scalar.
+            Some(Term::Iri(value)) if !value.is_empty() => Value::String(value.clone()),
             _ => Value::Null,
         };
         out.push(json!({
-            "id": s(0),
-            "date": s(1),
-            "author": s(2),
-            "finding": s(3),
-            "impact": s(4),
-            "action": s(5),
+            "id":           s(0),
+            "date":         s(1),
+            "author":       s(2),
+            "finding":      s(3),
+            "impact":       s(4),
+            "action":       s(5),
+            "asserted_at":  s(6),
+            "asserted_by":  s(7),
         }));
     }
     json_out(&json!({"tree": tree, "spec": spec, "discoveries": out}))
