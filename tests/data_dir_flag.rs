@@ -71,7 +71,8 @@ fn data_dir_missing_path_errors() {
 
 #[test]
 fn data_dir_uninitialized_path_errors() {
-    // Path exists but has no claims/genesis.amc.
+    // Path B v3-native dropped the v2 `claims/genesis.amc` signal in
+    // favor of a `claims/` directory check; assert the new error shape.
     let not_a_store = TempDir::new().unwrap();
     let elsewhere = TempDir::new().unwrap();
     synth()
@@ -79,7 +80,7 @@ fn data_dir_uninitialized_path_errors() {
         .args(["--data-dir", not_a_store.path().to_str().unwrap(), "status"])
         .assert()
         .failure()
-        .stderr(predicate::str::contains("no `claims/genesis.amc`"))
+        .stderr(predicate::str::contains("no `claims/` directory"))
         .stderr(predicate::str::contains("synthesist init"));
 }
 
