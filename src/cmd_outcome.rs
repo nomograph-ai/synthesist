@@ -1,4 +1,4 @@
-//! `outcome` CLI surface — first-class Outcome claim operations.
+//! `outcome` CLI surface -- first-class Outcome claim operations.
 //!
 //! The Outcome claim type expresses *what happened to a spec* (a spec
 //! was completed, abandoned, deferred, or absorbed by another spec),
@@ -9,10 +9,14 @@
 //! `spec update --status superseded --outcome "..."`. v2.4.0 surfaces
 //! Outcome as a first-class CLI so the discoverable path matches the
 //! mental model.
+//!
+//! Path B Stage 2: the read side now projects live Outcome heads via
+//! SPARQL against the cached graph view. Writes were already routed
+//! through `SynthStore::append` in Stage 1.
 
 use anyhow::{Context, Result};
 use nomograph_claim::ClaimType;
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 use crate::cli::OutcomeCmd;
 use crate::output::{Output, emit};
@@ -86,14 +90,92 @@ fn cmd_add(
     })))
 }
 
-/// TODO PATH-B: cmd_outcome list not yet ported to v3 SPARQL.
+/// List live Outcome heads for `(tree, spec)`, newest first by
+/// `prov:generatedAtTime`.
+///
+/// Output shape:
+/// ```json
+/// { "outcomes": [
+///     { "tree": "...", "spec": "...", "status": "...",
+///       "summary": "...", "asserted_at": "...", "asserted_by": "..." },
+///     ...
+/// ] }
+/// ```
+///
+/// `summary` mirrors the v2 projection column name. The schema field
+/// is `note` (the synthesist:summary predicate is not set on Outcomes),
+/// so we OPTIONAL-bind both and project whichever the head carried.
 fn cmd_list(tree: &str, spec: &str) -> Result<()> {
-    json_out(&json!({
-        "outcomes": [],
-        "tree": tree,
-        "spec": spec,
-        "todo_path_b": "cmd_outcome list not yet ported to v3 SPARQL"
-    }))
+    let store = SynthStore::discover()?;
+    let q = format!(
+        r#"
+        SELECT ?c ?tree ?spec ?status ?summary ?note ?at ?by WHERE {{
+          GRAPH ?g {{
+            ?c rdf:type synthesist:Outcome ;
+               synthesist:tree   ?tree ;
+               synthesist:spec   ?spec ;
+               synthesist:status ?status ;
+               prov:generatedAtTime ?at ;
+               prov:wasAttributedTo  ?by .
+            OPTIONAL {{ ?c synthesist:summary ?summary }}
+            OPTIONAL {{ ?c synthesist:note    ?note }}
+            FILTER(?tree = "{tree}")
+            FILTER(?spec = "{spec}")
+            FILTER NOT EXISTS {{
+              GRAPH ?g2 {{ ?later synthesist:supersedes ?c }}
+            }}
+          }}
+        }}
+        ORDER BY DESC(?at)
+        "#
+    );
+    let r = store.sparql(&q)?;
+    let mut outcomes: Vec<Value> = Vec::new();
+    for row in &r.rows {
+        use nomograph_claim::graph_view::Term;
+        let str_at = |i: usize| -> Option<String> {
+            match row.get(i) {
+                Some(Term::Literal { value, .. }) if !value.is_empty() => Some(value.clone()),
+                _ => None,
+            }
+        };
+        let iri_at = |i: usize| -> Option<String> {
+            match row.get(i) {
+                Some(Term::Iri(s)) if !s.is_empty() => Some(s.clone()),
+                Some(Term::Literal { value, .. }) if !value.is_empty() => Some(value.clone()),
+                _ => None,
+            }
+        };
+        let tree_v = match str_at(1) {
+            Some(s) => s,
+            None => continue,
+        };
+        let spec_v = match str_at(2) {
+            Some(s) => s,
+            None => continue,
+        };
+        let status = str_at(3).unwrap_or_default();
+        // Prefer synthesist:summary if present, else synthesist:note --
+        // the schema names the field `note`, the v2 projection called
+        // it `summary`. Surface whichever the head carried under the
+        // legacy column name to match the v2 output contract.
+        let summary = str_at(4).or_else(|| str_at(5));
+        let at = str_at(6).unwrap_or_default();
+        let by = iri_at(7).unwrap_or_default();
+
+        let mut obj = Map::new();
+        obj.insert("tree".into(), Value::String(tree_v));
+        obj.insert("spec".into(), Value::String(spec_v));
+        obj.insert("status".into(), Value::String(status));
+        obj.insert(
+            "summary".into(),
+            summary.map(Value::String).unwrap_or(Value::Null),
+        );
+        obj.insert("asserted_at".into(), Value::String(at));
+        obj.insert("asserted_by".into(), Value::String(by));
+        outcomes.push(Value::Object(obj));
+    }
+    json_out(&json!({ "outcomes": outcomes }))
 }
 
 fn today_iso() -> String {
