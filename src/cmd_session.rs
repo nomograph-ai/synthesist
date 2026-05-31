@@ -201,16 +201,24 @@ fn cmd_session_status(id: &str) -> Result<()> {
     }))
 }
 
-fn cmd_session_close(id: &str, _start_id: Option<&str>, session: &Option<String>) -> Result<()> {
+fn cmd_session_close(id: &str, start_id: Option<&str>, session: &Option<String>) -> Result<()> {
     let mut store = SynthStore::discover_for(session)?;
 
-    // Find the live opener for this display id.
+    // Collect all live openers for this display id. The v2 contract
+    // tolerates name collisions across sessions; `--start-id` picks the
+    // intended target. With one live opener we proceed; with more we
+    // require disambiguation (or, when no prefix is supplied, fall back
+    // to the most recently asserted opener per `prov:generatedAtTime`).
+    //
+    // ORDER BY DESC pushes the freshest opener to the top so the
+    // implicit "single live session" path keeps the v2 behaviour.
     let q = format!(
         r#"
-        SELECT ?c ?tree ?spec ?summary WHERE {{
+        SELECT ?c ?tree ?spec ?summary ?ts WHERE {{
           GRAPH ?g {{
             ?c rdf:type synthesist:Session ;
-               synthesist:id "{id}" .
+               synthesist:id "{id}" ;
+               prov:generatedAtTime ?ts .
             OPTIONAL {{ ?c synthesist:tree    ?tree }}
             OPTIONAL {{ ?c synthesist:spec    ?spec }}
             OPTIONAL {{ ?c synthesist:summary ?summary }}
@@ -220,37 +228,96 @@ fn cmd_session_close(id: &str, _start_id: Option<&str>, session: &Option<String>
             }}
           }}
         }}
-        LIMIT 1
+        ORDER BY DESC(?ts)
         "#
     );
     let r = store.sparql(&q)?;
-    let row = r
-        .rows
-        .into_iter()
-        .next()
-        .ok_or_else(|| anyhow!("session '{id}' not found or already closed"))?;
     use nomograph_claim::graph_view::Term;
-    let iri = match row.first() {
-        Some(Term::Iri(s)) => s.clone(),
-        _ => bail!("session row missing claim IRI"),
-    };
-    let prior_id = short_claim_id(&iri);
 
-    let str_at = |i: usize| -> Option<String> {
-        match row.get(i) {
-            Some(Term::Literal { value, .. }) if !value.is_empty() => Some(value.clone()),
-            _ => None,
+    struct Candidate {
+        iri: String,
+        tree: Option<String>,
+        spec: Option<String>,
+        summary: Option<String>,
+    }
+
+    let mut candidates: Vec<Candidate> = Vec::new();
+    for row in &r.rows {
+        let iri = match row.first() {
+            Some(Term::Iri(s)) => s.clone(),
+            _ => continue,
+        };
+        let str_at = |i: usize| -> Option<String> {
+            match row.get(i) {
+                Some(Term::Literal { value, .. }) if !value.is_empty() => Some(value.clone()),
+                _ => None,
+            }
+        };
+        candidates.push(Candidate {
+            iri,
+            tree: str_at(1),
+            spec: str_at(2),
+            summary: str_at(3),
+        });
+    }
+
+    if candidates.is_empty() {
+        bail!(
+            "session '{id}' not found or already closed. \
+             Run `synthesist session list` to see live sessions."
+        );
+    }
+
+    let chosen = match start_id {
+        Some(prefix) if !prefix.is_empty() => {
+            let matched: Vec<&Candidate> = candidates
+                .iter()
+                .filter(|c| short_claim_id(&c.iri).starts_with(prefix))
+                .collect();
+            match matched.len() {
+                0 => {
+                    let ids: Vec<String> =
+                        candidates.iter().map(|c| short_claim_id(&c.iri)).collect();
+                    bail!(
+                        "no live session '{id}' matches --start-id '{prefix}' \
+                         (candidates: {})",
+                        ids.join(", ")
+                    );
+                }
+                1 => matched.into_iter().next().unwrap(),
+                _ => {
+                    let ids: Vec<String> =
+                        matched.iter().map(|c| short_claim_id(&c.iri)).collect();
+                    bail!(
+                        "--start-id '{prefix}' is ambiguous among {} live sessions named '{id}' \
+                         (candidates: {}); supply a longer prefix",
+                        ids.len(),
+                        ids.join(", ")
+                    );
+                }
+            }
+        }
+        _ => {
+            // No prefix supplied. With multiple live openers the v2
+            // contract takes the most recently asserted one (already at
+            // the head of the ORDER BY DESC list); that keeps the
+            // single-session happy path stable while still terminating
+            // cleanly on name collisions without forcing the caller to
+            // pick.
+            candidates.first().unwrap()
         }
     };
+
+    let prior_id = short_claim_id(&chosen.iri);
     let mut props = serde_json::Map::new();
     props.insert("id".into(), Value::String(id.to_string()));
-    if let Some(t) = str_at(1) {
+    if let Some(t) = chosen.tree.clone() {
         props.insert("tree".into(), Value::String(t));
     }
-    if let Some(s) = str_at(2) {
+    if let Some(s) = chosen.spec.clone() {
         props.insert("spec".into(), Value::String(s));
     }
-    if let Some(s) = str_at(3) {
+    if let Some(s) = chosen.summary.clone() {
         props.insert("summary".into(), Value::String(s));
     }
 

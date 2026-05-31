@@ -162,7 +162,7 @@ fn cmd_tree_close(name: &str, start_id: Option<&str>, session: &Option<String>) 
                 let ids: Vec<String> =
                     active.iter().map(|(iri, _, _)| short_claim_id(iri)).collect();
                 bail!(
-                    "multiple active trees named '{name}'; \
+                    "ambiguous: multiple active trees named '{name}'; \
                      disambiguate with `synthesist tree close {name} --start-id <prefix>` \
                      (candidates: {})",
                     ids.join(", ")
