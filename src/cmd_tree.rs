@@ -67,11 +67,129 @@ fn cmd_tree_show(name: &str) -> Result<()> {
     }))
 }
 
-/// `tree close` is a write that requires walking the supersession
-/// chain. TODO PATH-B: subsequent agent ports this; the read-side
-/// works (list + show), the write-side is stubbed.
-fn cmd_tree_close(_name: &str, _start_id: Option<&str>, _session: &Option<String>) -> Result<()> {
-    bail!("tree close: TODO PATH-B (write-side not yet ported)")
+/// `tree close <name>` -- find the live `Tree` head with the given
+/// name and append a superseding `Tree` claim with `status = "closed"`.
+///
+/// When `--start-id` is supplied it disambiguates between trees that
+/// share a name (any unambiguous hex prefix of the original opener's
+/// claim hash). When omitted and multiple live trees match, bail with
+/// a prescriptive error listing the candidates.
+fn cmd_tree_close(name: &str, start_id: Option<&str>, session: &Option<String>) -> Result<()> {
+    let mut store = SynthStore::discover_for(session)?;
+
+    // Find the live Tree head(s) matching `name`. The list path filters
+    // by `name` and surfaces the same `start_id` shape we accept here.
+    let q = format!(
+        r#"
+        SELECT ?c ?desc ?status WHERE {{
+          GRAPH ?g {{
+            ?c rdf:type synthesist:Tree ;
+               synthesist:name "{name}" .
+            OPTIONAL {{ ?c synthesist:description ?desc }}
+            OPTIONAL {{ ?c synthesist:status      ?status }}
+            FILTER NOT EXISTS {{
+              GRAPH ?g2 {{ ?later synthesist:supersedes ?c }}
+            }}
+          }}
+        }}
+        "#
+    );
+    let r = store.sparql(&q)?;
+    use nomograph_claim::graph_view::Term;
+
+    let mut candidates: Vec<(String, String, String)> = Vec::new();
+    for row in &r.rows {
+        let iri = match row.first() {
+            Some(Term::Iri(s)) => s.clone(),
+            _ => continue,
+        };
+        let desc = match row.get(1) {
+            Some(Term::Literal { value, .. }) => value.clone(),
+            _ => String::new(),
+        };
+        let status = match row.get(2) {
+            Some(Term::Literal { value, .. }) if !value.is_empty() => value.clone(),
+            _ => "active".to_string(),
+        };
+        candidates.push((iri, desc, status));
+    }
+
+    if candidates.is_empty() {
+        bail!(
+            "tree not found: {name}. \
+             Run `synthesist tree list --include-closed` to see all trees, or \
+             `synthesist tree add {name}` to create it."
+        );
+    }
+
+    // Filter to those still active (skip already-closed trees) before
+    // disambiguating, so `close` on an already-closed name complains
+    // about no candidates rather than silently re-closing.
+    let active: Vec<(String, String, String)> = candidates
+        .iter()
+        .filter(|(_, _, s)| s != "closed")
+        .cloned()
+        .collect();
+    if active.is_empty() {
+        bail!(
+            "tree '{name}' is already closed; \
+             list with `synthesist tree list --include-closed` to confirm"
+        );
+    }
+
+    let (iri, desc, _status) = match start_id {
+        Some(prefix) if !prefix.is_empty() => {
+            let matched: Vec<(String, String, String)> = active
+                .iter()
+                .filter(|(iri, _, _)| short_claim_id(iri).starts_with(prefix))
+                .cloned()
+                .collect();
+            match matched.len() {
+                0 => bail!(
+                    "no active tree '{name}' matches --start-id '{prefix}'; \
+                     run `synthesist tree list` to see candidates"
+                ),
+                1 => matched.into_iter().next().unwrap(),
+                _ => bail!(
+                    "--start-id '{prefix}' is ambiguous among {} active trees named '{name}'; \
+                     supply a longer prefix",
+                    matched.len()
+                ),
+            }
+        }
+        _ => {
+            if active.len() > 1 {
+                let ids: Vec<String> =
+                    active.iter().map(|(iri, _, _)| short_claim_id(iri)).collect();
+                bail!(
+                    "multiple active trees named '{name}'; \
+                     disambiguate with `synthesist tree close {name} --start-id <prefix>` \
+                     (candidates: {})",
+                    ids.join(", ")
+                );
+            }
+            active.into_iter().next().unwrap()
+        }
+    };
+
+    let prior_id = short_claim_id(&iri);
+    let mut props = serde_json::Map::new();
+    props.insert("name".into(), Value::String(name.to_string()));
+    if !desc.is_empty() {
+        props.insert("description".into(), Value::String(desc));
+    }
+    props.insert("status".into(), Value::String("closed".to_string()));
+
+    store.append(
+        ClaimType::Tree,
+        Value::Object(props),
+        Some(prior_id.clone()),
+    )?;
+    json_out(&json!({
+        "closed": true,
+        "name": name,
+        "start_id": prior_id,
+    }))
 }
 
 // ---------------------------------------------------------------------------
