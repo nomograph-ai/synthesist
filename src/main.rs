@@ -20,6 +20,7 @@ mod cmd_sql;
 mod cmd_task;
 mod cmd_tree;
 mod compaction;
+mod integrity;
 mod output;
 mod overlay;
 mod schema;

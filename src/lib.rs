@@ -1,3 +1,4 @@
+pub mod integrity;
 pub mod migrations;
 pub mod overlay;
 pub mod schema;

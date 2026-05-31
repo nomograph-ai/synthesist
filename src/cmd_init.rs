@@ -2,11 +2,15 @@
 //!
 //! - `cmd_init`: idempotent `SynthStore::init_at(<cwd>/claims)`.
 //! - `cmd_status`: estate overview aggregated via SPARQL across all trees.
-//! - `cmd_check`: claim-level integrity (TODO PATH-B; placeholder).
+//! - `cmd_check`: claim-level integrity (schema, dangling supersedes,
+//!   dangling task `depends_on`). See [`cmd_check`] for the three checks
+//!   and [`crate::integrity`] for the v3-to-v2 props mapping helper.
 
 use anyhow::{Context, Result};
 use serde_json::{Map, Value, json};
 
+use crate::integrity::{claim_type_from_iri, doc_id, doc_type_str, v3_to_v2_props};
+use crate::schema::{ValidationOutcome, validate_props};
 use crate::store::{CLAIMS_DIR, SynthStore, find_legacy_v1_db, json_out, legacy_migration_error};
 
 /// `synthesist init`: create `<cwd>/claims` if absent, else no-op.
@@ -61,17 +65,253 @@ pub fn cmd_status() -> Result<()> {
 
 /// `synthesist check`: claim-level integrity.
 ///
-/// TODO PATH-B: port to v3 (walk `iter_claims`, validate, check
-/// dangling supersedes via SPARQL ASK, check task depends_on against
-/// the SPARQL-derived live task ids).
+/// Three checks run over the v3 substrate:
+///
+/// 1. **Schema**: every claim's props normalize via
+///    [`crate::integrity::v3_to_v2_props`] and run through the per-type
+///    validator. Failures surface as `error/schema`; claims for types
+///    synthesist does not own (lattice, coordination protocol) surface
+///    as `warn/no_validator`.
+///
+/// 2. **Dangling `synthesist:supersedes`**: one SPARQL SELECT finds every
+///    `?sup synthesist:supersedes ?prior` where no triple in any graph
+///    has `?prior` as its subject. Each row becomes
+///    `error/dangling_supersedes`.
+///
+/// 3. **Dangling task `depends_on`**: pulls live Task heads with their
+///    `synthesist:dependsOn` values (the Stage 1 `live_task_props`
+///    pattern). Per task, every declared dep id must resolve to a live
+///    Task in the same (tree, spec). Missing ids surface as
+///    `error/dangling_depends_on`.
+///
+/// Output preserves the v2 contract:
+/// `{ errors, warnings, issues: [...], passed }`. Exits 0 when clean,
+/// 1 when any error fires (warnings alone do not fail).
 pub fn cmd_check() -> Result<()> {
+    let store = SynthStore::discover()?;
+    let mut issues: Vec<Value> = Vec::new();
+
+    check_schema_walk(&store, &mut issues).context("schema integrity walk")?;
+    check_dangling_supersedes(&store, &mut issues)
+        .context("dangling supersedes check")?;
+    check_dangling_depends_on(&store, &mut issues)
+        .context("dangling task depends_on check")?;
+
+    let errors = issues.iter().filter(|i| i["level"] == "error").count();
+    let warnings = issues.iter().filter(|i| i["level"] == "warn").count();
+    let passed = errors == 0;
+
     json_out(&json!({
-        "errors": 0,
-        "warnings": 0,
-        "issues": [],
-        "passed": true,
-        "todo_path_b": "cmd_check not yet ported to v3 SPARQL substrate",
-    }))
+        "errors": errors,
+        "warnings": warnings,
+        "issues": issues,
+        "passed": passed,
+    }))?;
+
+    if !passed {
+        std::process::exit(1);
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Integrity checks (see `cmd_check`).
+// ---------------------------------------------------------------------------
+
+/// Check 1: walk every claim doc via `iter_claims`, validate v2-shape
+/// props against the per-type schema.
+///
+/// `iter_claims` opens a fresh `LogReader` rather than borrowing the
+/// store's cached SPARQL view, so the iterator composes cleanly with
+/// the SPARQL calls made by checks 2/3. We collect into a `Vec` up
+/// front to keep the borrow lifetimes straightforward.
+fn check_schema_walk(store: &SynthStore, issues: &mut Vec<Value>) -> Result<()> {
+    let docs: Vec<Value> = store.iter_claims()?.collect();
+    for doc in &docs {
+        let cid = doc_id(doc);
+        let ctype_str = doc_type_str(doc);
+        let type_iri = doc.get("@type").and_then(|v| v.as_str()).unwrap_or("");
+        let Some(ct) = claim_type_from_iri(type_iri) else {
+            // Unknown @type IRI -- surface as no_validator (warn).
+            issues.push(json!({
+                "level": "warn",
+                "kind": "no_validator",
+                "claim_id": cid,
+                "claim_type": ctype_str,
+                "message": "claim type not validated by synthesist; @type IRI unrecognized",
+            }));
+            continue;
+        };
+        let v2_props = v3_to_v2_props(doc);
+        match synth_validate_outcome(&ct, &v2_props) {
+            ValidationOutcome::Ok => {}
+            ValidationOutcome::SchemaFail(e) => issues.push(json!({
+                "level": "error",
+                "kind": "schema",
+                "claim_id": cid,
+                "claim_type": ctype_str,
+                "message": format!("{e}"),
+            })),
+            ValidationOutcome::NotOwnedBySynthesist => issues.push(json!({
+                "level": "warn",
+                "kind": "no_validator",
+                "claim_id": cid,
+                "claim_type": ctype_str,
+                "message": "claim type not validated by synthesist; may be written by another consumer (lattice, coordination protocol)",
+            })),
+        }
+    }
+    Ok(())
+}
+
+/// Classify a (claim_type, v2_props) pair into a `ValidationOutcome`
+/// for cmd_check. `schema::validate_props` rejects types synthesist
+/// does not own as schema errors; we map those to
+/// `NotOwnedBySynthesist` so the CLI surfaces them as warnings.
+fn synth_validate_outcome(
+    ct: &nomograph_claim::ClaimType,
+    v2_props: &Value,
+) -> ValidationOutcome {
+    use nomograph_claim::ClaimType;
+    let owned = matches!(
+        ct,
+        ClaimType::Tree
+            | ClaimType::Spec
+            | ClaimType::Task
+            | ClaimType::Discovery
+            | ClaimType::Campaign
+            | ClaimType::Session
+            | ClaimType::Phase
+            | ClaimType::Outcome
+    );
+    if !owned {
+        return ValidationOutcome::NotOwnedBySynthesist;
+    }
+    match validate_props(ct, v2_props) {
+        Ok(()) => ValidationOutcome::Ok,
+        Err(e) => ValidationOutcome::SchemaFail(e),
+    }
+}
+
+/// Check 2: one SPARQL pass finds every `?sup synthesist:supersedes
+/// ?prior` whose `?prior` IRI is not the subject of any triple. The
+/// filter is `NOT EXISTS { GRAPH ?g2 { ?prior ?p ?o } }` so a prior
+/// claim recorded in any graph is treated as present.
+fn check_dangling_supersedes(store: &SynthStore, issues: &mut Vec<Value>) -> Result<()> {
+    let q = r#"
+        SELECT ?sup ?prior ?t WHERE {
+          GRAPH ?g {
+            ?sup synthesist:supersedes ?prior .
+            OPTIONAL { ?sup rdf:type ?t }
+          }
+          FILTER NOT EXISTS { GRAPH ?g2 { ?prior ?p ?o } }
+        }
+    "#;
+    let r = store.sparql(q)?;
+    for row in &r.rows {
+        use nomograph_claim::graph_view::Term;
+        let sup_iri = match row.first() {
+            Some(Term::Iri(s)) => s.clone(),
+            _ => continue,
+        };
+        let prior_iri = match row.get(1) {
+            Some(Term::Iri(s)) => s.clone(),
+            _ => String::new(),
+        };
+        let type_iri = match row.get(2) {
+            Some(Term::Iri(s)) => s.clone(),
+            _ => String::new(),
+        };
+        // Strip the compact prefix so the issue surfaces the bare hash
+        // (matches the v2 wire shape).
+        let sup_id = sup_iri
+            .strip_prefix("synthesist:claim/")
+            .unwrap_or(&sup_iri)
+            .to_string();
+        let prior_id = prior_iri
+            .strip_prefix("synthesist:claim/")
+            .unwrap_or(&prior_iri)
+            .to_string();
+        let bare_type = lowercase_first(
+            type_iri
+                .strip_prefix("https://nomograph.org/synthesist/")
+                .or_else(|| type_iri.strip_prefix("synthesist:"))
+                .unwrap_or(""),
+        );
+        issues.push(json!({
+            "level": "error",
+            "kind": "dangling_supersedes",
+            "claim_id": sup_id,
+            "claim_type": bare_type,
+            "message": format!("supersedes {prior_id} which is not in the log"),
+        }));
+    }
+    Ok(())
+}
+
+/// Check 3: dangling task `depends_on`.
+///
+/// Walk live Task heads via `live_task_props` (the Stage 1 SPARQL
+/// query that GROUP_CONCATs the dep list per claim), then verify
+/// every declared dep id resolves to a live Task in the same
+/// (tree, spec). The compare is client-side; a SPARQL self-join over
+/// the GROUP_CONCAT'd list is awkward and the live-task working set
+/// is small enough that the cost is negligible.
+fn check_dangling_depends_on(store: &SynthStore, issues: &mut Vec<Value>) -> Result<()> {
+    let tasks = live_task_props(store)?;
+
+    use std::collections::{HashMap, HashSet};
+    let mut live: HashMap<(String, String), HashSet<String>> = HashMap::new();
+    for props in &tasks {
+        let tree = props.get("tree").and_then(|v| v.as_str()).unwrap_or("");
+        let spec = props.get("spec").and_then(|v| v.as_str()).unwrap_or("");
+        let id = props.get("id").and_then(|v| v.as_str()).unwrap_or("");
+        if tree.is_empty() || spec.is_empty() || id.is_empty() {
+            continue;
+        }
+        live.entry((tree.to_string(), spec.to_string()))
+            .or_default()
+            .insert(id.to_string());
+    }
+
+    for props in &tasks {
+        let tree = props.get("tree").and_then(|v| v.as_str()).unwrap_or("");
+        let spec = props.get("spec").and_then(|v| v.as_str()).unwrap_or("");
+        let tid = props.get("id").and_then(|v| v.as_str()).unwrap_or("");
+        if tree.is_empty() || spec.is_empty() || tid.is_empty() {
+            continue;
+        }
+        let Some(siblings) = live.get(&(tree.to_string(), spec.to_string())) else {
+            continue;
+        };
+        let deps = props
+            .get("depends_on")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+        for d in deps.iter().filter_map(|v| v.as_str()) {
+            if !siblings.contains(d) {
+                issues.push(json!({
+                    "level": "error",
+                    "kind": "dangling_depends_on",
+                    "message": format!(
+                        "task {tree}/{spec}/{tid} depends on {d} which does not exist"
+                    ),
+                }));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Lowercase the first character of `s`. Used for issue `claim_type`
+/// payloads so `Task` -> `task` (matches v2).
+fn lowercase_first(s: &str) -> String {
+    let mut chars = s.chars();
+    match chars.next() {
+        Some(c) => c.to_lowercase().chain(chars).collect(),
+        None => String::new(),
+    }
 }
 
 // ---------------------------------------------------------------------------
