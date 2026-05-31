@@ -123,24 +123,47 @@ fn cmd_session_list() -> Result<()> {
 
 fn cmd_session_status(id: &str) -> Result<()> {
     let store = SynthStore::discover()?;
-    // First check whether any opener exists at all (live or closed).
-    let q_any = format!(
+    // Pull the opener's props + start time in one SELECT. The
+    // `FILTER NOT EXISTS { ?c synthesist:supersedes ?prev }` clause
+    // pins ?c to the opener (vs the closer, which carries the same
+    // synthesist:id but DOES supersede a prior).
+    let q_opener = format!(
         r#"
-        SELECT ?c WHERE {{
+        SELECT ?c ?tree ?spec ?summary ?started_at WHERE {{
           GRAPH ?g {{
             ?c rdf:type synthesist:Session ;
-               synthesist:id "{id}" .
+               synthesist:id "{id}" ;
+               prov:generatedAtTime ?started_at .
+            OPTIONAL {{ ?c synthesist:tree    ?tree }}
+            OPTIONAL {{ ?c synthesist:spec    ?spec }}
+            OPTIONAL {{ ?c synthesist:summary ?summary }}
             FILTER NOT EXISTS {{ ?c synthesist:supersedes ?prev }}
           }}
         }}
         LIMIT 1
         "#
     );
-    let r = store.sparql(&q_any)?;
-    if r.rows.is_empty() {
-        bail!("session '{id}' not found");
-    }
-    // Live = same SELECT but with the "not superseded by later" filter.
+    let r = store.sparql(&q_opener)?;
+    let row = r.rows.into_iter().next().ok_or_else(|| {
+        anyhow!(
+            "session '{id}' not found. \
+             Run `synthesist session list` to see known sessions, \
+             or `synthesist session start <id>` to open a new one."
+        )
+    })?;
+    use nomograph_claim::graph_view::Term;
+    let str_at = |i: usize| -> Option<String> {
+        match row.get(i) {
+            Some(Term::Literal { value, .. }) if !value.is_empty() => Some(value.clone()),
+            _ => None,
+        }
+    };
+    let tree = str_at(1);
+    let spec = str_at(2);
+    let summary = str_at(3);
+    let started_at = str_at(4);
+
+    // Live = opener with no later claim superseding it.
     let q_live = format!(
         r#"
         ASK {{
@@ -157,11 +180,24 @@ fn cmd_session_status(id: &str) -> Result<()> {
     );
     let live = store.ask(&q_live)?;
     let status = if live { "active" } else { "closed" };
+
+    let mut props = serde_json::Map::new();
+    props.insert("id".into(), Value::String(id.to_string()));
+    if let Some(t) = tree {
+        props.insert("tree".into(), Value::String(t));
+    }
+    if let Some(s) = spec {
+        props.insert("spec".into(), Value::String(s));
+    }
+    if let Some(s) = summary {
+        props.insert("summary".into(), Value::String(s));
+    }
+
     json_out(&json!({
         "id": id,
         "status": status,
-        "started_at": Value::Null,
-        "props": {},
+        "started_at": started_at.map(Value::String).unwrap_or(Value::Null),
+        "props": Value::Object(props),
     }))
 }
 
