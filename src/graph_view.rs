@@ -90,35 +90,38 @@ impl GraphView {
         })
     }
 
-    /// Open the on-disk graph view, falling back to an in-memory rebuild
-    /// if the on-disk path is unavailable or panics.
+    /// Open a populated, queryable graph view of the claim log.
     ///
-    /// `oxigraph 0.4.11`'s `Store::open` panics on macOS ARM with
-    /// `TryFromIntError` during RocksDB initialization. `catch_unwind`
-    /// intercepts the panic; the in-memory fallback rebuilds from the
-    /// `claims_dir` log union so the caller still gets a working view.
+    /// This is the recommended production path. It always returns a view
+    /// rebuilt from the `claims_dir` log union (the source of truth),
+    /// using a **view-cache snapshot** to amortize the rebuild cost
+    /// across CLI invocations. On the fast path: if
+    /// `claims_dir/_view.snapshot.nq` and `claims_dir/_view.heads.json`
+    /// exist and the recorded heads match the current log union, the
+    /// snapshot is loaded directly (no rebuild). On the slow path: the
+    /// full rebuild runs and the resulting store is serialized as
+    /// N-Quads alongside a heads record so the next invocation hits the
+    /// fast path. The heads signal (per-asserter log line counts, read
+    /// fresh each call) makes the cache correct across process
+    /// boundaries -- every CLI command is a fresh process.
     ///
-    /// When the on-disk store is unavailable, this function uses a
-    /// **view-cache snapshot** to amortize the rebuild cost across
-    /// CLI invocations. On the fast path: if `claims_dir/_view.snapshot.nq`
-    /// and `claims_dir/_view.heads.json` exist and the recorded heads
-    /// match the current log union, the snapshot is loaded directly
-    /// (no rebuild). On the slow path: the full rebuild runs and the
-    /// resulting store is serialized as N-Quads alongside a heads
-    /// record so the next invocation hits the fast path.
+    /// ## Why not the on-disk RocksDB store
     ///
-    /// `view_dir` is the on-disk store path (e.g. `claims/_view.oxigraph`).
-    /// `claims_dir` is the per-asserter log root used for the in-memory
-    /// rebuild. The two are usually `claims/_view.oxigraph` and
-    /// `claims/` respectively.
+    /// [`GraphView::open`] only opens an empty RocksDB store; it never
+    /// ingests the logs (population is the job of [`rebuild`], which the
+    /// in-memory cache path runs). On machines where `Store::open`
+    /// succeeds it would therefore return a silently EMPTY view, and on
+    /// macOS ARM it panics with `TryFromIntError`. Both failure modes
+    /// are avoided by routing through the snapshot-cached in-memory
+    /// rebuild unconditionally. The on-disk Oxigraph backend is slated
+    /// for removal in the 3.0.0 gamma engine; until then it is bypassed.
+    ///
+    /// `view_dir` is retained for signature compatibility with callers
+    /// (e.g. `claims/_view.oxigraph`) but is unused. `claims_dir` is the
+    /// per-asserter log root the view is rebuilt from.
     pub fn open_or_in_memory(view_dir: &Path, claims_dir: &Path) -> anyhow::Result<GraphView> {
-        let on_disk = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            GraphView::open(view_dir)
-        }));
-        match on_disk {
-            Ok(Ok(view)) => Ok(view),
-            _ => open_in_memory_with_cache(claims_dir),
-        }
+        let _ = view_dir;
+        open_in_memory_with_cache(claims_dir)
     }
 
     /// Borrow the underlying Oxigraph store for direct API access.
