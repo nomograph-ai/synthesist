@@ -60,8 +60,15 @@ fn test_init_creates_claims_dir() {
         .success()
         .stdout(predicate::str::contains("\"ok\":true"));
     assert!(tmp.path().join("claims").is_dir());
-    assert!(tmp.path().join("claims/genesis.amc").is_file());
-    assert!(tmp.path().join("claims/config.toml").is_file());
+    // v3-native init creates an empty claims/ dir: no v2 genesis.amc or
+    // config.toml. Per-asserter logs appear on first write.
+    assert!(
+        std::fs::read_dir(tmp.path().join("claims"))
+            .unwrap()
+            .next()
+            .is_none(),
+        "v3 init should leave claims/ empty until first write"
+    );
 }
 
 // -----------------------------------------------------------------------------
@@ -256,7 +263,9 @@ fn test_data_dir_flag_resolves_remote() {
         ])
         .assert()
         .success();
-    assert!(sub.join("claims/genesis.amc").is_file());
+    // v3-native: the --data-dir flag resolves writes to the remote subdir,
+    // so the claims/ store (and the session-start log) lands under `sub`.
+    assert!(sub.join("claims").is_dir());
 }
 
 #[test]

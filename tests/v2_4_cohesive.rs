@@ -207,7 +207,7 @@ fn task_update_depends_on_self_rejected() {
         ])
         .assert()
         .failure()
-        .stderr(predicate::str::contains("cannot depend on self"));
+        .stderr(predicate::str::contains("cannot depend on itself"));
 }
 
 #[test]
@@ -228,7 +228,7 @@ fn task_update_depends_on_unknown_id_rejected() {
         ])
         .assert()
         .failure()
-        .stderr(predicate::str::contains("not found"));
+        .stderr(predicate::str::contains("does not exist in"));
 }
 
 #[test]
