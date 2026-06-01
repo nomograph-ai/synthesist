@@ -1,10 +1,10 @@
-//! T3.6: End-to-end CLI integration test on v3 substrate.
+//! T3.6: End-to-end CLI integration test on the v3-native substrate.
 //!
-//! Exercises the synthesist CLI on the dual-write v3 substrate. Every
-//! write command triggers a v2 .amc append AND a v3 JSON-LD dual-write.
-//! After the happy-path scenario this test verifies:
+//! Exercises the synthesist CLI on the v3-native substrate (Path B):
+//! every write goes through the per-asserter JSON-LD log only -- there
+//! is no v2 .amc write path. After the happy-path scenario this verifies:
 //!
-//!  1. v2 `claims/changes/<hash>.amc` files exist.
+//!  1. NO v2 `claims/changes/<hash>.amc` files exist (v2 write retired).
 //!  2. v3 `claims/<asserter-dir>/log.jsonl` exists with the correct
 //!     line count.
 //!  3. One v3 line round-trips as valid JSON with the expected envelope.

@@ -380,78 +380,11 @@ fn outcome_list_returns_recorded_outcomes() {
 }
 
 // ---------------------------------------------------------------------------
-// claims compact safety belts
-// ---------------------------------------------------------------------------
-
-#[test]
-fn claims_compact_dry_run_makes_no_changes() {
-    let tmp = tempfile::tempdir().unwrap();
-    bootstrap(&tmp);
-    add_three_tasks(&tmp);
-    let out = synth(&tmp)
-        .args(["--session", "s1", "--force", "claims", "compact", "--dry-run"])
-        .assert()
-        .success()
-        .get_output()
-        .stdout
-        .clone();
-    let body = String::from_utf8(out).unwrap();
-    assert!(body.contains("\"dry_run\":true"), "{body}");
-    // After a dry-run, regular reads still see all the tasks we
-    // just wrote — no compaction occurred.
-    let listed = synth(&tmp)
-        .args(["--session", "s1", "task", "list", "k/sample"])
-        .assert()
-        .success()
-        .get_output()
-        .stdout
-        .clone();
-    let listed = String::from_utf8(listed).unwrap();
-    for id in ["t1", "t2", "t3"] {
-        assert!(listed.contains(&format!("\"id\":\"{id}\"")), "{listed}");
-    }
-}
-
-#[test]
-fn claims_compact_yes_skips_prompt() {
-    let tmp = tempfile::tempdir().unwrap();
-    bootstrap(&tmp);
-    add_three_tasks(&tmp);
-    synth(&tmp)
-        .args(["--session", "s1", "--force", "claims", "compact", "--yes"])
-        .assert()
-        .success();
-    // After compaction, all three tasks are still readable — logical
-    // history is preserved.
-    let listed = synth(&tmp)
-        .args(["--session", "s1", "task", "list", "k/sample"])
-        .assert()
-        .success()
-        .get_output()
-        .stdout
-        .clone();
-    let listed = String::from_utf8(listed).unwrap();
-    for id in ["t1", "t2", "t3"] {
-        assert!(listed.contains(&format!("\"id\":\"{id}\"")), "{listed}");
-    }
-}
-
-// ---------------------------------------------------------------------------
 // v2.5.0: shape conformity pass.
-// - claims compact, outcome list, tree show: sessionless and phase-free.
+// - outcome list, tree show: sessionless and phase-free.
 // - phase set / phase show: per-session, no global fallback.
 // - status: top-level `phase` removed, per-session phase in sessions[].
 // ---------------------------------------------------------------------------
-
-#[test]
-fn claims_compact_runs_without_session_or_force() {
-    let tmp = tempfile::tempdir().unwrap();
-    bootstrap(&tmp);
-    synth(&tmp)
-        .args(["claims", "compact", "--dry-run"])
-        .assert()
-        .success();
-}
 
 #[test]
 fn outcome_list_runs_without_session() {

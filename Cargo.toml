@@ -43,7 +43,6 @@ path = "src/bin/emit_shacl.rs"
 
 [dependencies]
 clap = { version = "4", features = ["derive", "env"] }
-rusqlite = { version = "0.39", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 anyhow = "1"
@@ -79,13 +78,7 @@ flate2 = "1"
 tar = "0.4"
 
 [features]
-# Legacy SQL-backed commands not yet ported to the claim substrate.
-# Wave 4 ports them in M2 (session/phase/init/status/check/export/sql)
-# and M3 (discovery/campaign/landscape). Gate defaults to off so the
-# M1-owned modules (store, schema, cmd_tree, cmd_spec, cmd_task) can be
-# built + tested independently. M5 removes this feature.
 default = []
-legacy-sql = []
 
 [dev-dependencies]
 tempfile = "3"
