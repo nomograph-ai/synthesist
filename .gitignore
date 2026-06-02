@@ -21,3 +21,7 @@ claims/snapshot.amc
 claims/.lock
 claims/_view.snapshot.nq
 claims/_view.heads.json
+# v3 gamma index: a disposable redb cache rebuilt from the log union.
+claims/_view.oxigraph/
+claims/_view.gamma.redb
+claims/_view.gamma.redb-lock

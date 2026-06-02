@@ -1,6 +1,6 @@
 //! SQLite projection of the claim log.
 //!
-//! Deprecated: v3 uses `graph_view::GraphView` backed by Oxigraph.
+//! Deprecated: v3 uses `gamma::Gamma`, the redb-backed typed index.
 
 #![allow(deprecated)]
 //!
@@ -47,7 +47,7 @@ const VIEW_HEADS_FILE: &str = "view.heads";
 /// gitignored (D3).
 #[deprecated(
     since = "3.0.0-pre.1",
-    note = "v3 uses `graph_view::GraphView` backed by Oxigraph."
+    note = "v3 uses `gamma::Gamma`, the redb-backed typed index."
 )]
 pub struct View {
     /// Absolute path to `claims/view.sqlite`.

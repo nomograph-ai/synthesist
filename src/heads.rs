@@ -1,26 +1,19 @@
-//! View staleness check via a heads file.
+//! Index staleness check via a heads signal.
 //!
-//! The graph view (`claims/_view.oxigraph/`) is a derived projection of
-//! the per-asserter logs. To detect when the projection has fallen
-//! behind the source-of-truth logs, the substrate records a hash of
-//! the log union into `claims/_view.heads` (or alongside the view
-//! directory, depending on caller's preference).
+//! The gamma index is a derived projection of the per-asserter logs. To
+//! detect when the projection has fallen behind the source-of-truth
+//! logs, the substrate hashes the log union into a heads signal and
+//! compares it against the signal recorded at the last rebuild.
 //!
 //! The hash covers the sorted list of asserter directory names and
 //! their per-file line counts (cheap to compute, deterministic). It
 //! does not hash the content of every claim; for substrate-internal
-//! "is the view fresh?" use that level of strictness is unnecessary.
+//! "is the index fresh?" use that level of strictness is unnecessary.
 //!
-//! ## Usage
-//!
-//! ```ignore
-//! let view_dir = claims_dir.join("_view.oxigraph");
-//! let view = GraphView::open(&view_dir)?;
-//! if !heads::heads_match(&view_dir, &claims_dir)? {
-//!     rebuild(&view, &claims_dir)?;
-//!     heads::write_heads(&view_dir, &claims_dir)?;
-//! }
-//! ```
+//! [`crate::gamma::Gamma::sync`] uses [`current_heads`] directly and
+//! records the signal inside the index's `meta` table; the free
+//! [`write_heads`] / [`heads_match`] helpers remain for callers that
+//! prefer a sidecar heads file.
 
 use std::fs;
 use std::io::{BufRead, BufReader};

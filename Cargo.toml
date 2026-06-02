@@ -40,14 +40,11 @@ thiserror = "1"
 rusqlite = { version = "0.39", features = ["bundled"] }
 chrono = { version = "0.4", features = ["serde"] }
 
-# v3-alpha graph view stack. JSON-LD parsing + RocksDB-backed
-# triple store + SPARQL query engine. Heavy dep cloud accepted
-# for alpha thesis validation; gamma replaces with a custom triple
-# index sized to measured demand.
-oxigraph = "0.4"
-oxjsonld = "0.1"
-oxrdf = "0.2"
-oxttl = "0.1"
+# v3 gamma graph index. A redb-backed POS/PSO triple index plus a
+# canonical-doc table, sized to the measured query surface (H1-H10).
+# Replaces the alpha Oxigraph/JSON-LD/SPARQL stack: the on-disk index
+# is a disposable local cache rebuilt from the per-asserter log union.
+redb = "4"
 
 # E2EE
 chacha20poly1305 = "0.10"
