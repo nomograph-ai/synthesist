@@ -1,6 +1,6 @@
 # gitlab.com/nomograph/claim .gitlab-ci.yml
 #
-# Pipeline structure provided by nomograph/pipeline tool-rust@v4.1.7.
+# Pipeline structure provided by nomograph/pipeline tool-rust@v4.2.3.
 # Claim ships both a library (nomograph-claim crate) and a binary
 # (claim CLI for inspecting the substrate), so it consumes tool-rust
 # rather than lib-rust.
@@ -10,7 +10,7 @@ default:
 
 include:
   - template: Jobs/Secret-Detection.gitlab-ci.yml
-  - component: gitlab.com/nomograph/pipeline/tool-rust@v4.1.7
+  - component: gitlab.com/nomograph/pipeline/tool-rust@v4.2.3
     inputs:
       binary_name: claim
       project_description: "Bi-temporal CRDT claim substrate with asserter attribution."
