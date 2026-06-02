@@ -1,31 +1,16 @@
 //! nomograph-claim -- bi-temporal CRDT claim substrate.
 //!
-//! Storage (per project at `<repo_root>/claims/`):
-//!
-//! ```text
-//!   genesis.amc          git-tracked, bootstrap
-//!   changes/<hash>.amc   git-tracked, content-addressed, append-only
-//!   snapshot.amc         GITIGNORED, local compaction cache
-//!   view.sqlite          GITIGNORED, local SQL cache of current state
-//!   view.heads           GITIGNORED, stale-check key
-//!   config.toml          git-tracked, schema version etc.
-//! ```
-//!
-//! E2EE key lives OUT-OF-TREE at `~/.config/nomograph/keys/<project>.key`.
-//!
-//! See architecture-v2 + overnight-2026-04-18/09-decision-document.md.
+//! v3 stores claims as JSON-LD documents in per-asserter append-only
+//! logs (`log::LogWriter` / `log::LogReader`), indexed by the gamma
+//! typed-query index (`gamma`). The legacy v2 Automerge store survives
+//! only as a read-only shim (`store::Store::open` + `load_claims`) used
+//! by the v2-to-v3 migration to drain old `claims/changes/*.amc` trees.
 
 pub mod claim;
-pub mod crypto;
 pub mod error;
-pub mod session;
 pub mod store;
-pub mod validation;
-pub mod view;
 
-// v3-alpha substrate modules. These ship alongside the v0.2 substrate
-// during the v3-alpha-integration build; the v2 modules above remain
-// until synthesist and any other consumer migrate to v3.
+// v3 substrate modules.
 pub mod asserter;
 pub mod gamma;
 pub mod heads;
@@ -34,17 +19,8 @@ pub mod log;
 pub mod ontology;
 pub mod prov;
 
-#[cfg(feature = "beacon")]
-pub mod beacon_client;
-
 #[allow(deprecated)]
 pub use claim::{AsserterId, Claim, ClaimId, ClaimType};
 pub use error::{Error, Result};
 #[allow(deprecated)]
-pub use session::{Session, SessionHandle};
-#[allow(deprecated)]
 pub use store::Store;
-#[allow(deprecated)]
-pub use validation::{SchemaError, SchemaResult};
-#[allow(deprecated)]
-pub use view::View;

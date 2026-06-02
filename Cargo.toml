@@ -26,80 +26,29 @@ exclude = [
 name = "nomograph_claim"
 path = "src/lib.rs"
 
-[[bin]]
-name = "claim"
-path = "src/bin/claim.rs"
-
 [dependencies]
-automerge = "0.8"
+# v3 substrate: per-asserter JSON-LD logs (serde_json), gamma index
+# (redb), content addressing (blake3), timestamps (chrono).
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 blake3 = "1"
 anyhow = "1"
 thiserror = "1"
-rusqlite = { version = "0.39", features = ["bundled"] }
 chrono = { version = "0.4", features = ["serde"] }
 
 # v3 gamma graph index. A redb-backed POS/PSO triple index plus a
 # canonical-doc table, sized to the measured query surface (H1-H10).
-# Replaces the alpha Oxigraph/JSON-LD/SPARQL stack: the on-disk index
-# is a disposable local cache rebuilt from the per-asserter log union.
+# The on-disk index is a disposable local cache rebuilt from the
+# per-asserter log union.
 redb = "4"
 
-# E2EE
-chacha20poly1305 = "0.10"
-argon2 = "0.5"
-rand = "0.8"
-zeroize = { version = "1", features = ["zeroize_derive"] }
-
-# Config + paths
-directories = "5"
-toml = "0.8"
-
-# CLI
-clap = { version = "4", features = ["derive"] }
-
-# Process-level advisory lock on the claims/ directory, used to
-# serialize compact() against concurrent append() in the same repo.
-fs4 = { version = "0.13", default-features = false, features = ["sync"] }
-
-# Beacon client (optional). Enabled with --features beacon. When off,
-# claim stays async-free for single-host CLI workloads.
-tokio = { version = "1", default-features = false, features = [
-    "rt",
-    "macros",
-    "net",
-    "time",
-    "io-util",
-    "sync",
-], optional = true }
-tokio-tungstenite = { version = "0.23", default-features = false, features = [
-    "rustls-tls-webpki-roots",
-    "connect",
-], optional = true }
-futures-util = { version = "0.3", default-features = false, features = [
-    "sink",
-], optional = true }
-base64 = { version = "0.22", optional = true }
-url = { version = "2", optional = true }
-http = { version = "1", optional = true }
-
-[features]
-default = []
-beacon = [
-    "dep:tokio",
-    "dep:tokio-tungstenite",
-    "dep:futures-util",
-    "dep:base64",
-    "dep:url",
-    "dep:http",
-]
+# v2-read shim only: the v2-to-v3 migration drains legacy Automerge
+# `claims/changes/*.amc` logs through `store::Store::open`.
+automerge = "0.8"
 
 [dev-dependencies]
 tempfile = "3"
 proptest = "1"
-assert_cmd = "2"
-predicates = "3"
 
 [profile.release]
 opt-level = 3

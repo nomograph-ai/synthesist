@@ -373,6 +373,24 @@ impl Gamma {
         Ok(self.subjects_with(TYPE_PRED, type_value)?.len())
     }
 
+    /// H1 variant: count claims of `@type` that also carry
+    /// `(pred, value)`. NOT live-filtered -- every version of every
+    /// matching claim, superseded or not. Mirrors a SPARQL
+    /// `SELECT (COUNT(DISTINCT ?c)) WHERE { ?c rdf:type {type}; pred value }`
+    /// with no `FILTER NOT EXISTS`. Index-native: two POS range scans
+    /// intersected on the subject column.
+    pub fn count_by_type_and_value(
+        &self,
+        type_value: &str,
+        pred: &str,
+        value: &str,
+    ) -> Result<usize> {
+        let typed: HashSet<String> =
+            self.subjects_with(TYPE_PRED, type_value)?.into_iter().collect();
+        let matching = self.subjects_with(pred, value)?;
+        Ok(matching.into_iter().filter(|s| typed.contains(s)).count())
+    }
+
     /// H1: total claim count (every doc in the index).
     pub fn count_total(&self) -> Result<usize> {
         let r = self.db.begin_read()?;
