@@ -42,7 +42,7 @@ pub fn cmd_skill(manifest_path: Option<&Path>) -> Result<()> {
 /// invariants that apply regardless of surface.
 ///
 /// Additional command groups available in the manifest but absent from the
-/// baseline skill content (e.g. `query`, `overlay run`) are appended to the
+/// baseline skill content (e.g. `overlay run`) are appended to the
 /// Command Reference under their own headings.
 fn generate_skill_for_manifest(manifest: &crate::surface::manifest::Manifest) -> String {
     // Build the set of permitted command keys for this manifest.
@@ -141,10 +141,6 @@ fn generate_skill_for_manifest(manifest: &crate::surface::manifest::Manifest) ->
     );
 
     // Non-baseline additions: emit only when the manifest permits them.
-    if permitted.iter().any(|k| k == "query") {
-        out.push_str(QUERY_SECTION);
-        out.push('\n');
-    }
     if permitted.iter().any(|k| k == "overlay list" || k == "overlay run") {
         out.push_str(OVERLAY_SECTION);
         out.push('\n');
@@ -322,15 +318,6 @@ Observation commands (`stakeholder`, `disposition`, `signal`,
 Running them here prints a pointer to the replacement."#;
 
 // Non-baseline sections: included only when the manifest permits them.
-
-const QUERY_SECTION: &str = "### Graph Query
-Retired raw-query surface. The v3 gamma index has no SPARQL
-evaluator; the typed query surface is the per-type commands plus the
-`overlay` subcommand. Invoking `query` returns a structured error
-pointing at the typed surface.
-```
-synthesist query --sparql \"...\"                   # returns the retirement error
-```";
 
 const OVERLAY_SECTION: &str = "### Overlays
 Named analysis passes over the gamma index. Each overlay runs a
@@ -928,42 +915,38 @@ add     = []
 
     #[test]
     fn sparql_exposed_manifest_includes_sparql_commands() {
-        // A manifest that adds `query` and `overlay run` must produce a skill
+        // A manifest that adds the overlay commands must produce a skill
         // that documents those commands.
         let toml = r#"
 [manifest]
-name        = "sparql-exposed"
-description = "baseline plus SPARQL query surface"
+name        = "overlay-exposed"
+description = "baseline plus overlay query surface"
 
 [commands]
 include = []
 exclude = []
-add     = ["query", "overlay list", "overlay run"]
+add     = ["overlay list", "overlay run"]
 "#;
         let skill = skill_for_toml(toml);
 
-        // The SPARQL query commands must appear.
-        assert!(
-            skill.contains("synthesist query"),
-            "sparql-exposed skill must document `synthesist query`"
-        );
+        // The overlay commands must appear.
         assert!(
             skill.contains("synthesist overlay run"),
-            "sparql-exposed skill must document `synthesist overlay run`"
+            "overlay-exposed skill must document `synthesist overlay run`"
         );
         assert!(
             skill.contains("synthesist overlay list"),
-            "sparql-exposed skill must document `synthesist overlay list`"
+            "overlay-exposed skill must document `synthesist overlay list`"
         );
 
         // Baseline commands must still be present (empty include = all baseline).
         assert!(
             skill.contains("synthesist task add"),
-            "sparql-exposed skill must still document baseline `synthesist task add`"
+            "overlay-exposed skill must still document baseline `synthesist task add`"
         );
         assert!(
             skill.contains("synthesist spec add"),
-            "sparql-exposed skill must still document baseline `synthesist spec add`"
+            "overlay-exposed skill must still document baseline `synthesist spec add`"
         );
     }
 

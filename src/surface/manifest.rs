@@ -191,11 +191,11 @@ exclude = []
 add     = []
 "#;
 
-    // The sparql-exposed manifest adds graph-query commands on top of the
-    // v2.5 baseline.
+    // The overlay-exposed manifest adds graph-query commands on top of
+    // the v2.5 baseline.
     const SPARQL_EXPOSED: &str = r#"
 [manifest]
-name        = "sparql-exposed"
+name        = "overlay-exposed"
 description = "v2.5 baseline plus graph query surface"
 
 [commands]
@@ -206,7 +206,7 @@ include = [
     "campaign add",
 ]
 exclude = []
-add     = ["query", "overlay run", "spec hierarchy"]
+add     = ["overlay list", "overlay run", "spec hierarchy"]
 "#;
 
     #[test]
@@ -223,11 +223,11 @@ add     = ["query", "overlay run", "spec hierarchy"]
 
     #[test]
     fn parse_sparql_exposed() {
-        let m = parse_str(SPARQL_EXPOSED, "<inline:sparql-exposed>").unwrap();
-        assert_eq!(m.name, "sparql-exposed");
+        let m = parse_str(SPARQL_EXPOSED, "<inline:overlay-exposed>").unwrap();
+        assert_eq!(m.name, "overlay-exposed");
         assert_eq!(m.description, "v2.5 baseline plus graph query surface");
         assert!(m.include.contains(&"status".to_string()));
-        assert!(m.add.contains(&"query".to_string()));
+        assert!(m.add.contains(&"overlay list".to_string()));
         assert!(m.add.contains(&"overlay run".to_string()));
         assert!(m.add.contains(&"spec hierarchy".to_string()));
     }

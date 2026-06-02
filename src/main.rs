@@ -14,7 +14,6 @@ mod cmd_overlay;
 mod cmd_phase;
 mod cmd_session;
 mod cmd_spec;
-mod cmd_query;
 mod cmd_task;
 mod cmd_tree;
 mod integrity;
@@ -102,7 +101,7 @@ fn run(cli: cli::Cli) -> anyhow::Result<()> {
     }
 
     // Commands that do not append attributable claims:
-    //   - reads (status, check, conflicts, query, export, lists/shows)
+    //   - reads (status, check, conflicts, export, lists/shows)
     //   - outcome list (queries Outcome claims; appends nothing)
     //
     // Both the session-required gate and the phase gate skip these.
@@ -116,7 +115,6 @@ fn run(cli: cli::Cli) -> anyhow::Result<()> {
             | cli::Command::Conflicts
             | cli::Command::Migrate { .. }
             | cli::Command::Export
-            | cli::Command::Query { .. }
             | cli::Command::Phase {
                 cmd: cli::PhaseCmd::Show
             }
@@ -189,11 +187,6 @@ fn run(cli: cli::Cli) -> anyhow::Result<()> {
         cli::Command::Phase { cmd } => cmd_phase::run(cmd, &cli.session, cli.force),
         cli::Command::Export => cmd_export::cmd_export(),
         cli::Command::Import { file } => cmd_import::cmd_import(file),
-        cli::Command::Query { sparql, file } => cmd_query::cmd_query(
-            sparql.as_deref(),
-            file.as_deref(),
-            cli.data_dir.as_deref(),
-        ),
         cli::Command::Outcome { cmd } => cmd_outcome::run(cmd, &cli.session),
         cli::Command::Overlay { cmd } => cmd_overlay::run(cmd, cli.data_dir.as_deref()),
         cli::Command::Jig { cmd } => cmd_jig::run(cmd),

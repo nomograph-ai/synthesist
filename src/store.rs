@@ -46,9 +46,97 @@ use anyhow::{Context, Result, anyhow, bail};
 use crate::claim_type::ClaimType;
 use serde_json::Value;
 
-pub use nomograph_workflow::{
-    CLAIMS_DIR, find_legacy_v1_db, json_out, legacy_migration_error, parse_tree_spec, today,
-};
+// Leaf helpers folded in from the retired `nomograph_workflow` crate.
+// Every downstream site imports these via `crate::store::{...}`, so
+// defining them here as local `pub` items keeps those call sites
+// compiling unchanged. Their unit tests live in this module's `tests`.
+
+/// Directory inside a project that holds the claim substrate.
+///
+/// Visible name, plural, no nicknames.
+pub const CLAIMS_DIR: &str = "claims";
+
+/// Split a `tree/spec` identifier into its two parts. Prescriptive
+/// error on malformed input so CLI users see the expected shape.
+pub fn parse_tree_spec(input: &str) -> Result<(String, String)> {
+    let (tree, spec) = input
+        .split_once('/')
+        .context("identifier must be <tree>/<spec>, e.g. keaton/graphs")?;
+    if tree.is_empty() || spec.is_empty() {
+        anyhow::bail!("identifier must be <tree>/<spec>, e.g. keaton/graphs");
+    }
+    Ok((tree.to_string(), spec.to_string()))
+}
+
+/// Today's date as `YYYY-MM-DD` in local time. Used by commands that
+/// default a `date` / `event_date` prop to "today". This is the
+/// date-only helper; do not conflate it with `cmd_outcome`'s
+/// `today_iso` (a full timestamp).
+pub fn today() -> String {
+    use time::macros::format_description;
+    let fmt = format_description!("[year]-[month]-[day]");
+    time::OffsetDateTime::now_local()
+        .unwrap_or_else(|_| time::OffsetDateTime::now_utc())
+        .format(&fmt)
+        .unwrap_or_else(|_| "1970-01-01".into())
+}
+
+/// Render a JSON value as a single line on stdout. Every synthesist
+/// command emits JSON by convention; routing through this helper keeps
+/// the output shape consistent.
+pub fn json_out(v: &Value) -> Result<()> {
+    println!("{}", serde_json::to_string(v).context("serialize output")?);
+    Ok(())
+}
+
+/// Walk upward from `start` looking for a v1 `.synth/main.db`.
+/// Returns the path to the first one found, or `None`.
+///
+/// Used inside the discover path so a bad directory produces a
+/// prescriptive error instead of a silent empty-estate creation.
+pub fn find_legacy_v1_db(start: &Path) -> Option<PathBuf> {
+    let mut cur = start.to_path_buf();
+    loop {
+        let legacy = cur.join(".synth").join("main.db");
+        if legacy.is_file() {
+            return Some(legacy);
+        }
+        if !cur.pop() {
+            break;
+        }
+    }
+    None
+}
+
+/// Build the standardized migration error. Centralized so every caller
+/// emits an identical prescriptive message naming the exact
+/// `synthesist migrate v1-to-v2` subcommand to run and pointing at
+/// `MIGRATION.md` for rollback + verification steps.
+pub fn legacy_migration_error(legacy_db: &Path) -> anyhow::Error {
+    // legacy_db = <repo>/.synth/main.db. Compute <repo>/claims as the
+    // suggested migration target.
+    let target = legacy_db
+        .parent()
+        .and_then(|p| p.parent())
+        .map(|p| p.join("claims"))
+        .unwrap_or_else(|| PathBuf::from("claims"));
+    anyhow::anyhow!(
+        "found v1 database at `{legacy}` but no v2 `claims/` directory in scope.\n\
+         \n\
+         synthesist v2 stores data in `claims/` (Automerge claim log + SQLite view).\n\
+         Port your v1 data before using v2 commands here:\n\
+         \n\
+         \u{20}\u{20}# dry-run first, then migrate\n\
+         \u{20}\u{20}synthesist migrate v1-to-v2 --from {legacy} --to {target} --dry-run\n\
+         \u{20}\u{20}synthesist migrate v1-to-v2 --from {legacy} --to {target}\n\
+         \n\
+         See MIGRATION.md in the synthesist repo for rollback + verification.\n\
+         If the v1 db is obsolete and you want a fresh v2 estate here,\n\
+         remove `.synth/` first.",
+        legacy = legacy_db.display(),
+        target = target.display(),
+    )
+}
 
 /// Directory name (under `claims/`) of the gamma index cache.
 ///
@@ -751,5 +839,64 @@ mod tests {
         );
         assert_eq!(a, b);
         assert_eq!(a.len(), 64, "blake3 hex is 64 chars");
+    }
+
+    // -----------------------------------------------------------------
+    // Folded workflow leaf-helper tests.
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn parse_tree_spec_ok() {
+        let (t, s) = parse_tree_spec("keaton/graphs").unwrap();
+        assert_eq!(t, "keaton");
+        assert_eq!(s, "graphs");
+    }
+
+    #[test]
+    fn parse_tree_spec_errors_on_missing_slash() {
+        assert!(parse_tree_spec("keaton").is_err());
+    }
+
+    #[test]
+    fn parse_tree_spec_errors_on_empty_halves() {
+        assert!(parse_tree_spec("/graphs").is_err());
+        assert!(parse_tree_spec("keaton/").is_err());
+    }
+
+    #[test]
+    fn today_shape_is_yyyy_mm_dd() {
+        let s = today();
+        assert_eq!(s.len(), 10);
+        assert_eq!(s.chars().nth(4), Some('-'));
+        assert_eq!(s.chars().nth(7), Some('-'));
+    }
+
+    #[test]
+    fn find_legacy_returns_none_for_clean_dir() {
+        let tmp = tempdir().unwrap();
+        assert!(find_legacy_v1_db(tmp.path()).is_none());
+    }
+
+    #[test]
+    fn find_legacy_walks_upward() {
+        let tmp = tempdir().unwrap();
+        std::fs::create_dir_all(tmp.path().join(".synth")).unwrap();
+        std::fs::write(tmp.path().join(".synth/main.db"), b"fake").unwrap();
+        let nested = tmp.path().join("a/b/c");
+        std::fs::create_dir_all(&nested).unwrap();
+        let found = find_legacy_v1_db(&nested).expect("walks up");
+        assert!(found.ends_with(".synth/main.db"));
+    }
+
+    #[test]
+    fn legacy_error_names_target_dir() {
+        let tmp = tempdir().unwrap();
+        let db = tmp.path().join(".synth/main.db");
+        let err = legacy_migration_error(&db).to_string();
+        assert!(err.contains("v1 database"));
+        assert!(err.contains("synthesist migrate v1-to-v2"));
+        assert!(err.contains("MIGRATION.md"));
+        // Target path = tmp/claims.
+        assert!(err.contains(&tmp.path().join("claims").display().to_string()));
     }
 }

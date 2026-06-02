@@ -261,10 +261,8 @@ fn v3_happy_path_dual_write() {
     // v3 dual-write verification
     //
     // Only commands that call SynthStore::append WITH a session-scoped
-    // asserter (via discover_for) produce v3 log lines. `session start`
-    // still goes through nomograph_workflow::Session::start which
-    // bypasses SynthStore::append (substrate concern outside A.2's
-    // scope). `task ready` and `status` are read-only.
+    // asserter (via discover_for) produce v3 log lines. `task ready` and
+    // `status` are read-only.
     //
     // Session-scoped dual-write claims:
     //   session start     -> 1 Session claim (review #4 fix)

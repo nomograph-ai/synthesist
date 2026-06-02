@@ -1,6 +1,6 @@
 [manifest]
 name        = "sparql-exposed"
-description = "v2.5 baseline plus graph query surface; exposes SPARQL query and overlay commands for LLM harnesses"
+description = "v2.5 baseline plus graph query surface; exposes overlay commands for LLM harnesses"
 
 [commands]
 include = [
@@ -14,11 +14,10 @@ include = [
     "campaign add", "campaign list",
     "session start", "session close", "session list", "session status",
     "phase show", "phase set",
-    "export", "import", "sql",
+    "export", "import",
     "conflicts", "migrate status", "migrate v1-to-v2",
-    "init", "check", "version", "skill", "serve",
-    "claims compact",
+    "init", "check", "version", "skill",
     "outcome add", "outcome list",
 ]
 exclude = []
-add     = ["query", "overlay run", "spec hierarchy"]
+add     = ["overlay list", "overlay run", "spec hierarchy"]

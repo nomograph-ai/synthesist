@@ -14,10 +14,9 @@ include = [
     "campaign add", "campaign list",
     "session start", "session close", "session list", "session status",
     "phase show", "phase set",
-    "export", "import", "sql",
+    "export", "import",
     "conflicts", "migrate status", "migrate v1-to-v2",
-    "init", "check", "version", "skill", "serve",
-    "claims compact",
+    "init", "check", "version", "skill",
     "outcome add", "outcome list",
 ]
 exclude = []

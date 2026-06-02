@@ -35,8 +35,8 @@ fn sparql_exposed_loads() {
         "sparql-exposed include list must not be empty"
     );
     assert!(
-        m.add.contains(&"query".to_string()),
-        "sparql-exposed must add 'query'"
+        m.add.contains(&"overlay list".to_string()),
+        "sparql-exposed must add 'overlay list'"
     );
     assert!(
         m.add.contains(&"overlay run".to_string()),

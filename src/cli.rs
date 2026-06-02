@@ -151,22 +151,6 @@ pub enum Command {
         #[arg(long)]
         offline: bool,
     },
-    /// Retired raw-SPARQL surface. The v3 gamma index (redb typed index)
-    /// has no SPARQL evaluator; the typed query surface is the per-type
-    /// commands plus the `overlay` subcommand. Kept wired so existing
-    /// invocations return a structured error pointing at the typed
-    /// surface rather than an unknown-subcommand failure.
-    ///
-    /// Supply the query inline with `--sparql` or load it from a file
-    /// with `--file`; either way the body returns the retirement error.
-    Query {
-        /// SPARQL SELECT query string to execute.
-        #[arg(long, value_name = "SPARQL", conflicts_with = "file")]
-        sparql: Option<String>,
-        /// Path to a file containing the SPARQL SELECT query.
-        #[arg(long, value_name = "PATH", conflicts_with = "sparql")]
-        file: Option<std::path::PathBuf>,
-    },
     /// Record what happened to a spec (completed, abandoned, deferred,
     /// or absorbed by another spec). Distinct from Spec status, which
     /// expresses the spec's current state. Each Outcome is an
@@ -768,7 +752,6 @@ const REGISTRY: &[(&str, bool)] = &[
     ("outcome add",        true),
     ("outcome list",       true),
     // --- v3-alpha additions (not in v2.5 baseline) ---
-    ("query",              false),
     ("overlay list",       false),
     ("overlay run",        false),
     ("jig run",            false),
@@ -1051,13 +1034,13 @@ add     = []
 
     #[test]
     fn baseline_manifest_excludes_non_baseline_commands() {
-        // Commands like "query", "overlay run", "jig run" are NOT in the
-        // v2.5 baseline and must not appear when add is empty.
+        // Commands like "overlay list", "overlay run", "jig run" are NOT
+        // in the v2.5 baseline and must not appear when add is empty.
         let manifest = baseline_manifest();
         let app = build_app(&manifest);
         let keys = collect_keys(&app);
 
-        let non_baseline = ["query", "overlay list", "overlay run", "jig run"];
+        let non_baseline = ["overlay list", "overlay run", "jig run"];
         for cmd in &non_baseline {
             assert!(
                 !keys.iter().any(|k| k == *cmd),
@@ -1111,26 +1094,27 @@ add     = []
 
     #[test]
     fn add_list_enables_non_baseline_commands() {
-        // A manifest with an empty include (all baseline present) plus add = ["query"].
+        // A manifest with an empty include (all baseline present) plus
+        // a non-baseline add list.
         let toml = r#"
 [manifest]
-name        = "sparql-exposed"
-description = "baseline plus query"
+name        = "overlay-exposed"
+description = "baseline plus overlay surface"
 
 [commands]
 include = []
 exclude = []
-add     = ["query", "overlay run", "overlay list"]
+add     = ["overlay run", "overlay list"]
 "#;
-        let manifest = crate::surface::manifest::parse_str(toml, "<test:sparql>").unwrap();
+        let manifest = crate::surface::manifest::parse_str(toml, "<test:overlay>").unwrap();
         let app = build_app(&manifest);
         let keys = collect_keys(&app);
 
         // Added commands must be present.
-        for cmd in &["query", "overlay run", "overlay list"] {
+        for cmd in &["overlay run", "overlay list"] {
             assert!(
                 keys.iter().any(|k| k == *cmd),
-                "sparql manifest must expose '{cmd}' but it was absent"
+                "overlay manifest must expose '{cmd}' but it was absent"
             );
         }
 
@@ -1151,18 +1135,18 @@ name        = "conflict-test"
 description = "exclude beats include"
 
 [commands]
-include = ["status", "query", "task add"]
-exclude = ["query", "task add"]
-add     = ["query"]
+include = ["status", "overlay run", "task add"]
+exclude = ["overlay run", "task add"]
+add     = ["overlay run"]
 "#;
         let manifest = crate::surface::manifest::parse_str(toml, "<test:conflict>").unwrap();
         let app = build_app(&manifest);
         let keys = collect_keys(&app);
 
-        // "query" is in both include, add, AND exclude -- exclude wins.
+        // "overlay run" is in include, add, AND exclude -- exclude wins.
         assert!(
-            !keys.iter().any(|k| k == "query"),
-            "'query' is excluded and must not appear even though it is also in include and add"
+            !keys.iter().any(|k| k == "overlay run"),
+            "'overlay run' is excluded and must not appear even though it is also in include and add"
         );
         // "task add" is excluded.
         assert!(
@@ -1194,7 +1178,7 @@ description = "all lists empty"
         assert!(keys.iter().any(|k| k == "task add"));
 
         // Non-baseline absent.
-        assert!(!keys.iter().any(|k| k == "query"));
+        assert!(!keys.iter().any(|k| k == "overlay list"));
         assert!(!keys.iter().any(|k| k == "overlay run"));
     }
 }

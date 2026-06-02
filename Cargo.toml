@@ -50,13 +50,7 @@ toml = "0.8"
 time = { version = "0.3", features = ["local-offset", "formatting", "macros"] }
 chrono = { version = "0.4", features = ["serde"] }
 thiserror = "1"
-# v3-alpha: path-dep both claim and workflow so they share a single
-# nomograph-claim compilation unit. workflow's v3-alpha-integration
-# branch also path-deps claim. This is the temporary integration
-# wiring; eventual T3.x folds workflow into synthesist and removes
-# the workflow crate dependency entirely.
 nomograph-claim = { path = "../claim", version = "3.0.0-pre.1" }
-nomograph-workflow = { path = "../workflow", version = "3.0.0-pre.1" }
 # spargebra parses SPARQL into an AST; telemetry.rs uses it to derive a
 # stable query_hash from overlay query strings. Retained after the
 # Oxigraph removal because it is a standalone parser crate.
