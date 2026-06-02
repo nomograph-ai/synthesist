@@ -7,10 +7,9 @@
 //!
 //! ## View strategy
 //!
-//! Same as `cmd_query`: try the on-disk RocksDB view first, then fall
-//! back to an in-memory rebuild. The macOS RocksDB known issue (see
-//! `cmd_query.rs` and the `#[ignore]` tests in `nomograph_claim::graph_view`)
-//! means the fallback path is the practical one in development.
+//! Overlays open the disposable redb gamma index for the current
+//! `claims/` directory, rebuilding it from the per-asserter logs when
+//! the cache is absent or stale.
 
 use std::path::{Path, PathBuf};
 
@@ -61,8 +60,8 @@ fn cmd_overlay_run(name: &str, data_dir: Option<&Path>) -> Result<()> {
     let view = open_view_from_claims_dir(&claims_dir)?;
 
     // Sentinel query string used as the representative query for telemetry.
-    // The Overlay trait does not expose SPARQL directly, so we use the
-    // overlay name wrapped in a comment sentinel so record_query has a
+    // The Overlay trait does not expose a query string directly, so we use
+    // the overlay name wrapped in a comment sentinel so record_query has a
     // stable, non-empty string from which to derive query_hash.
     let representative_query = format!("# overlay:{}", name);
 
@@ -226,9 +225,8 @@ mod tests {
     /// Acceptance: running the demo overlay and recording telemetry causes
     /// claims/_telemetry/queries.jsonl to exist and contain exactly one line.
     ///
-    /// Uses the in-memory GraphView (avoids the macOS RocksDB TryFromIntError)
-    /// and calls TelemetryWriter directly, mirroring the wiring in
-    /// cmd_overlay_run exactly.
+    /// Uses an in-memory gamma index and calls TelemetryWriter directly,
+    /// mirroring the wiring in cmd_overlay_run exactly.
     #[test]
     fn overlay_run_writes_telemetry_record() {
         use nomograph_synthesist::telemetry::{Surface, TelemetryWriter};
@@ -243,8 +241,7 @@ mod tests {
         // Telemetry file must not exist yet.
         assert!(!claims_dir.join("_telemetry").join("queries.jsonl").exists());
 
-        // Run the overlay against an in-memory view (bypasses RocksDB, which
-        // panics on macOS in the current oxigraph version).
+        // Run the overlay against an in-memory gamma index.
         let overlay_name = "demo-tasks-by-status";
         let overlay = overlay::find(overlay_name).unwrap();
         let view = Gamma::open_in_memory().unwrap();

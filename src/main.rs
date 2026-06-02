@@ -2,7 +2,6 @@ mod claim_type;
 mod cli;
 mod cmd_campaign;
 mod cmd_jig;
-mod cmd_claims;
 mod migrations;
 mod cmd_conflicts;
 mod cmd_discovery;
@@ -13,14 +12,11 @@ mod cmd_migrate;
 mod cmd_outcome;
 mod cmd_overlay;
 mod cmd_phase;
-mod cmd_serve;
 mod cmd_session;
 mod cmd_spec;
 mod cmd_query;
-mod cmd_sql;
 mod cmd_task;
 mod cmd_tree;
-mod compaction;
 mod integrity;
 mod output;
 mod overlay;
@@ -29,47 +25,12 @@ mod surface;
 mod skill;
 mod store;
 mod task_dag;
-mod task_mutate;
 mod validation;
 mod wire_format;
 
 use clap::Parser;
 
-/// Install a panic hook that suppresses the known macOS ARM oxigraph
-/// RocksDB `TryFromIntError` panic message. `catch_unwind` in the
-/// `nomograph_claim::graph_view::GraphView::open_or_in_memory` helper catches
-/// the panic and falls back to an in-memory view; without this hook,
-/// the default panic handler prints the panic message to stderr
-/// BEFORE catch_unwind intercepts, alarming operators who see the
-/// stderr noise on every `query`, `serve`, `overlay run`, and
-/// `task ready` invocation.
-///
-/// The hook delegates to the default for any panic that does not
-/// look like the known RocksDB issue.
-fn install_panic_hook() {
-    let default = std::panic::take_hook();
-    std::panic::set_hook(Box::new(move |info| {
-        let payload = info.payload();
-        let is_rocksdb_tryfrom = info
-            .location()
-            .map(|loc| loc.file().contains("rocksdb_wrapper.rs"))
-            .unwrap_or(false)
-            || payload
-                .downcast_ref::<String>()
-                .map(|s| s.contains("TryFromIntError"))
-                .unwrap_or(false)
-            || payload
-                .downcast_ref::<&str>()
-                .map(|s| s.contains("TryFromIntError"))
-                .unwrap_or(false);
-        if !is_rocksdb_tryfrom {
-            default(info);
-        }
-    }));
-}
-
 fn main() {
-    install_panic_hook();
     let cli = cli::Cli::parse();
 
     if let Err(e) = run(cli) {
@@ -98,11 +59,10 @@ fn run(cli: cli::Cli) -> anyhow::Result<()> {
     // SAFETY: set_var is unsafe in edition 2024 because env vars are
     // process-global and not thread-safe. This call is safe today because it
     // runs before any thread is spawned: `cli::Cli::parse` is synchronous,
-    // and no `tokio::spawn`, `rayon::*`, or `std::thread::spawn` precedes
-    // this point. cmd_serve later spawns tokio tasks, but only after this
-    // block completes. If a future change introduces concurrency earlier in
-    // the dispatch (e.g. a parallel preflight check), the set_var call must
-    // move to a once-cell or a thread-safe configuration carrier before it.
+    // and no `rayon::*` or `std::thread::spawn` precedes this point. If a
+    // future change introduces concurrency earlier in the dispatch (e.g. a
+    // parallel preflight check), the set_var call must move to a once-cell
+    // or a thread-safe configuration carrier before it.
     if let Some(path) = cli.data_dir.as_ref() {
         // Canonicalize best-effort for a clearer error if the path is wrong.
         let value = path.to_string_lossy().into_owned();
@@ -142,8 +102,7 @@ fn run(cli: cli::Cli) -> anyhow::Result<()> {
     }
 
     // Commands that do not append attributable claims:
-    //   - reads (status, check, conflicts, sql, serve, export, lists/shows)
-    //   - substrate maintenance (claims compact, future verify/gc/snapshot)
+    //   - reads (status, check, conflicts, query, export, lists/shows)
     //   - outcome list (queries Outcome claims; appends nothing)
     //
     // Both the session-required gate and the phase gate skip these.
@@ -157,10 +116,7 @@ fn run(cli: cli::Cli) -> anyhow::Result<()> {
             | cli::Command::Conflicts
             | cli::Command::Migrate { .. }
             | cli::Command::Export
-            | cli::Command::Sql { .. }
             | cli::Command::Query { .. }
-            | cli::Command::Serve { .. }
-            | cli::Command::Claims { .. }
             | cli::Command::Phase {
                 cmd: cli::PhaseCmd::Show
             }
@@ -233,14 +189,11 @@ fn run(cli: cli::Cli) -> anyhow::Result<()> {
         cli::Command::Phase { cmd } => cmd_phase::run(cmd, &cli.session, cli.force),
         cli::Command::Export => cmd_export::cmd_export(),
         cli::Command::Import { file } => cmd_import::cmd_import(file),
-        cli::Command::Sql { query } => cmd_sql::cmd_sql(query),
         cli::Command::Query { sparql, file } => cmd_query::cmd_query(
             sparql.as_deref(),
             file.as_deref(),
             cli.data_dir.as_deref(),
         ),
-        cli::Command::Serve { port, bind_all } => cmd_serve::run(*port, *bind_all),
-        cli::Command::Claims { cmd } => cmd_claims::run(cmd, &cli.session),
         cli::Command::Outcome { cmd } => cmd_outcome::run(cmd, &cli.session),
         cli::Command::Overlay { cmd } => cmd_overlay::run(cmd, cli.data_dir.as_deref()),
         cli::Command::Jig { cmd } => cmd_jig::run(cmd),

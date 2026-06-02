@@ -24,7 +24,7 @@ use clap::{Arg, Parser, Subcommand};
     name = "synthesist",
     version = env!("CARGO_PKG_VERSION"),
     about = "Specification graph manager for AI-augmented projects",
-    after_help = "All output is JSON. Writes append typed claims to claims/; reads query the SQLite view materialized from them.\nRun 'synthesist skill' for the full behavioral contract and worked examples."
+    after_help = "All output is JSON. Writes append typed claims to per-asserter logs under claims/; reads query a disposable redb gamma index rebuilt from them.\nRun 'synthesist skill' for the full behavioral contract and worked examples."
 )]
 pub struct Cli {
     /// Session ID for write operations. Sets the asserter class on every
@@ -48,7 +48,7 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Command {
-    /// Initialize synthesist in the current directory. Creates claims/ with genesis.amc.
+    /// Initialize synthesist in the current directory. Creates the claims/ directory.
     Init,
     /// Estate overview: trees, task counts, ready tasks, sessions, phase.
     Status,
@@ -151,24 +151,14 @@ pub enum Command {
         #[arg(long)]
         offline: bool,
     },
-    /// Run a read-only SQL query against the SQLite view (SELECT, EXPLAIN, PRAGMA, WITH).
-    Sql {
-        /// SQL query to execute. Only read-only queries are allowed.
-        query: String,
-    },
-    /// Run a read-only SPARQL SELECT query against the local graph view
-    /// and return results as JSON with `columns`, `rows`, and `count`.
+    /// Retired raw-SPARQL surface. The v3 gamma index (redb typed index)
+    /// has no SPARQL evaluator; the typed query surface is the per-type
+    /// commands plus the `overlay` subcommand. Kept wired so existing
+    /// invocations return a structured error pointing at the typed
+    /// surface rather than an unknown-subcommand failure.
     ///
     /// Supply the query inline with `--sparql` or load it from a file
-    /// with `--file`. The view is opened from `claims/_view.oxigraph/`
-    /// if present; otherwise an in-memory view is rebuilt from the log
-    /// union (the macOS RocksDB issue means the in-memory path is the
-    /// practical default on macOS; see cmd_query.rs for details).
-    ///
-    /// NOTE (T5.2): this command is currently a regular clap subcommand.
-    /// When T5.2 (CLI command registry refactor) lands, it should be
-    /// registered under the `sparql-exposed` manifest key and hidden
-    /// from `baseline-v25`.
+    /// with `--file`; either way the body returns the retirement error.
     Query {
         /// SPARQL SELECT query string to execute.
         #[arg(long, value_name = "SPARQL", conflicts_with = "file")]
@@ -176,26 +166,6 @@ pub enum Command {
         /// Path to a file containing the SPARQL SELECT query.
         #[arg(long, value_name = "PATH", conflicts_with = "sparql")]
         file: Option<std::path::PathBuf>,
-    },
-    /// Serve a browsable HTML dashboard of the claim graph on a local
-    /// HTTP port. Multi-person reviewers (and agents via `/api/state`)
-    /// can drill in via progressive disclosure. Read-only.
-    Serve {
-        /// Port to listen on (default 5179).
-        #[arg(long)]
-        port: Option<u16>,
-        /// Bind to 0.0.0.0 instead of localhost. Allows external
-        /// connections; default is localhost-only.
-        #[arg(long)]
-        bind_all: bool,
-    },
-    /// Substrate maintenance commands: compaction, future verify/gc/
-    /// snapshot operations. Distinct from typed-append commands;
-    /// these operate on the on-disk store directly and do not record
-    /// attribution, so no `--session` or phase gate applies.
-    Claims {
-        #[command(subcommand)]
-        cmd: ClaimsCmd,
     },
     /// Record what happened to a spec (completed, abandoned, deferred,
     /// or absorbed by another spec). Distinct from Spec status, which
@@ -218,26 +188,6 @@ pub enum Command {
     Jig {
         #[command(subcommand)]
         cmd: JigCmd,
-    },
-}
-
-// --- Claims (substrate maintenance) ---
-
-#[derive(Subcommand)]
-pub enum ClaimsCmd {
-    /// Serialize the full Automerge document to `snapshot.amc` and
-    /// remove superseded `changes/*.amc` files. Logical claim history
-    /// is unchanged; this is a physical re-encoding that shrinks
-    /// future `Store::open` cost by collapsing many incremental files
-    /// into one snapshot.
-    Compact {
-        /// Print what would be compacted without making changes.
-        #[arg(long)]
-        dry_run: bool,
-        /// Skip the interactive confirmation prompt. Required for
-        /// non-interactive use (CI, scripts).
-        #[arg(long)]
-        yes: bool,
     },
 }
 
@@ -770,10 +720,8 @@ const REGISTRY: &[(&str, bool)] = &[
     ("init",               true),
     ("export",             true),
     ("import",             true),
-    ("sql",                true),
     ("skill",              true),
     ("version",            true),
-    ("serve",              true),
     // --- tree ---
     ("tree add",           true),
     ("tree list",          true),
@@ -816,8 +764,6 @@ const REGISTRY: &[(&str, bool)] = &[
     ("migrate status",     true),
     ("migrate run",        true),
     ("migrate v2-to-v3",   true),
-    // --- claims substrate ---
-    ("claims compact",     true),
     // --- outcome ---
     ("outcome add",        true),
     ("outcome list",       true),
@@ -1030,10 +976,9 @@ include = [
     "campaign add", "campaign list",
     "session start", "session close", "session list", "session status",
     "phase show", "phase set",
-    "export", "import", "sql",
+    "export", "import",
     "conflicts", "migrate list", "migrate status", "migrate run", "migrate v2-to-v3",
-    "init", "check", "version", "skill", "serve",
-    "claims compact",
+    "init", "check", "version", "skill",
     "outcome add", "outcome list",
 ]
 exclude = []
@@ -1056,10 +1001,8 @@ add     = []
             "conflicts",
             "export",
             "import",
-            "sql",
             "skill",
             "version",
-            "serve",
             "tree add",
             "tree list",
             "tree show",
@@ -1094,7 +1037,6 @@ add     = []
             "migrate status",
             "migrate run",
             "migrate v2-to-v3",
-            "claims compact",
             "outcome add",
             "outcome list",
         ];

@@ -169,7 +169,7 @@ fn extract_replay_args(
 ///
 /// Accepts both the compact form (`synthesist:Spec`) and the expanded
 /// IRI (`https://nomograph.org/synthesist/Spec`) so docs that survived
-/// a graph_view rebuild are still decodable.
+/// a gamma index rebuild are still decodable.
 fn decode_type_iri(s: &str) -> Result<ClaimType> {
     let local = s
         .strip_prefix("https://nomograph.org/synthesist/")

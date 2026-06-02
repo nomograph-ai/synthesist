@@ -2,8 +2,8 @@
 //!
 //! This is the Path B Stage 1 cut: no v2 Automerge substrate, no v2
 //! `nomograph_workflow::Store`, no SQLite projection rebuild. Every
-//! write lands in the v3 JSON-LD log; every read is a SPARQL query
-//! against the cached graph view from C.2.
+//! write lands in the v3 JSON-LD log; every read is a typed query
+//! against the disposable redb gamma index.
 //!
 //! The v2 substrate retired:
 //!   - `nomograph_workflow::Store` (delegated to `nomograph_claim::Store`)
@@ -28,11 +28,13 @@
 //!
 //! ## Read contract
 //!
-//! All reads go through SPARQL. `SynthStore::sparql` opens the cached
-//! graph view (`nomograph_claim::graph_view::open_or_in_memory`) on
-//! the first read and reuses it for the rest of the process. The
-//! C.2 snapshot cache means a cold open against a 1.5K-claim corpus
-//! finishes in milliseconds when heads have not changed.
+//! All reads go through the typed query helpers on the gamma index.
+//! `SynthStore` opens the disposable redb gamma index
+//! (`nomograph_claim::gamma::Gamma::open`) on the first read and
+//! reuses it for the rest of the process. The index rebuilds from the
+//! per-asserter logs only when the cache is absent or stale, so a cold
+//! open against a 1.5K-claim corpus finishes in milliseconds when
+//! heads have not changed.
 //!
 //! Commands that need to walk every claim raw (`cmd_check`,
 //! `cmd_export`) get an iterator via `iter_claims`.
@@ -70,11 +72,11 @@ pub type ClaimId = String;
 /// Synthesist's v3-native Store facade.
 ///
 /// Wraps a per-process [`nomograph_claim::log::LogWriter`] for writes
-/// and a lazily-opened [`nomograph_claim::graph_view::GraphView`] for
-/// reads. The view is cached on the instance: every command opens its
-/// store once, runs as many SPARQL queries as it needs, drops the
-/// store. The C.2 snapshot cache amortizes the rebuild cost across
-/// CLI invocations.
+/// and a lazily-opened [`nomograph_claim::gamma::Gamma`] index for
+/// reads. The index is cached on the instance: every command opens its
+/// store once, runs as many typed queries as it needs, drops the
+/// store. The redb gamma cache amortizes the rebuild cost across CLI
+/// invocations.
 pub struct SynthStore {
     claims_root: PathBuf,
     log_writer: Option<nomograph_claim::log::LogWriter>,
@@ -147,8 +149,8 @@ impl SynthStore {
             // Accept either v3 (a directory with any per-asserter logs)
             // or v2 (legacy genesis.amc) since the migration tool may
             // still need to read a v2-shaped estate to convert it. The
-            // runtime read path goes through SPARQL either way -- v2
-            // genesis.amc files don't populate the graph view, so a
+            // runtime read path goes through the gamma index either way
+            // -- v2 genesis.amc files don't populate the index, so a
             // pure-v2 estate just renders as empty until migrated.
             if candidate.is_dir() {
                 return Self::open_at(&candidate);
@@ -487,7 +489,7 @@ pub fn short_claim_id(iri: &str) -> String {
 /// (`@context`, `@id`, `@type`, `prov:*`, `synthesist:supersedes`,
 /// `nomograph:parentAsserter`) and rewrites `synthesist:<lowerCamel>`
 /// keys to bare `snake_case`. This is the read-side inverse of the
-/// dual-write mapping (mirrors `crate::integrity::v3_to_v2_props`).
+/// write-path mapping (mirrors `crate::integrity::v3_to_v2_props`).
 pub fn bare_props(doc: &Value) -> serde_json::Map<String, Value> {
     crate::integrity::v3_to_v2_props(doc)
         .as_object()
@@ -564,9 +566,8 @@ fn write_canonical(v: &Value, buf: &mut Vec<u8>) {
 }
 
 /// Build the v3 JSON-LD document for a claim. Mirrors the
-/// wire_format contract so the result round-trips through
-/// `graph_view::rebuild` to produce the triples overlay SPARQL
-/// expects.
+/// wire_format contract so the result round-trips through the gamma
+/// index rebuild to produce the typed edges the query helpers expect.
 fn build_jsonld_doc(
     claim_id: &str,
     claim_type: &ClaimType,

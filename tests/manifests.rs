@@ -103,7 +103,7 @@ fn pruned_loads() {
         "pruned must exclude 'task block'"
     );
     assert!(
-        m.exclude.contains(&"sql".to_string()),
-        "pruned must exclude 'sql'"
+        m.exclude.contains(&"import".to_string()),
+        "pruned must exclude 'import'"
     );
 }

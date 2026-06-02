@@ -6,17 +6,17 @@
 //! - Case conversions between v2 props (snake_case) and v3 JSON-LD
 //!   (`TitleCase` for `@type`, `lowerCamelCase` for predicate names).
 //! - Compact-IRI builders (`synthesist:claim/<short>`, `synthesist:Type`,
-//!   `synthesist:TypeShape`, predicate names).
-//! - The SPARQL `PREFIX` preamble overlays and queries should share.
+//!   `synthesist:TypeShape`, predicate names) consumed by the gamma
+//!   index retarget.
 //!
 //! Every synthesist component that emits or matches v3 IRIs should
 //! reach into this module rather than hand-coding the strings:
 //!
-//! - `store::v3_dual_write` (the live write path)
+//! - `store` (the live write path)
 //! - `migrations::v2_to_v3` (the migration path)
 //! - `bin::emit_shacl` (the SHACL emitter)
 //! - `skill` (skill content / schema reference)
-//! - overlay test fixtures and SPARQL queries
+//! - the gamma index typed-query helpers
 //!
 //! Co-locating the wire format here prevents the drift Scan B
 //! surfaced: five hand-written test `@context` helpers with each
@@ -37,7 +37,7 @@ pub const MODULE_PREFIX: &str = "synthesist";
 // (`@type @id` for the supersedes and parent-asserter refs;
 // `xsd:dateTime` for generatedAtTime). Co-locating the literals here
 // closes the drift surface Scan C identified: previously both
-// `store::v3_dual_write` and `migrations::v2_to_v3::v2_claim_to_v3`
+// `store` (the write path) and `migrations::v2_to_v3::v2_claim_to_v3`
 // hand-coded the same strings, so a rename in one and not the other
 // would silently produce divergent docs.
 // ---------------------------------------------------------------------------
@@ -59,8 +59,8 @@ pub const ATTRIBUTED_TO_PRED: &str = "prov:wasAttributedTo";
 /// JSON-LD parsers without context resolution treat `synthesist:Spec`
 /// as the bare URI scheme `<synthesist:Spec>`. Declaring this prefix in
 /// the inline `@context` (below) tells parsers to expand to
-/// `<https://nomograph.org/synthesist/Spec>` instead, which is what
-/// the overlay SPARQL `PREFIX synthesist: <...>` declarations expect.
+/// `<https://nomograph.org/synthesist/Spec>` instead, which is the IRI
+/// the gamma index keys on for typed queries.
 pub const NAMESPACE_IRI: &str = "https://nomograph.org/synthesist/";
 
 /// Claim hash truncation length for the compact IRI form.
@@ -90,11 +90,10 @@ static CACHED_CONTEXT: LazyLock<Value> = LazyLock::new(|| {
 /// Canonical inline `@context` for v3 JSON-LD docs.
 ///
 /// Declares the `synthesist`, `nomograph`, `prov`, `xsd` prefixes plus
-/// `@type @id` for IRI-reference predicates. `graph_view::rebuild`
-/// respects an inline `@context` object (only the bare-URI form is
-/// replaced with `base_context_inner`), so this survives the rebuild
-/// round-trip and produces IRI-typed triples matching what overlay
-/// SPARQL queries expect.
+/// `@type @id` for IRI-reference predicates. The gamma index respects
+/// an inline `@context` object when shredding docs into its POS/PSO
+/// tables, so this survives the index rebuild and produces IRI-typed
+/// edges matching what the typed query helpers expect.
 ///
 /// The value is cached (see `CACHED_CONTEXT`) and cloned per call.
 pub fn jsonld_context() -> Value {
@@ -126,8 +125,9 @@ pub fn camel_case(s: &str) -> String {
 /// Convert a `snake_case` or `kebab-case` string to `lowerCamelCase`.
 ///
 /// Used for v3 predicate names so the JSON-LD predicate aligns with
-/// the SHACL ontology and the overlay SPARQL (e.g. `agree_snapshot`
-/// -> `agreeSnapshot`). Single-word inputs pass through unchanged.
+/// the SHACL ontology and the gamma index predicate keys (e.g.
+/// `agree_snapshot` -> `agreeSnapshot`). Single-word inputs pass
+/// through unchanged.
 pub fn lower_camel_case(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut capitalize_next = false;
@@ -189,24 +189,10 @@ pub fn predicate_iri(key: &str) -> String {
 }
 
 /// Build an asserter IRI: `asserter:<asserter>`. Mirrors the format
-/// the dual-write emits for `prov:wasAttributedTo` values.
+/// the write path emits for `prov:wasAttributedTo` values.
 pub fn asserter_iri(asserter: &str) -> String {
     format!("asserter:{}", asserter)
 }
-
-/// SPARQL `PREFIX` preamble for synthesist overlay queries.
-///
-/// Every overlay query (`overlay/plan_at_risk.rs`, `overlay/demo.rs`,
-/// future overlays) should prepend this so the prefix IRIs stay in
-/// lockstep with `jsonld_context`. Use as `format!("{}{}", PREAMBLE, body)`.
-pub const SPARQL_PREFIX_PREAMBLE: &str = "\
-PREFIX rdf:        <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-PREFIX rdfs:       <http://www.w3.org/2000/01/rdf-schema#>
-PREFIX synthesist: <https://nomograph.org/synthesist/>
-PREFIX nomograph:  <https://nomograph.org/v3/>
-PREFIX prov:       <http://www.w3.org/ns/prov#>
-PREFIX xsd:        <http://www.w3.org/2001/XMLSchema#>
-";
 
 #[cfg(test)]
 mod tests {
@@ -268,6 +254,8 @@ mod tests {
         assert_eq!(asserter_iri("user:local:agd"), "asserter:user:local:agd");
     }
 
+
+
     #[test]
     fn jsonld_context_declares_all_iri_typed_predicates() {
         let ctx = jsonld_context();
@@ -301,11 +289,5 @@ mod tests {
             inner["synthesist:agreeSnapshot"]["@type"].as_str(),
             Some("@id")
         );
-    }
-
-    #[test]
-    fn sparql_preamble_declares_synthesist_prefix() {
-        assert!(SPARQL_PREFIX_PREAMBLE.contains("PREFIX synthesist:"));
-        assert!(SPARQL_PREFIX_PREAMBLE.contains(NAMESPACE_IRI));
     }
 }

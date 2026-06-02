@@ -78,7 +78,7 @@ fn generate_skill_for_manifest(manifest: &crate::surface::manifest::Manifest) ->
     emit_section_if_permitted(
         &mut out,
         &permitted,
-        &["status", "init", "check", "conflicts", "version", "skill", "export", "import", "sql"],
+        &["status", "init", "check", "conflicts", "version", "skill", "export", "import"],
         ESTATE_SECTION,
     );
     emit_section_if_permitted(
@@ -118,12 +118,6 @@ fn generate_skill_for_manifest(manifest: &crate::surface::manifest::Manifest) ->
     emit_section_if_permitted(
         &mut out,
         &permitted,
-        &["claims compact"],
-        CLAIMS_SECTION,
-    );
-    emit_section_if_permitted(
-        &mut out,
-        &permitted,
         &["campaign add", "campaign list"],
         CAMPAIGNS_SECTION,
     );
@@ -142,7 +136,7 @@ fn generate_skill_for_manifest(manifest: &crate::surface::manifest::Manifest) ->
     emit_section_if_permitted(
         &mut out,
         &permitted,
-        &["export", "import", "sql", "migrate status", "migrate v1-to-v2"],
+        &["export", "import", "migrate status", "migrate v2-to-v3"],
         DATA_MANAGEMENT_SECTION,
     );
 
@@ -206,7 +200,7 @@ fn collect_app_keys(app: &clap::Command) -> Vec<String> {
 
 const ESTATE_SECTION: &str = "### Estate
 ```
-synthesist init                                  # creates claims/genesis.amc
+synthesist init                                  # creates the claims/ directory
 synthesist status                                # trees, task counts, ready tasks, sessions
 synthesist check                                 # referential integrity validation
 synthesist conflicts                             # list diamond conflicts (same prior superseded by >1 live successor)
@@ -280,25 +274,6 @@ Status values: `completed`, `abandoned`, `deferred`,
 `superseded_by`. The `superseded_by` status requires
 `--linked-spec` (the schema rejects it without)."#;
 
-const CLAIMS_SECTION: &str = "### Substrate maintenance (`claims`)
-Operations on the on-disk claim store, distinct from typed
-appends. Compaction re-encodes incremental `changes/*.amc` files
-into a single `snapshot.amc` under the substrate lock; logical
-history is unchanged. Large estates have observed ~1300x
-working-tree shrink. Heavy operation; schedule during quiet
-windows.
-
-`claims compact` does not append a typed claim and records no
-attribution. It does not require `--session` and is not subject
-to phase enforcement; it can run in any phase from any context.
-```
-synthesist claims compact --dry-run               # preview without writing
-synthesist claims compact --yes                   # required for non-interactive
-```
-Without `--yes`, interactive callers see a confirmation prompt;
-non-interactive callers (agents, CI) get an error directing them
-to pass `--yes` rather than hanging on stdin.";
-
 const CAMPAIGNS_SECTION: &str = r#"### Campaigns
 ```
 synthesist campaign add <tree> <spec-id> --summary "Auth migration"
@@ -334,15 +309,13 @@ const DATA_MANAGEMENT_SECTION: &str = r#"### Data Management
 ```
 synthesist export                                                                  # full JSON backup (claim log export)
 synthesist import backup.json                                                      # restore from backup
-synthesist sql "SELECT id, summary, status FROM tasks WHERE tree = 'upstream'"
-synthesist migrate status                                                          # report v1/v2 status; names migrator if v1 db present
-synthesist migrate v1-to-v2 --from .synth/main.db --to claims/                     # port v1 db into v2 claims
+synthesist migrate status                                                          # report schema version + pending migrations
+synthesist migrate v2-to-v3 --dry-run                                              # plan the v2-to-v3 migration without writing
 ```
 
-Migration is an integrated subcommand on v2 binaries; there is no
-separate `migrate-v1-to-v2` executable. Pass `--dry-run` first, then
-re-run without it. See synthesist/MIGRATION.md for the operator
-runbook.
+Migration is an integrated subcommand. Pass `--dry-run` first to
+plan the chain, then re-run without it. See synthesist/MIGRATION.md
+for the operator runbook.
 
 Observation commands (`stakeholder`, `disposition`, `signal`,
 `topic`, `stance`, `landscape`) have moved to the `lattice` tool.
@@ -351,16 +324,17 @@ Running them here prints a pointer to the replacement."#;
 // Non-baseline sections: included only when the manifest permits them.
 
 const QUERY_SECTION: &str = "### Graph Query
-Run read-only SPARQL SELECT queries against the local graph view.
-Results are JSON with `columns`, `rows`, and `count`.
+Retired raw-query surface. The v3 gamma index has no SPARQL
+evaluator; the typed query surface is the per-type commands plus the
+`overlay` subcommand. Invoking `query` returns a structured error
+pointing at the typed surface.
 ```
-synthesist query --sparql \"SELECT ?s ?p ?o WHERE { ?s ?p ?o } LIMIT 10\"
-synthesist query --file query.sparql               # load query from file
+synthesist query --sparql \"...\"                   # returns the retirement error
 ```";
 
 const OVERLAY_SECTION: &str = "### Overlays
-Named analysis passes over the graph view. Each overlay runs a
-SPARQL CONSTRUCT query and returns structured hits. Read-only.
+Named analysis passes over the gamma index. Each overlay runs a
+typed query and returns structured hits. Read-only.
 ```
 synthesist overlay list                            # list registered overlays
 synthesist overlay run <name>                      # run overlay, print hits as JSON
@@ -404,7 +378,7 @@ synthesist.
 
 ```bash
 # 1. Initialize and start a session
-synthesist init                                      # writes claims/genesis.amc
+synthesist init                                      # creates the claims/ directory
 synthesist session start research --tree upstream --spec auth \
   --summary "Auth migration research"
 
@@ -519,7 +493,7 @@ The agent halts and waits for explicit human approval.
 
 ### Estate
 ```
-synthesist init                                  # creates claims/genesis.amc
+synthesist init                                  # creates the claims/ directory
 synthesist status                                # trees, task counts, ready tasks, sessions
 synthesist check                                 # referential integrity validation
 synthesist conflicts                             # list diamond conflicts (same prior superseded by >1 live successor)
@@ -593,25 +567,6 @@ Status values: `completed`, `abandoned`, `deferred`,
 `superseded_by`. The `superseded_by` status requires
 `--linked-spec` (the schema rejects it without).
 
-### Substrate maintenance (`claims`)
-Operations on the on-disk claim store, distinct from typed
-appends. Compaction re-encodes incremental `changes/*.amc` files
-into a single `snapshot.amc` under the substrate lock; logical
-history is unchanged. Large estates have observed ~1300x
-working-tree shrink. Heavy operation; schedule during quiet
-windows.
-
-`claims compact` does not append a typed claim and records no
-attribution. It does not require `--session` and is not subject
-to phase enforcement; it can run in any phase from any context.
-```
-synthesist claims compact --dry-run               # preview without writing
-synthesist claims compact --yes                   # required for non-interactive
-```
-Without `--yes`, interactive callers see a confirmation prompt;
-non-interactive callers (agents, CI) get an error directing them
-to pass `--yes` rather than hanging on stdin.
-
 ### Campaigns
 ```
 synthesist campaign add <tree> <spec-id> --summary "Auth migration"
@@ -647,15 +602,13 @@ synthesist --force phase set execute --session=<id> # override transition valida
 ```
 synthesist export                                                                  # full JSON backup (claim log export)
 synthesist import backup.json                                                      # restore from backup
-synthesist sql "SELECT id, summary, status FROM tasks WHERE tree = 'upstream'"
-synthesist migrate status                                                          # report v1/v2 status; names migrator if v1 db present
-synthesist migrate v1-to-v2 --from .synth/main.db --to claims/                     # port v1 db into v2 claims
+synthesist migrate status                                                          # report schema version + pending migrations
+synthesist migrate v2-to-v3 --dry-run                                              # plan the v2-to-v3 migration without writing
 ```
 
-Migration is an integrated subcommand on v2 binaries; there is no
-separate `migrate-v1-to-v2` executable. Pass `--dry-run` first, then
-re-run without it. See synthesist/MIGRATION.md for the operator
-runbook.
+Migration is an integrated subcommand. Pass `--dry-run` first to
+plan the chain, then re-run without it. See synthesist/MIGRATION.md
+for the operator runbook.
 
 Observation commands (`stakeholder`, `disposition`, `signal`,
 `topic`, `stance`, `landscape`) have moved to the `lattice` tool.
@@ -718,16 +671,18 @@ synthesist --force spec update <tree>/<spec> --status done
 
 All state lives in `claims/` at the repo root.
 
-- `claims/genesis.amc` -- git-tracked bootstrap
-- `claims/changes/<hash>.amc` -- git-tracked, content-addressed, append-only
-- `claims/config.toml` -- git-tracked, schema version
-- `claims/snapshot.amc` -- gitignored local compaction cache
-- `claims/view.sqlite` -- gitignored local SQL cache of current state
-- `claims/view.heads` -- gitignored heads-stale check
+- `claims/<asserter>/log.jsonl` -- git-tracked, append-only per-asserter
+  log. Each line is one compact JSON-LD claim document. There is one
+  log per asserter (e.g. `claims/user-local-agd/log.jsonl`), so
+  concurrent writers never contend on the same file.
+- `claims/_schema.json` -- git-tracked schema version record.
+- `claims/_view.gamma/` -- gitignored, disposable redb gamma index.
+  The query engine rebuilds it from the per-asserter logs whenever the
+  cache is absent or stale; it carries no source-of-truth state.
 
-The claim log is the source of truth. `view.sqlite` is a rebuildable
-local cache. Never read or write these files directly; always use
-synthesist subcommands.
+The per-asserter logs are the source of truth. The gamma index is a
+rebuildable local cache. Never read or write these files directly;
+always use synthesist subcommands.
 
 Conflict resolution is via **supersession**: concurrent writers that
 disagree produce competing supersession chains, and resolution means
@@ -801,7 +756,6 @@ mod tests {
         "### Tasks",
         "### Discoveries",
         "### Outcomes",
-        "### Substrate maintenance",
         "### Campaigns",
         "### Sessions",
         "### Phase",
@@ -867,7 +821,6 @@ mod tests {
             "synthesist task ready",
             "synthesist discovery add",
             "synthesist outcome add",
-            "synthesist claims compact",
             "synthesist campaign add",
             "synthesist session start",
             "synthesist session close",
@@ -875,7 +828,6 @@ mod tests {
             "synthesist phase set",
             "synthesist export",
             "synthesist import",
-            "synthesist sql",
             "synthesist migrate",
         ];
         for cmd in commands {

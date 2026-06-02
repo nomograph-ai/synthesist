@@ -9,8 +9,6 @@
 //!   workflow that was previously inaccessible from the CLI.
 //! - Schema-CLI parity: every value clap accepts for `spec update
 //!   --status` round-trips through the validator (and vice versa).
-//! - claims compact: `--dry-run` reports without writing; `--yes`
-//!   skips the prompt; logical state survives compaction.
 
 use std::process::Command;
 
