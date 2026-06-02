@@ -236,8 +236,8 @@ fn emit_shape(shape: &NodeShape) -> String {
 
     out.push_str(&format!("#\n# {}\n#\n\n", shape.comment));
 
-    // Use the wire_format builders so the SHACL emitter, dual-write,
-    // and migration all agree on shape and type IRI conventions.
+    // Use the wire_format builders so the SHACL emitter, the v3 write
+    // path, and migration all agree on shape and type IRI conventions.
     // `shape.class` is the v2-era TitleCase form (e.g. "Tree"); the
     // wire_format helpers take a snake-case input and TitleCase it.
     // Pass `shape.class` as-is because TitleCase is idempotent under

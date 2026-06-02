@@ -1,8 +1,8 @@
-//! `synthesist phase ...` CLI handlers (Path B Stage 1: SPARQL-native).
+//! `synthesist phase ...` CLI handlers (v3-native: typed gamma queries).
 //!
 //! Phase claims carry `{session_id, name}` and supersede earlier
-//! phase claims for the same session. Queries go through SPARQL
-//! against the cached graph view.
+//! phase claims for the same session. Queries go through the typed
+//! gamma index helpers (no SPARQL).
 
 use anyhow::{Result, anyhow, bail};
 use crate::claim_type::ClaimType;
@@ -12,8 +12,8 @@ use serde_json::json;
 use crate::cli::PhaseCmd;
 use crate::store::{SynthStore, json_out};
 
-/// Workflow phase. Mirror of the v2 `nomograph_workflow::Phase` so
-/// callers don't depend on the v2 crate's runtime surface.
+/// Workflow phase. The 7-phase enum now lives in synthesist directly
+/// (the workflow crate was dropped); callers depend only on this type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Phase {
@@ -203,11 +203,11 @@ pub fn check_phase(
     Ok(())
 }
 
-/// Return the current phase name for `session_id` via SPARQL.
+/// Return the current phase name for `session_id`.
 ///
-/// Walks the Phase supersession chain by selecting Phase claims for
-/// `session_id` that have no later claim superseding them. SPARQL
-/// answers this with a `FILTER NOT EXISTS`.
+/// Resolves the head of the Phase supersession chain for `session_id`
+/// via [`current_phase_claim`], which delegates to `store.current_phase`
+/// (the gamma H6 typed query), then reads the phase name off the claim.
 pub fn current_phase_name(store: &SynthStore, session_id: &str) -> Result<Option<String>> {
     Ok(current_phase_claim(store, session_id)?.map(|(_, name)| name))
 }

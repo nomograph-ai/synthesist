@@ -1,7 +1,10 @@
-//! Init, status, and check commands -- ported to the v3 SPARQL substrate.
+//! Init, status, and check commands -- v3-native (typed gamma queries).
 //!
-//! - `cmd_init`: idempotent `SynthStore::init_at(<cwd>/claims)`.
-//! - `cmd_status`: estate overview aggregated via SPARQL across all trees.
+//! - `cmd_init`: idempotent init of `<root>/claims`, where `<root>` is
+//!   the same root every other command resolves (`SYNTHESIST_DIR` if
+//!   set -- main.rs propagates it from `--data-dir` -- else the cwd).
+//! - `cmd_status`: estate overview aggregated via typed gamma queries
+//!   across all trees.
 //! - `cmd_check`: claim-level integrity (schema, dangling supersedes,
 //!   dangling task `depends_on`). See [`cmd_check`] for the three checks
 //!   and [`crate::integrity`] for the v3-to-v2 props mapping helper.
@@ -13,10 +16,18 @@ use crate::integrity::{claim_type_from_iri, doc_id, doc_type_str, v3_to_v2_props
 use crate::schema::{ValidationOutcome, validate_props};
 use crate::store::{CLAIMS_DIR, SynthStore, find_legacy_v1_db, json_out, legacy_migration_error};
 
-/// `synthesist init`: create `<cwd>/claims` if absent, else no-op.
+/// `synthesist init`: create `<root>/claims` if absent, else no-op.
+///
+/// `<root>` is resolved the same way every other command resolves the
+/// estate root: `SYNTHESIST_DIR` if set (main.rs propagates it from
+/// `--data-dir`), otherwise the cwd. Crucially, init does NOT walk up
+/// to an ancestor `claims/` -- it creates `<root>/claims` exactly. The
+/// discover/walk-up path is for reads/writes against an existing
+/// estate; init is the one command that materializes a new one at the
+/// requested location.
 pub fn cmd_init() -> Result<()> {
-    let cwd = std::env::current_dir().context("cwd")?;
-    let claims_dir = cwd.join(CLAIMS_DIR);
+    let root = init_root()?;
+    let claims_dir = root.join(CLAIMS_DIR);
     if claims_dir.is_dir() {
         let _ = SynthStore::open_at(&claims_dir)?;
         return json_out(&json!({
@@ -25,7 +36,7 @@ pub fn cmd_init() -> Result<()> {
             "root": claims_dir.display().to_string(),
         }));
     }
-    if let Some(legacy) = find_legacy_v1_db(&cwd) {
+    if let Some(legacy) = find_legacy_v1_db(&root) {
         return Err(legacy_migration_error(&legacy));
     }
     let store = SynthStore::init_at(&claims_dir)?;
@@ -35,16 +46,29 @@ pub fn cmd_init() -> Result<()> {
     }))
 }
 
-/// `synthesist status`: estate overview via SPARQL.
+/// Resolve the directory that should CONTAIN `claims/` for `init`.
+///
+/// Mirrors the `SynthStore::discover` precedence: a non-empty
+/// `SYNTHESIST_DIR` (which `main.rs` sets from `--data-dir`) wins,
+/// otherwise the current working directory. Unlike `discover_from`,
+/// this never walks up to an ancestor -- init must materialize the
+/// estate at exactly the requested root.
+fn init_root() -> Result<std::path::PathBuf> {
+    if let Ok(raw) = std::env::var("SYNTHESIST_DIR")
+        && !raw.is_empty()
+    {
+        return Ok(std::path::PathBuf::from(raw));
+    }
+    std::env::current_dir().context("cwd")
+}
+
+/// `synthesist status`: estate overview via typed gamma queries.
 ///
 /// Aggregates:
 ///   - `total_claims` + `claim_counts` (by type)
 ///   - `trees`        (live Tree heads with name + status)
 ///   - `ready_tasks`  (pending tasks whose deps are all done, across trees)
 ///   - `sessions`     (live Session openers carrying their current phase)
-///
-/// Reference port: this is one of the four SynthStore-based commands
-/// the rest of Stage 2 will model after.
 pub fn cmd_status() -> Result<()> {
     let store = SynthStore::discover()?;
 
@@ -65,7 +89,7 @@ pub fn cmd_status() -> Result<()> {
 
 /// `synthesist check`: claim-level integrity.
 ///
-/// Three checks run over the v3 substrate:
+/// Three checks run over the v3 gamma index:
 ///
 /// 1. **Schema**: every claim's props normalize via
 ///    [`crate::integrity::v3_to_v2_props`] and run through the per-type
@@ -73,14 +97,14 @@ pub fn cmd_status() -> Result<()> {
 ///    synthesist does not own (lattice, coordination protocol) surface
 ///    as `warn/no_validator`.
 ///
-/// 2. **Dangling `synthesist:supersedes`**: one SPARQL SELECT finds every
-///    `?sup synthesist:supersedes ?prior` where no triple in any graph
-///    has `?prior` as its subject. Each row becomes
+/// 2. **Dangling `synthesist:supersedes`**: the gamma H7 helper finds
+///    every `?sup synthesist:supersedes ?prior` where `?prior` is not
+///    present in the index. Each row becomes
 ///    `error/dangling_supersedes`.
 ///
 /// 3. **Dangling task `depends_on`**: pulls live Task heads with their
-///    `synthesist:dependsOn` values (the Stage 1 `live_task_props`
-///    pattern). Per task, every declared dep id must resolve to a live
+///    `synthesist:dependsOn` values (the `live_task_props` typed
+///    query). Per task, every declared dep id must resolve to a live
 ///    Task in the same (tree, spec). Missing ids surface as
 ///    `error/dangling_depends_on`.
 ///
@@ -122,9 +146,9 @@ pub fn cmd_check() -> Result<()> {
 /// props against the per-type schema.
 ///
 /// `iter_claims` opens a fresh `LogReader` rather than borrowing the
-/// store's cached SPARQL view, so the iterator composes cleanly with
-/// the SPARQL calls made by checks 2/3. We collect into a `Vec` up
-/// front to keep the borrow lifetimes straightforward.
+/// store's cached gamma index, so the iterator composes cleanly with
+/// the typed gamma queries made by checks 2/3. We collect into a `Vec`
+/// up front to keep the borrow lifetimes straightforward.
 fn check_schema_walk(store: &SynthStore, issues: &mut Vec<Value>) -> Result<()> {
     let docs: Vec<Value> = store.iter_claims()?.collect();
     for doc in &docs {
@@ -193,10 +217,9 @@ fn synth_validate_outcome(
     }
 }
 
-/// Check 2: one SPARQL pass finds every `?sup synthesist:supersedes
-/// ?prior` whose `?prior` IRI is not the subject of any triple. The
-/// filter is `NOT EXISTS { GRAPH ?g2 { ?prior ?p ?o } }` so a prior
-/// claim recorded in any graph is treated as present.
+/// Check 2: the gamma H7 helper finds every `?sup synthesist:supersedes
+/// ?prior` whose `?prior` id is not present in the index, so a prior
+/// claim recorded in any per-asserter log is treated as present.
 fn check_dangling_supersedes(store: &SynthStore, issues: &mut Vec<Value>) -> Result<()> {
     // H7: supersedes edges whose target is absent from the index.
     for edge in store.dangling_supersedes()? {
@@ -225,12 +248,11 @@ fn check_dangling_supersedes(store: &SynthStore, issues: &mut Vec<Value>) -> Res
 
 /// Check 3: dangling task `depends_on`.
 ///
-/// Walk live Task heads via `live_task_props` (the Stage 1 SPARQL
-/// query that GROUP_CONCATs the dep list per claim), then verify
-/// every declared dep id resolves to a live Task in the same
-/// (tree, spec). The compare is client-side; a SPARQL self-join over
-/// the GROUP_CONCAT'd list is awkward and the live-task working set
-/// is small enough that the cost is negligible.
+/// Walk live Task heads via `live_task_props` (the typed gamma query
+/// that returns the dep list per claim), then verify every declared
+/// dep id resolves to a live Task in the same (tree, spec). The
+/// compare is client-side; the live-task working set is small enough
+/// that the cost is negligible.
 fn check_dangling_depends_on(store: &SynthStore, issues: &mut Vec<Value>) -> Result<()> {
     let tasks = live_task_props(store)?;
 
@@ -299,7 +321,7 @@ fn lowercase_first(s: &str) -> String {
 }
 
 // ---------------------------------------------------------------------------
-// SPARQL helpers
+// Typed gamma query helpers
 // ---------------------------------------------------------------------------
 
 fn count_total_claims(store: &SynthStore) -> Result<i64> {
@@ -424,8 +446,8 @@ fn ready_tasks_all(store: &SynthStore) -> Result<Vec<Value>> {
     Ok(out)
 }
 
-/// Pull every live Task claim's relevant props via one SPARQL
-/// SELECT. Shared by cmd_status and cmd_task_ready.
+/// Pull every live Task claim's relevant props via one typed gamma
+/// query. Shared by cmd_status and cmd_task_ready.
 pub(crate) fn live_task_props(store: &SynthStore) -> Result<Vec<Value>> {
     let mut out = Vec::new();
     for (_, doc) in store.live_docs(&crate::wire_format::type_iri("task"))? {

@@ -1,18 +1,19 @@
 //! Synthesist's v3-native Store facade.
 //!
-//! This is the Path B Stage 1 cut: no v2 Automerge substrate, no v2
-//! `nomograph_workflow::Store`, no SQLite projection rebuild. Every
-//! write lands in the v3 JSON-LD log; every read is a typed query
-//! against the disposable redb gamma index.
+//! This is the v3-native cut: no v2 Automerge substrate, no Oxigraph
+//! N-Quads view, no `.amc` dual-write. Every write lands in the v3
+//! JSON-LD log; every read is a typed query against the disposable
+//! redb gamma index.
 //!
 //! The v2 substrate retired:
-//!   - `nomograph_workflow::Store` (delegated to `nomograph_claim::Store`)
-//!   - SQLite View (`claims/view.sqlite`) and its rebuild on every open
+//!   - the Automerge Store/View that synthesist used to delegate to
+//!   - the Oxigraph N-Quads snapshot reparsed on every process open
 //!   - Automerge `.amc` change files under `claims/changes/`
 //!
-//! The migration path (`migrations::v2_to_v3`) still uses the old
-//! `nomograph_claim::Store` reader to drain an existing v2 estate into
-//! v3 logs. That code path is untouched.
+//! The migration path (`migrations::v2_to_v3`) still reaches through
+//! the minimal v2-read shim that `nomograph_claim` keeps so an existing
+//! `.amc` estate can be drained into v3 logs. That code path is
+//! untouched.
 //!
 //! ## Write contract
 //!
@@ -46,10 +47,10 @@ use anyhow::{Context, Result, anyhow, bail};
 use crate::claim_type::ClaimType;
 use serde_json::Value;
 
-// Leaf helpers folded in from the retired `nomograph_workflow` crate.
-// Every downstream site imports these via `crate::store::{...}`, so
-// defining them here as local `pub` items keeps those call sites
-// compiling unchanged. Their unit tests live in this module's `tests`.
+// Leaf helpers folded in from the dropped workflow crate. Every
+// downstream site imports these via `crate::store::{...}`, so defining
+// them here as local `pub` items keeps those call sites compiling
+// unchanged. Their unit tests live in this module's `tests`.
 
 /// Directory inside a project that holds the claim substrate.
 ///
@@ -138,14 +139,14 @@ pub fn legacy_migration_error(legacy_db: &Path) -> anyhow::Error {
     )
 }
 
-/// Directory name (under `claims/`) of the gamma index cache.
+/// File name (under `claims/`) of the gamma index cache.
 ///
-/// The gamma index is a DISPOSABLE local redb cache rebuilt from the log
-/// union whenever the heads signal moves; it is gitignored. This is the
-/// single source for the cache path -- every site that needs it
-/// ([`gamma_view_path`], cmd_task's overlay open, cmd_query, cmd_overlay,
-/// and the cli help text) references this constant rather than
-/// hardcoding the directory name.
+/// The gamma index is a DISPOSABLE local redb FILE (`claims/_view.gamma`)
+/// rebuilt from the per-asserter log union whenever the heads signal
+/// moves; it is gitignored. This is the single source for the cache
+/// path -- every site that needs it ([`gamma_view_path`], cmd_task's
+/// overlay open, cmd_overlay, and the cli help text) references this
+/// constant rather than hardcoding the name.
 pub const GAMMA_VIEW_DIR: &str = "_view.gamma";
 
 /// The gamma index path for a given `claims/` directory.
@@ -585,9 +586,9 @@ pub fn bare_props(doc: &Value) -> serde_json::Map<String, Value> {
         .unwrap_or_default()
 }
 
-/// Local asserter base derived from `$USER` (mirrors the convention
-/// `nomograph_workflow::Store` used so v3 logs route to the same
-/// per-asserter directories that v2 sessions did).
+/// Local asserter base derived from `$USER` (mirrors the v2 convention
+/// so v3 logs route to the same per-asserter directories that v2
+/// sessions did).
 fn local_asserter_base() -> String {
     let user = std::env::var("USER").unwrap_or_else(|_| "unknown".into());
     format!("user:local:{user}")

@@ -663,7 +663,7 @@ All state lives in `claims/` at the repo root.
   log per asserter (e.g. `claims/user-local-agd/log.jsonl`), so
   concurrent writers never contend on the same file.
 - `claims/_schema.json` -- git-tracked schema version record.
-- `claims/_view.gamma/` -- gitignored, disposable redb gamma index.
+- `claims/_view.gamma` -- gitignored, disposable redb gamma index file.
   The query engine rebuilds it from the per-asserter logs whenever the
   cache is absent or stale; it carries no source-of-truth state.
 

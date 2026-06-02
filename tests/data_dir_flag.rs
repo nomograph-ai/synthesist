@@ -85,6 +85,56 @@ fn data_dir_uninitialized_path_errors() {
 }
 
 #[test]
+fn init_data_dir_creates_target_claims_not_ancestor() {
+    // Regression: `init` used to ignore --data-dir / SYNTHESIST_DIR and
+    // always init `<cwd>/claims`. It now resolves the root the same way
+    // every other command does (the SYNTHESIST_DIR main.rs propagates
+    // from --data-dir), and it must NOT walk up to an ancestor claims/.
+    //
+    // Layout to prove no walk-up:
+    //   parent/claims         <- a pre-existing ancestor estate
+    //   parent/nested/target  <- the --data-dir we point init at
+    // init must create parent/nested/target/claims, never reuse
+    // parent/claims.
+    let parent = TempDir::new().unwrap();
+    let ancestor_claims = parent.path().join("claims");
+    std::fs::create_dir_all(&ancestor_claims).unwrap();
+
+    let target = parent.path().join("nested").join("target");
+    std::fs::create_dir_all(&target).unwrap();
+
+    // Run init from a totally unrelated cwd so cwd cannot be the source
+    // of the resolved root; the only signal is --data-dir.
+    let elsewhere = TempDir::new().unwrap();
+    synth()
+        .current_dir(elsewhere.path())
+        .args(["--data-dir", target.to_str().unwrap(), "init"])
+        .assert()
+        .success();
+
+    // The claims dir lands under the --data-dir target, exactly.
+    let target_claims = target.join("claims");
+    assert!(
+        target_claims.is_dir(),
+        "init --data-dir must create <target>/claims at {}",
+        target_claims.display()
+    );
+
+    // No-flag cwd behavior still works: init with neither flag nor env
+    // creates <cwd>/claims.
+    let cwd_only = TempDir::new().unwrap();
+    synth()
+        .current_dir(cwd_only.path())
+        .arg("init")
+        .assert()
+        .success();
+    assert!(
+        cwd_only.path().join("claims").is_dir(),
+        "init with no flag must still create <cwd>/claims"
+    );
+}
+
+#[test]
 fn synthesist_dir_env_is_honored() {
     let init_dir = TempDir::new().unwrap();
     synth()

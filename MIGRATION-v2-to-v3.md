@@ -5,6 +5,14 @@ v2 project (`.amc` claim files under `claims/changes/` and
 `claims/snapshot.amc`) to v3 (per-asserter JSON-LD logs at
 `claims/<asserter>/log.jsonl`).
 
+v3 is v3-native: there is no dual-write. After migration you have a
+v3-only synthesist -- writes go to the per-asserter JSON-LD logs and
+reads go through a disposable redb gamma index (`claims/_view.gamma`)
+rebuilt from those logs. The v2 `.amc` write path is gone;
+`claims/changes/*.amc` stop being written. A minimal v2-read shim in
+`nomograph-claim` remains, used only so this migration can read your
+old `.amc` estate.
+
 The migration is a one-shot transform. Every v2 claim lands in the
 v3 log with original timestamps, asserter attribution, and supersession
 links preserved. A tarball of the v2 state is written before any files
@@ -72,8 +80,8 @@ Install synthesist 3.0.0-pre.1:
 cargo install --git https://gitlab.com/nomograph/synthesist --tag v3.0.0-pre.1
 ```
 
-macOS ARM is the supported target for pre.1. Other platforms may
-work but are not tested in the pre-release cycle.
+macOS ARM and Linux ARM64 are supported. (2.5.2 shipped Linux ARM64
+on the v2 line; pre.1 carries that platform support forward.)
 
 After installation, confirm the version:
 
@@ -138,10 +146,18 @@ The migrator:
 3. Writes `claims/_schema.json` with the store schema version.
 4. Prints a final summary and exits 0.
 
-The v2 `.amc` files are not deleted. After migration the directory
-contains both `claims/changes/` (v2) and `claims/<asserter>/` (v3)
-side by side. Both can be committed to git; they will coexist for
-the duration of the pre.1 dual-write cycle.
+The migration does not delete the v2 `.amc` files; it only reads
+them. After migration the directory still contains the old
+`claims/changes/` alongside the new `claims/<asserter>/` logs. The
+v3 runtime ignores the `.amc` files entirely -- they are retained
+only so the tarball-free rollback path below stays available. Once
+you are confident in the v3 estate you can delete `claims/changes/`
+(and `claims/snapshot.amc`); the gamma index never reads them.
+
+Commit the per-asserter `claims/<asserter>/log.jsonl` logs and
+`claims/_schema.json` to git. Do NOT commit `claims/_view.gamma`:
+it is a disposable, gitignored redb index the runtime rebuilds from
+the logs on demand.
 
 ## Verify
 
@@ -193,25 +209,27 @@ prefix bindings, followed by the claim fields in lowerCamelCase.
 ## Going forward
 
 Once migrated, every write command (`synthesist task add`, `spec add`,
-`session start`, and the rest) produces both a v2 `.amc` claim and a
-v3 JSON-LD log line. v2 remains the source of truth for the pre.1
-cycle; v3 is dual-written to validate the thesis.
+`session start`, and the rest) appends a single v3 JSON-LD log line to
+the writing asserter's `claims/<asserter>/log.jsonl`. There is no
+`.amc` write. Reads (`status`, `task ready`, `check`, `conflicts`,
+overlays) run as typed queries against the gamma index, which the
+runtime rebuilds from the logs whenever their heads have moved.
 
-The two directories coexist:
+The relevant on-disk surfaces after migration:
 
-- `claims/changes/` -- v2 `.amc` claim files (write source of truth
-  for pre.1).
-- `claims/<asserter>/log.jsonl` -- v3 JSON-LD log (dual-written, will
-  become the sole write path at 3.0.0 final).
+- `claims/<asserter>/log.jsonl` -- v3 JSON-LD logs. The multi-user
+  source of truth. Commit these to git.
+- `claims/_schema.json` -- schema version record. Commit it.
+- `claims/_view.gamma` -- disposable redb gamma index. Gitignored;
+  safe to delete at any time (costs only a one-time rebuild).
+- `claims/changes/`, `claims/snapshot.amc` -- leftover v2 `.amc`
+  files. Read by nothing in v3; kept only for rollback. Delete once
+  you no longer need the in-place rollback path.
 
-Both can be committed to git. There is no harm in having both present;
-the v3 binary reads either surface depending on the operation.
-
-The v2 write path drops at 3.0.0 final. If you encounter problems
-during the pre.1 cycle, the v2 store is always there to fall back to
-(see "Rollback" below). File issues at
-<https://gitlab.com/nomograph/synthesist/-/issues> with a description
-of what broke.
+If you encounter problems before you have deleted the v2 files, the
+v2 store is still there to fall back to (see "Rollback" below). File
+issues at <https://gitlab.com/nomograph/synthesist/-/issues> with a
+description of what broke.
 
 ## Rollback
 
@@ -233,12 +251,13 @@ are overwritten.
 ```sh
 rm -f claims/_schema.json
 rm -rf claims/*/log.jsonl   # removes per-asserter v3 logs
+rm -f claims/_view.gamma    # removes the disposable gamma index
 ```
 
-### 3. Reinstall v2.5.1
+### 3. Reinstall the latest v2 line
 
 ```sh
-cargo install --git https://gitlab.com/nomograph/synthesist --tag v2.5.1
+cargo install --git https://gitlab.com/nomograph/synthesist --tag v2.5.2
 ```
 
 ### 4. Retain the tarball

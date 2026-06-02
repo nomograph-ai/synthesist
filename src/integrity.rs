@@ -15,10 +15,10 @@
 //! `synthesist:`-prefixed lowerCamelCase keys. [`v3_to_v2_props`] is
 //! the inverse of `wire_format::predicate_iri` + the envelope wrap in
 //! `store::build_jsonld_doc` / `migrations::v2_to_v3::v2_claim_to_v3`.
-//! It is the integrity-check side of the dual-write mapping.
+//! It is the integrity-check side of the v3 wire-format mapping.
 //!
-//! Checks 2 and 3 are SPARQL-shaped (one SELECT each, client-side
-//! compare). They live in `cmd_init::cmd_check`; this module exposes
+//! Checks 2 and 3 each run one typed gamma query plus a client-side
+//! compare. They live in `cmd_init::cmd_check`; this module exposes
 //! only the prop-shape helper and the @type-IRI -> ClaimType helper
 //! they share.
 
@@ -53,7 +53,7 @@ const MODULE_PREFIXES: &[&str] = &["synthesist:", "nomograph:"];
 /// 3. Convert the remaining lowerCamelCase tail back to snake_case.
 ///
 /// Step 3 is the inverse of `wire_format::lower_camel_case`. The
-/// substrate dual-write path runs `predicate_iri(k) = "synthesist:" +
+/// v3 write path runs `predicate_iri(k) = "synthesist:" +
 /// lower_camel_case(k)`; this helper undoes both halves so a v3 doc
 /// with `synthesist:dependsOn` round-trips to a props object with
 /// `depends_on` -- which is what `schema::task::validate` checks for.
