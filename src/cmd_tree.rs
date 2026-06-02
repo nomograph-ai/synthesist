@@ -5,11 +5,12 @@
 //! + client-side dedup.
 
 use anyhow::{Result, anyhow, bail};
-use nomograph_claim::ClaimType;
+use crate::claim_type::ClaimType;
 use serde_json::{Value, json};
 
 use crate::cli::TreeCmd;
-use crate::store::{SynthStore, json_out};
+use crate::store::{SynthStore, bare_props, json_out, short_claim_id};
+use crate::wire_format as wf;
 
 pub fn run(cmd: &TreeCmd, session: &Option<String>) -> Result<()> {
     match cmd {
@@ -79,39 +80,24 @@ fn cmd_tree_close(name: &str, start_id: Option<&str>, session: &Option<String>) 
 
     // Find the live Tree head(s) matching `name`. The list path filters
     // by `name` and surfaces the same `start_id` shape we accept here.
-    let q = format!(
-        r#"
-        SELECT ?c ?desc ?status WHERE {{
-          GRAPH ?g {{
-            ?c rdf:type synthesist:Tree ;
-               synthesist:name "{name}" .
-            OPTIONAL {{ ?c synthesist:description ?desc }}
-            OPTIONAL {{ ?c synthesist:status      ?status }}
-            FILTER NOT EXISTS {{
-              GRAPH ?g2 {{ ?later synthesist:supersedes ?c }}
-            }}
-          }}
-        }}
-        "#
-    );
-    let r = store.sparql(&q)?;
-    use nomograph_claim::graph_view::Term;
-
     let mut candidates: Vec<(String, String, String)> = Vec::new();
-    for row in &r.rows {
-        let iri = match row.first() {
-            Some(Term::Iri(s)) => s.clone(),
-            _ => continue,
-        };
-        let desc = match row.get(1) {
-            Some(Term::Literal { value, .. }) => value.clone(),
-            _ => String::new(),
-        };
-        let status = match row.get(2) {
-            Some(Term::Literal { value, .. }) if !value.is_empty() => value.clone(),
-            _ => "active".to_string(),
-        };
-        candidates.push((iri, desc, status));
+    for (id, doc) in store.live_docs(&wf::type_iri("tree"))? {
+        let props = bare_props(&doc);
+        if props.get("name").and_then(|v| v.as_str()) != Some(name) {
+            continue;
+        }
+        let desc = props
+            .get("description")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let status = props
+            .get("status")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .unwrap_or("active")
+            .to_string();
+        candidates.push((id, desc, status));
     }
 
     if candidates.is_empty() {
@@ -199,40 +185,23 @@ fn cmd_tree_close(name: &str, start_id: Option<&str>, session: &Option<String>) 
 /// Live Tree heads (no later claim supersedes them). When
 /// `include_closed` is false, filter out any whose status is "closed".
 fn live_tree_heads(store: &SynthStore, include_closed: bool) -> Result<Vec<Value>> {
-    let q = r#"
-        SELECT ?c ?name ?desc ?status WHERE {
-          GRAPH ?g {
-            ?c rdf:type synthesist:Tree ;
-               synthesist:name ?name .
-            OPTIONAL { ?c synthesist:description ?desc }
-            OPTIONAL { ?c synthesist:status      ?status }
-            FILTER NOT EXISTS {
-              GRAPH ?g2 { ?later synthesist:supersedes ?c }
-            }
-          }
-        }
-        ORDER BY ?name
-    "#;
-    let r = store.sparql(q)?;
     let mut out: Vec<Value> = Vec::new();
-    for row in &r.rows {
-        use nomograph_claim::graph_view::Term;
-        let claim_iri = match row.first() {
-            Some(Term::Iri(s)) => s.clone(),
+    for (id, doc) in store.live_docs(&wf::type_iri("tree"))? {
+        let props = bare_props(&doc);
+        let name = match props.get("name").and_then(|v| v.as_str()) {
+            Some(s) if !s.is_empty() => s.to_string(),
             _ => continue,
         };
-        let name = match row.get(1) {
-            Some(Term::Literal { value, .. }) if !value.is_empty() => value.clone(),
-            _ => continue,
-        };
-        let desc = match row.get(2) {
-            Some(Term::Literal { value, .. }) => Value::String(value.clone()),
-            _ => Value::Null,
-        };
-        let status = match row.get(3) {
-            Some(Term::Literal { value, .. }) if !value.is_empty() => value.clone(),
-            _ => "active".to_string(),
-        };
+        let desc = props
+            .get("description")
+            .cloned()
+            .unwrap_or(Value::Null);
+        let status = props
+            .get("status")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .unwrap_or("active")
+            .to_string();
         if !include_closed && status == "closed" {
             continue;
         }
@@ -240,35 +209,32 @@ fn live_tree_heads(store: &SynthStore, include_closed: bool) -> Result<Vec<Value
             "name": name,
             "status": status,
             "description": desc,
-            "start_id": short_claim_id(&claim_iri),
+            "start_id": short_claim_id(&id),
         }));
     }
+    // live_docs is gamma-id sorted; re-sort by name for the v2 contract.
+    out.sort_by(|a, b| {
+        a.get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .cmp(b.get("name").and_then(|v| v.as_str()).unwrap_or(""))
+    });
     Ok(out)
 }
 
-fn count_for_tree(store: &SynthStore, type_iri: &str, tree: &str) -> Result<i64> {
-    let q = format!(
-        r#"
-        SELECT (COUNT(DISTINCT ?c) AS ?n) WHERE {{
-          GRAPH ?g {{
-            ?c rdf:type {type_iri} ;
-               synthesist:tree "{tree}" .
-          }}
-        }}
-        "#
-    );
-    let r = store.sparql(&q)?;
-    use nomograph_claim::graph_view::Term;
-    Ok(match r.rows.first().and_then(|row| row.first()) {
-        Some(Term::Literal { value, .. }) => value.parse().unwrap_or(0),
-        _ => 0,
-    })
-}
-
-/// Strip the IRI prefix to recover a bare claim hash for display.
-fn short_claim_id(iri: &str) -> String {
-    iri.strip_prefix("https://nomograph.org/synthesist/claim/")
-        .or_else(|| iri.strip_prefix("synthesist:claim/"))
-        .unwrap_or(iri)
-        .to_string()
+/// Count all claim versions of `type_value` scoped to `tree`.
+///
+/// Mirrors the retired SPARQL
+/// `SELECT (COUNT(DISTINCT ?c)) WHERE { ?c rdf:type {type}; synthesist:tree "{tree}" }`,
+/// which had no `FILTER NOT EXISTS` and so counted every version
+/// (superseded revisions included), not just live heads. The count is
+/// deliberately not live-filtered: `tree show`'s `spec_count` /
+/// `session_count` report total claim activity on the tree.
+fn count_for_tree(store: &SynthStore, type_value: &str, tree: &str) -> Result<i64> {
+    let n = store.count_by_type_and_value(
+        type_value,
+        &wf::predicate_iri("tree"),
+        tree,
+    )?;
+    Ok(n as i64)
 }

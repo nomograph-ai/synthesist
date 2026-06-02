@@ -10,7 +10,7 @@
 //!   6. Assert exactly 1 hit, naming the spec as subject and the new
 //!      superseding claim as object.
 
-use nomograph_claim::graph_view::{rebuild, GraphView};
+use nomograph_claim::gamma::Gamma;
 use nomograph_claim::log::LogWriter;
 use nomograph_synthesist::overlay;
 use serde_json::json;
@@ -85,9 +85,9 @@ fn plan_at_risk_e2e_one_hit_after_agree() {
     });
     writer.append("user:local:bob", &superseder).unwrap();
 
-    // Step d: open an in-memory GraphView and rebuild from the log.
-    let view = GraphView::open_in_memory().unwrap();
-    rebuild(&view, tmp.path()).unwrap();
+    // Step d: open an in-memory gamma index and rebuild from the log.
+    let mut view = Gamma::open_in_memory().unwrap();
+    view.sync(tmp.path()).unwrap();
 
     // Step e: fetch the overlay from the registry by name and time the run.
     let start = Instant::now();
@@ -187,8 +187,8 @@ fn plan_at_risk_e2e_no_hit_when_plan_is_intact() {
 
     // No post-AGREE supersession: plan remains intact.
 
-    let view = GraphView::open_in_memory().unwrap();
-    rebuild(&view, tmp.path()).unwrap();
+    let mut view = Gamma::open_in_memory().unwrap();
+    view.sync(tmp.path()).unwrap();
 
     let plan_at_risk = overlay::find("plan-at-risk")
         .expect("plan-at-risk overlay must be registered");

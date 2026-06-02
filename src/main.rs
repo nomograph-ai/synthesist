@@ -1,3 +1,4 @@
+mod claim_type;
 mod cli;
 mod cmd_campaign;
 mod cmd_jig;
@@ -29,6 +30,7 @@ mod skill;
 mod store;
 mod task_dag;
 mod task_mutate;
+mod validation;
 mod wire_format;
 
 use clap::Parser;

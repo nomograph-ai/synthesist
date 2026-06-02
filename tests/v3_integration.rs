@@ -117,19 +117,22 @@ fn assert_jsonld_envelope(line: &str, session: &str) {
     assert_eq!(attributed, &expected, "prov:wasAttributedTo mismatch");
 }
 
-/// Run a GraphView in-memory rebuild; assert claims_loaded == expected.
+/// Run a gamma in-memory rebuild; assert claims_loaded == expected.
 fn assert_graph_view_rebuild(dir: &TempDir, expected_claims: usize) {
-    use nomograph_claim::graph_view::{GraphView, rebuild};
+    use nomograph_claim::gamma::Gamma;
 
     let claims_dir = dir.path().join("claims");
-    let view = GraphView::open_in_memory().expect("open in-memory GraphView");
-    let stats = rebuild(&view, &claims_dir).expect("GraphView rebuild must succeed");
+    let mut gamma = Gamma::open_in_memory().expect("open in-memory gamma index");
+    let stats = gamma
+        .sync(&claims_dir)
+        .expect("gamma rebuild must succeed")
+        .expect("a fresh in-memory index always rebuilds");
     assert_eq!(
         stats.claims_loaded, expected_claims,
-        "GraphView rebuild: expected {expected_claims} claims_loaded, got {}",
+        "gamma rebuild: expected {expected_claims} claims_loaded, got {}",
         stats.claims_loaded
     );
-    assert_eq!(stats.parse_failures, 0, "GraphView rebuild must have 0 parse failures");
+    assert_eq!(stats.parse_failures, 0, "gamma rebuild must have 0 parse failures");
 }
 
 // ---------------------------------------------------------------------------

@@ -41,12 +41,27 @@ use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow, bail};
-use nomograph_claim::ClaimType;
+use crate::claim_type::ClaimType;
 use serde_json::Value;
 
 pub use nomograph_workflow::{
     CLAIMS_DIR, find_legacy_v1_db, json_out, legacy_migration_error, parse_tree_spec, today,
 };
+
+/// Directory name (under `claims/`) of the gamma index cache.
+///
+/// The gamma index is a DISPOSABLE local redb cache rebuilt from the log
+/// union whenever the heads signal moves; it is gitignored. This is the
+/// single source for the cache path -- every site that needs it
+/// ([`gamma_view_path`], cmd_task's overlay open, cmd_query, cmd_overlay,
+/// and the cli help text) references this constant rather than
+/// hardcoding the directory name.
+pub const GAMMA_VIEW_DIR: &str = "_view.gamma";
+
+/// The gamma index path for a given `claims/` directory.
+pub fn gamma_view_path(claims_dir: &Path) -> PathBuf {
+    claims_dir.join(GAMMA_VIEW_DIR)
+}
 
 /// v3 claim id type. Identical to the substrate's `ClaimId` (an
 /// opaque string carrying the blake3 content hash, hex encoded).
@@ -63,7 +78,7 @@ pub type ClaimId = String;
 pub struct SynthStore {
     claims_root: PathBuf,
     log_writer: Option<nomograph_claim::log::LogWriter>,
-    view: RefCell<Option<nomograph_claim::graph_view::GraphView>>,
+    gamma: RefCell<Option<nomograph_claim::gamma::Gamma>>,
     asserter: Option<String>,
 }
 
@@ -73,7 +88,7 @@ impl SynthStore {
         Self {
             claims_root,
             log_writer,
-            view: RefCell::new(None),
+            gamma: RefCell::new(None),
             asserter: None,
         }
     }
@@ -270,37 +285,12 @@ impl SynthStore {
             .append(asserter, &doc)
             .context("v3 log writer append")?;
 
-        // Any cached view is now stale. Drop it; the next read will
-        // open a fresh one (which picks up the new log line via the
-        // C.2 heads check / snapshot rebuild).
-        *self.view.borrow_mut() = None;
+        // Any cached gamma index is now stale. Drop it; the next read
+        // re-opens and re-syncs against the new log line via the heads
+        // check.
+        *self.gamma.borrow_mut() = None;
 
         Ok(claim_id)
-    }
-
-    /// Run a SPARQL SELECT against the cached graph view.
-    ///
-    /// Prepends `crate::wire_format::SPARQL_PREFIX_PREAMBLE` so the
-    /// caller can use compact prefixes (`synthesist:`, `prov:`, etc.)
-    /// without redeclaring them.
-    pub fn sparql(
-        &self,
-        query: &str,
-    ) -> Result<nomograph_claim::graph_view::SelectResults> {
-        self.ensure_view()?;
-        let view_ref = self.view.borrow();
-        let view = view_ref.as_ref().expect("ensure_view");
-        let full = format!("{}\n{}", crate::wire_format::SPARQL_PREFIX_PREAMBLE, query);
-        nomograph_claim::graph_view::select(view, &full)
-    }
-
-    /// Run a SPARQL ASK against the cached graph view.
-    pub fn ask(&self, query: &str) -> Result<bool> {
-        self.ensure_view()?;
-        let view_ref = self.view.borrow();
-        let view = view_ref.as_ref().expect("ensure_view");
-        let full = format!("{}\n{}", crate::wire_format::SPARQL_PREFIX_PREAMBLE, query);
-        nomograph_claim::graph_view::ask(view, &full)
     }
 
     /// Iterate raw claims from the log union, in deterministic
@@ -311,18 +301,198 @@ impl SynthStore {
         Ok(reader.iter_claims().filter_map(|r| r.ok().map(|c| c.raw)))
     }
 
-    fn ensure_view(&self) -> Result<()> {
-        if self.view.borrow().is_some() {
+    // ==================================================================
+    // Gamma-backed typed query surface.
+    //
+    // These replace the retired SPARQL `sparql`/`ask` gateways. The
+    // gamma index is vocabulary-agnostic, so each helper passes the
+    // synthesist `@type` and predicate IRIs (from `wire_format`) as
+    // arguments. The index is opened lazily on first read and reused for
+    // the rest of the process (a write drops it so the next read
+    // re-syncs against the new log line).
+    // ==================================================================
+
+    fn ensure_gamma(&self) -> Result<()> {
+        if self.gamma.borrow().is_some() {
             return Ok(());
         }
-        let view_dir = self.claims_root.join("_view.oxigraph");
-        let v = nomograph_claim::graph_view::GraphView::open_or_in_memory(
-            &view_dir,
-            &self.claims_root,
-        )?;
-        *self.view.borrow_mut() = Some(v);
+        let view_dir = gamma_view_path(&self.claims_root);
+        let g = nomograph_claim::gamma::Gamma::open(&view_dir, &self.claims_root)
+            .context("open gamma index")?;
+        *self.gamma.borrow_mut() = Some(g);
         Ok(())
     }
+
+    /// Run `f` against the lazily-opened gamma index.
+    fn with_gamma<T>(
+        &self,
+        f: impl FnOnce(&nomograph_claim::gamma::Gamma) -> Result<T>,
+    ) -> Result<T> {
+        self.ensure_gamma()?;
+        let g = self.gamma.borrow();
+        f(g.as_ref().expect("ensure_gamma"))
+    }
+
+    /// Live head ids of `type_value` (e.g. `synthesist:Task`), sorted.
+    /// The dominant live-head anti-join (gamma H2).
+    pub fn live_heads(&self, type_value: &str) -> Result<Vec<String>> {
+        self.with_gamma(|g| g.live_heads(type_value, crate::wire_format::SUPERSEDES_PRED))
+    }
+
+    /// Live heads of `type_value` paired with their full JSON-LD docs.
+    pub fn live_docs(&self, type_value: &str) -> Result<Vec<(String, Value)>> {
+        self.with_gamma(|g| {
+            let ids = g.live_heads(type_value, crate::wire_format::SUPERSEDES_PRED)?;
+            let mut out = Vec::with_capacity(ids.len());
+            for id in ids {
+                if let Some(doc) = g.doc(&id)? {
+                    out.push((id, doc));
+                }
+            }
+            Ok(out)
+        })
+    }
+
+    /// Fetch the canonical JSON-LD doc for a claim id (compact form,
+    /// `synthesist:claim/<short>`).
+    pub fn doc(&self, claim_id: &str) -> Result<Option<Value>> {
+        self.with_gamma(|g| g.doc(claim_id))
+    }
+
+    /// H3: live Task heads with their native dep/file vectors.
+    pub fn live_tasks(&self) -> Result<Vec<nomograph_claim::gamma::LiveTask>> {
+        self.with_gamma(|g| {
+            g.live_tasks(
+                &crate::wire_format::type_iri("task"),
+                crate::wire_format::SUPERSEDES_PRED,
+                &crate::wire_format::predicate_iri("status"),
+                &crate::wire_format::predicate_iri("depends_on"),
+                &crate::wire_format::predicate_iri("files"),
+            )
+        })
+    }
+
+    /// H4: the live Session opener carrying `id`, if any.
+    pub fn session_opener_by_id(&self, id: &str) -> Result<Option<String>> {
+        self.with_gamma(|g| {
+            g.session_opener_by_id(
+                &crate::wire_format::type_iri("session"),
+                crate::wire_format::SUPERSEDES_PRED,
+                &crate::wire_format::predicate_iri("id"),
+                id,
+            )
+        })
+    }
+
+    /// H4: live Session openers (no `id` filter).
+    pub fn live_session_openers(&self) -> Result<Vec<String>> {
+        self.with_gamma(|g| {
+            g.live_session_openers(
+                &crate::wire_format::type_iri("session"),
+                crate::wire_format::SUPERSEDES_PRED,
+            )
+        })
+    }
+
+    /// H5: is the session carrying `id` live? Replaces `ask`.
+    pub fn session_is_live(&self, id: &str) -> Result<bool> {
+        self.with_gamma(|g| {
+            g.session_is_live(
+                &crate::wire_format::type_iri("session"),
+                crate::wire_format::SUPERSEDES_PRED,
+                &crate::wire_format::predicate_iri("id"),
+                id,
+            )
+        })
+    }
+
+    /// H6: the head-of-chain Phase claim id for `session_id`, if any.
+    pub fn current_phase(&self, session_id: &str) -> Result<Option<String>> {
+        self.with_gamma(|g| {
+            g.current_phase(
+                &crate::wire_format::type_iri("phase"),
+                crate::wire_format::SUPERSEDES_PRED,
+                &crate::wire_format::predicate_iri("session_id"),
+                session_id,
+            )
+        })
+    }
+
+    /// H7: supersedes edges whose target is absent from the log.
+    pub fn dangling_supersedes(&self) -> Result<Vec<nomograph_claim::gamma::DanglingEdge>> {
+        self.with_gamma(|g| g.dangling_supersedes(crate::wire_format::SUPERSEDES_PRED))
+    }
+
+    /// H8: a task's acceptance criteria (nested array, read from the doc).
+    pub fn task_acceptance(
+        &self,
+        claim_id: &str,
+    ) -> Result<Vec<nomograph_claim::gamma::AcceptanceCriterion>> {
+        self.with_gamma(|g| {
+            g.task_acceptance(claim_id, &crate::wire_format::predicate_iri("acceptance"))
+        })
+    }
+
+    /// H9: diamond conflicts (prior superseded by >1 live superseder).
+    pub fn diamond_conflicts(&self) -> Result<Vec<nomograph_claim::gamma::DiamondConflict>> {
+        self.with_gamma(|g| g.diamond_conflicts(crate::wire_format::SUPERSEDES_PRED))
+    }
+
+    /// H10: plan-at-risk hits over the Spec agreeSnapshot edges.
+    pub fn plan_at_risk(&self) -> Result<Vec<nomograph_claim::gamma::PlanAtRiskHit>> {
+        self.with_gamma(|g| {
+            g.plan_at_risk(
+                &crate::wire_format::type_iri("spec"),
+                &crate::wire_format::predicate_iri("agree_snapshot"),
+                crate::wire_format::SUPERSEDES_PRED,
+            )
+        })
+    }
+
+    /// H1: total claim count in the index.
+    pub fn count_total(&self) -> Result<usize> {
+        self.with_gamma(|g| g.count_total())
+    }
+
+    /// H1: count claims with `@type == type_value`.
+    pub fn count_by_type(&self, type_value: &str) -> Result<usize> {
+        self.with_gamma(|g| g.count_by_type(type_value))
+    }
+
+    /// H1 variant: count all (non-live-filtered) claims of `type_value`
+    /// that also carry `(pred, value)`.
+    pub fn count_by_type_and_value(
+        &self,
+        type_value: &str,
+        pred: &str,
+        value: &str,
+    ) -> Result<usize> {
+        self.with_gamma(|g| g.count_by_type_and_value(type_value, pred, value))
+    }
+}
+
+/// Strip the compact-claim-IRI prefix to recover the bare claim hash for
+/// display / `supersedes` arguments. Accepts both the compact
+/// `synthesist:claim/<hash>` form gamma returns and the expanded
+/// `https://nomograph.org/synthesist/claim/<hash>` form.
+pub fn short_claim_id(iri: &str) -> String {
+    iri.strip_prefix("https://nomograph.org/synthesist/claim/")
+        .or_else(|| iri.strip_prefix("synthesist:claim/"))
+        .unwrap_or(iri)
+        .to_string()
+}
+
+/// Project a v3 JSON-LD doc into a flat bare-key `props` object, the v2
+/// shape the command surface produces. Drops the JSON-LD envelope
+/// (`@context`, `@id`, `@type`, `prov:*`, `synthesist:supersedes`,
+/// `nomograph:parentAsserter`) and rewrites `synthesist:<lowerCamel>`
+/// keys to bare `snake_case`. This is the read-side inverse of the
+/// dual-write mapping (mirrors `crate::integrity::v3_to_v2_props`).
+pub fn bare_props(doc: &Value) -> serde_json::Map<String, Value> {
+    crate::integrity::v3_to_v2_props(doc)
+        .as_object()
+        .cloned()
+        .unwrap_or_default()
 }
 
 /// Local asserter base derived from `$USER` (mirrors the convention
@@ -534,9 +704,9 @@ mod tests {
         );
     }
 
-    /// `sparql` opens the view lazily and returns matching rows.
+    /// The gamma index opens lazily and reflects an appended claim.
     #[test]
-    fn sparql_round_trips_after_append() {
+    fn gamma_live_heads_after_append() {
         let dir = tempdir().unwrap();
         let claims = dir.path().join("claims");
         let mut store = SynthStore::init_at(&claims)
@@ -555,12 +725,12 @@ mod tests {
                 None,
             )
             .unwrap();
-        let results = store
-            .sparql(
-                "SELECT (COUNT(?c) AS ?n) WHERE { GRAPH ?g { ?c rdf:type synthesist:Task } }",
-            )
+        let heads = store
+            .live_heads(&crate::wire_format::type_iri("task"))
             .unwrap();
-        assert_eq!(results.rows.len(), 1);
+        assert_eq!(heads.len(), 1, "one live Task head after append");
+        let doc = store.doc(&heads[0]).unwrap().expect("doc for live head");
+        assert_eq!(doc["@type"].as_str().unwrap(), "synthesist:Task");
     }
 
     /// Deterministic claim id: same inputs hash to the same id.

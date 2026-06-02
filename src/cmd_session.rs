@@ -5,11 +5,12 @@
 //! Reads (`list`, `status`) walk the SPARQL view.
 
 use anyhow::{Result, anyhow, bail};
-use nomograph_claim::ClaimType;
+use crate::claim_type::ClaimType;
 use serde_json::{Value, json};
 
 use crate::cli::SessionCmd;
-use crate::store::{SynthStore, json_out};
+use crate::store::{SynthStore, bare_props, json_out, short_claim_id};
+use crate::wire_format as wf;
 
 pub fn run(cmd: &SessionCmd, session: &Option<String>) -> Result<()> {
     match cmd {
@@ -75,110 +76,82 @@ fn cmd_session_start(
 
 fn cmd_session_list() -> Result<()> {
     let store = SynthStore::discover()?;
-    let q = r#"
-        SELECT ?c ?id ?tree ?spec ?summary WHERE {
-          GRAPH ?g {
-            ?c rdf:type synthesist:Session ;
-               synthesist:id ?id .
-            OPTIONAL { ?c synthesist:tree ?tree }
-            OPTIONAL { ?c synthesist:spec ?spec }
-            OPTIONAL { ?c synthesist:summary ?summary }
-            FILTER NOT EXISTS { ?c synthesist:supersedes ?prev }
-            FILTER NOT EXISTS {
-              GRAPH ?g2 { ?later synthesist:supersedes ?c }
-            }
-          }
-        }
-        ORDER BY ?id
-    "#;
-    let r = store.sparql(q)?;
+    // Live Session openers (H4 dual anti-join: not superseded AND not
+    // itself a superseder, separating openers from closers that share an
+    // id).
     let mut out: Vec<Value> = Vec::new();
-    for row in &r.rows {
-        use nomograph_claim::graph_view::Term;
-        let str_at = |i: usize| -> Option<String> {
-            match row.get(i) {
-                Some(Term::Literal { value, .. }) if !value.is_empty() => Some(value.clone()),
-                _ => None,
-            }
+    for opener in store.live_session_openers()? {
+        let Some(doc) = store.doc(&opener)? else {
+            continue;
         };
-        let iri = match row.first() {
-            Some(Term::Iri(s)) => s.clone(),
+        let props = bare_props(&doc);
+        let id = match props.get("id").and_then(|v| v.as_str()) {
+            Some(s) if !s.is_empty() => s.to_string(),
             _ => continue,
         };
-        let id = match str_at(1) {
-            Some(s) => s,
-            None => continue,
+        let opt = |k: &str| -> Option<String> {
+            props
+                .get(k)
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())
+                .map(|s| s.to_string())
         };
         out.push(json!({
             "id": id,
-            "tree": str_at(2),
-            "spec": str_at(3),
-            "summary": str_at(4),
+            "tree": opt("tree"),
+            "spec": opt("spec"),
+            "summary": opt("summary"),
             "asserter_base": format!("{}:{}", asserter_base(), id),
-            "start_id": short_claim_id(&iri),
+            "start_id": short_claim_id(&opener),
         }));
     }
+    out.sort_by(|a, b| {
+        a.get("id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .cmp(b.get("id").and_then(|v| v.as_str()).unwrap_or(""))
+    });
     json_out(&json!({ "sessions": out }))
 }
 
 fn cmd_session_status(id: &str) -> Result<()> {
     let store = SynthStore::discover()?;
-    // Pull the opener's props + start time in one SELECT. The
-    // `FILTER NOT EXISTS { ?c synthesist:supersedes ?prev }` clause
-    // pins ?c to the opener (vs the closer, which carries the same
-    // synthesist:id but DOES supersede a prior).
-    let q_opener = format!(
-        r#"
-        SELECT ?c ?tree ?spec ?summary ?started_at WHERE {{
-          GRAPH ?g {{
-            ?c rdf:type synthesist:Session ;
-               synthesist:id "{id}" ;
-               prov:generatedAtTime ?started_at .
-            OPTIONAL {{ ?c synthesist:tree    ?tree }}
-            OPTIONAL {{ ?c synthesist:spec    ?spec }}
-            OPTIONAL {{ ?c synthesist:summary ?summary }}
-            FILTER NOT EXISTS {{ ?c synthesist:supersedes ?prev }}
-          }}
-        }}
-        LIMIT 1
-        "#
-    );
-    let r = store.sparql(&q_opener)?;
-    let row = r.rows.into_iter().next().ok_or_else(|| {
+    // The live opener carrying this display id (H4). When live, the
+    // opener is both not-superseded and not-itself-a-superseder. When
+    // the session is closed, no live opener exists, so we fall back to a
+    // scan over all Session heads to recover the opener's props for the
+    // closed-status report.
+    let live = store.session_is_live(id)?;
+    let opener_doc = if let Some(opener) = store.session_opener_by_id(id)? {
+        store.doc(&opener)?
+    } else {
+        // Closed (or never-opened): find any Session claim carrying this
+        // id that does not itself supersede a prior (the original opener).
+        find_opener_doc(&store, id)?
+    };
+    let doc = opener_doc.ok_or_else(|| {
         anyhow!(
             "session '{id}' not found. \
              Run `synthesist session list` to see known sessions, \
              or `synthesist session start <id>` to open a new one."
         )
     })?;
-    use nomograph_claim::graph_view::Term;
-    let str_at = |i: usize| -> Option<String> {
-        match row.get(i) {
-            Some(Term::Literal { value, .. }) if !value.is_empty() => Some(value.clone()),
-            _ => None,
-        }
+    let props = bare_props(&doc);
+    let str_prop = |k: &str| -> Option<String> {
+        props
+            .get(k)
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string())
     };
-    let tree = str_at(1);
-    let spec = str_at(2);
-    let summary = str_at(3);
-    let started_at = str_at(4);
+    let tree = str_prop("tree");
+    let spec = str_prop("spec");
+    let summary = str_prop("summary");
+    let started_at = doc
+        .get(wf::GENERATED_AT_PRED)
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
 
-    // Live = opener with no later claim superseding it.
-    let q_live = format!(
-        r#"
-        ASK {{
-          GRAPH ?g {{
-            ?c rdf:type synthesist:Session ;
-               synthesist:id "{id}" .
-            FILTER NOT EXISTS {{ ?c synthesist:supersedes ?prev }}
-            FILTER NOT EXISTS {{
-              GRAPH ?g2 {{ ?later synthesist:supersedes ?c }}
-            }}
-          }}
-        }}
-        "#
-    );
-    let live = store.ask(&q_live)?;
     let status = if live { "active" } else { "closed" };
 
     let mut props = serde_json::Map::new();
@@ -201,6 +174,30 @@ fn cmd_session_status(id: &str) -> Result<()> {
     }))
 }
 
+/// Find the original opener doc for a (possibly closed) session id.
+///
+/// The opener is the Session claim carrying `synthesist:id == id` that
+/// does NOT itself supersede a prior claim. Walks the raw log union
+/// because closed sessions have no live head for gamma's H4 to return.
+fn find_opener_doc(store: &SynthStore, id: &str) -> Result<Option<Value>> {
+    let session_type = wf::type_iri("session");
+    let id_pred = wf::predicate_iri("id");
+    for doc in store.iter_claims()? {
+        if doc.get("@type").and_then(|v| v.as_str()) != Some(session_type.as_str()) {
+            continue;
+        }
+        if doc.get(&id_pred).and_then(|v| v.as_str()) != Some(id) {
+            continue;
+        }
+        // The opener does not carry a supersedes edge.
+        if doc.get(wf::SUPERSEDES_PRED).is_some() {
+            continue;
+        }
+        return Ok(Some(doc));
+    }
+    Ok(None)
+}
+
 fn cmd_session_close(id: &str, start_id: Option<&str>, session: &Option<String>) -> Result<()> {
     let mut store = SynthStore::discover_for(session)?;
 
@@ -210,56 +207,47 @@ fn cmd_session_close(id: &str, start_id: Option<&str>, session: &Option<String>)
     // require disambiguation (or, when no prefix is supplied, fall back
     // to the most recently asserted opener per `prov:generatedAtTime`).
     //
-    // ORDER BY DESC pushes the freshest opener to the top so the
-    // implicit "single live session" path keeps the v2 behaviour.
-    let q = format!(
-        r#"
-        SELECT ?c ?tree ?spec ?summary ?ts WHERE {{
-          GRAPH ?g {{
-            ?c rdf:type synthesist:Session ;
-               synthesist:id "{id}" ;
-               prov:generatedAtTime ?ts .
-            OPTIONAL {{ ?c synthesist:tree    ?tree }}
-            OPTIONAL {{ ?c synthesist:spec    ?spec }}
-            OPTIONAL {{ ?c synthesist:summary ?summary }}
-            FILTER NOT EXISTS {{ ?c synthesist:supersedes ?prev }}
-            FILTER NOT EXISTS {{
-              GRAPH ?g2 {{ ?later synthesist:supersedes ?c }}
-            }}
-          }}
-        }}
-        ORDER BY DESC(?ts)
-        "#
-    );
-    let r = store.sparql(&q)?;
-    use nomograph_claim::graph_view::Term;
-
+    // Order DESC by generatedAtTime pushes the freshest opener to the top
+    // so the implicit "single live session" path keeps the v2 behaviour.
     struct Candidate {
         iri: String,
+        ts: String,
         tree: Option<String>,
         spec: Option<String>,
         summary: Option<String>,
     }
 
     let mut candidates: Vec<Candidate> = Vec::new();
-    for row in &r.rows {
-        let iri = match row.first() {
-            Some(Term::Iri(s)) => s.clone(),
-            _ => continue,
+    for opener in store.live_session_openers()? {
+        let Some(doc) = store.doc(&opener)? else {
+            continue;
         };
-        let str_at = |i: usize| -> Option<String> {
-            match row.get(i) {
-                Some(Term::Literal { value, .. }) if !value.is_empty() => Some(value.clone()),
-                _ => None,
-            }
+        let props = bare_props(&doc);
+        if props.get("id").and_then(|v| v.as_str()) != Some(id) {
+            continue;
+        }
+        let opt = |k: &str| -> Option<String> {
+            props
+                .get(k)
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())
+                .map(|s| s.to_string())
         };
+        let ts = doc
+            .get(wf::GENERATED_AT_PRED)
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
         candidates.push(Candidate {
-            iri,
-            tree: str_at(1),
-            spec: str_at(2),
-            summary: str_at(3),
+            iri: opener,
+            ts,
+            tree: opt("tree"),
+            spec: opt("spec"),
+            summary: opt("summary"),
         });
     }
+    // Lexical compare == chronological for the canonical timestamp form.
+    candidates.sort_by(|a, b| b.ts.cmp(&a.ts).then(a.iri.cmp(&b.iri)));
 
     if candidates.is_empty() {
         bail!(
@@ -327,11 +315,4 @@ fn cmd_session_close(id: &str, start_id: Option<&str>, session: &Option<String>)
         Some(prior_id.clone()),
     )?;
     json_out(&json!({ "closed": true, "id": id, "start_id": prior_id }))
-}
-
-fn short_claim_id(iri: &str) -> String {
-    iri.strip_prefix("https://nomograph.org/synthesist/claim/")
-        .or_else(|| iri.strip_prefix("synthesist:claim/"))
-        .unwrap_or(iri)
-        .to_string()
 }

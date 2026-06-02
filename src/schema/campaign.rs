@@ -1,7 +1,7 @@
 //! Campaign claim schema.
 
-use nomograph_claim::validation::{check_enum, obj, opt_str, opt_str_array, req_str};
-use nomograph_claim::SchemaResult;
+use crate::validation::{check_enum, obj, opt_str, opt_str_array, req_str};
+use crate::validation::SchemaResult;
 use serde_json::Value;
 
 pub const TYPE_NAME: &str = "campaign";
@@ -46,7 +46,7 @@ mod tests {
         let err = validate(&v).unwrap_err();
         assert!(matches!(
             err,
-            nomograph_claim::SchemaError::InvalidEnum { .. }
+            crate::validation::SchemaError::InvalidEnum { .. }
         ));
     }
 }

@@ -5,11 +5,12 @@
 //! JSON-LD doc per call.
 
 use anyhow::{Result, anyhow, bail};
-use nomograph_claim::ClaimType;
+use crate::claim_type::ClaimType;
 use serde_json::{Map, Value, json};
 
 use crate::cli::SpecCmd;
-use crate::store::{SynthStore, json_out};
+use crate::store::{SynthStore, bare_props, json_out, short_claim_id};
+use crate::wire_format as wf;
 
 pub fn run(cmd: &SpecCmd, session: &Option<String>) -> Result<()> {
     match cmd {
@@ -237,72 +238,32 @@ fn cmd_spec_list(tree: &str) -> Result<()> {
 
 /// Return `(prior_id, props)` for every live Spec head in `tree`.
 fn live_spec_heads(store: &SynthStore, tree: &str) -> Result<Vec<(String, Value)>> {
-    let q = format!(
-        r#"
-        SELECT ?c ?id ?goal ?constraints ?decisions ?status ?outcome WHERE {{
-          GRAPH ?g {{
-            ?c rdf:type synthesist:Spec ;
-               synthesist:tree   "{tree}" ;
-               synthesist:id     ?id .
-            OPTIONAL {{ ?c synthesist:goal        ?goal }}
-            OPTIONAL {{ ?c synthesist:constraints ?constraints }}
-            OPTIONAL {{ ?c synthesist:decisions   ?decisions }}
-            OPTIONAL {{ ?c synthesist:status      ?status }}
-            OPTIONAL {{ ?c synthesist:outcome     ?outcome }}
-            FILTER NOT EXISTS {{
-              GRAPH ?g2 {{ ?later synthesist:supersedes ?c }}
-            }}
-          }}
-        }}
-        ORDER BY ?id
-        "#
-    );
-    let r = store.sparql(&q)?;
     let mut out: Vec<(String, Value)> = Vec::new();
-    for row in &r.rows {
-        use nomograph_claim::graph_view::Term;
-        let claim_iri = match row.first() {
-            Some(Term::Iri(s)) => s.clone(),
+    for (id, doc) in store.live_docs(&wf::type_iri("spec"))? {
+        let bare = bare_props(&doc);
+        if bare.get("tree").and_then(|v| v.as_str()) != Some(tree) {
+            continue;
+        }
+        let spec_id = match bare.get("id").and_then(|v| v.as_str()) {
+            Some(s) if !s.is_empty() => s.to_string(),
             _ => continue,
-        };
-        let prior_id = short_claim_id(&claim_iri);
-        let str_at = |i: usize| -> Option<String> {
-            match row.get(i) {
-                Some(Term::Literal { value, .. }) if !value.is_empty() => Some(value.clone()),
-                _ => None,
-            }
-        };
-        let id = match str_at(1) {
-            Some(s) => s,
-            None => continue,
         };
         let mut props = Map::new();
         props.insert("tree".into(), Value::String(tree.to_string()));
-        props.insert("id".into(), Value::String(id));
-        if let Some(v) = str_at(2) {
-            props.insert("goal".into(), Value::String(v));
+        props.insert("id".into(), Value::String(spec_id));
+        for key in ["goal", "constraints", "decisions", "status", "outcome"] {
+            if let Some(v) = bare.get(key).and_then(|v| v.as_str())
+                && !v.is_empty()
+            {
+                props.insert(key.into(), Value::String(v.to_string()));
+            }
         }
-        if let Some(v) = str_at(3) {
-            props.insert("constraints".into(), Value::String(v));
-        }
-        if let Some(v) = str_at(4) {
-            props.insert("decisions".into(), Value::String(v));
-        }
-        if let Some(v) = str_at(5) {
-            props.insert("status".into(), Value::String(v));
-        }
-        if let Some(v) = str_at(6) {
-            props.insert("outcome".into(), Value::String(v));
-        }
-        // topics default required by schema; spec writes always set it.
-        out.push((prior_id, Value::Object(props)));
+        out.push((short_claim_id(&id), Value::Object(props)));
     }
+    out.sort_by(|a, b| {
+        let ai = a.1.get("id").and_then(|v| v.as_str()).unwrap_or("");
+        let bi = b.1.get("id").and_then(|v| v.as_str()).unwrap_or("");
+        ai.cmp(bi)
+    });
     Ok(out)
-}
-
-fn short_claim_id(iri: &str) -> String {
-    iri.strip_prefix("https://nomograph.org/synthesist/claim/")
-        .or_else(|| iri.strip_prefix("synthesist:claim/"))
-        .unwrap_or(iri)
-        .to_string()
 }

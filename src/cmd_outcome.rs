@@ -15,12 +15,13 @@
 //! through `SynthStore::append` in Stage 1.
 
 use anyhow::{Context, Result};
-use nomograph_claim::ClaimType;
+use crate::claim_type::ClaimType;
 use serde_json::{Map, Value, json};
 
 use crate::cli::OutcomeCmd;
 use crate::output::{Output, emit};
-use crate::store::{SynthStore, json_out, parse_tree_spec};
+use crate::store::{SynthStore, bare_props, json_out, parse_tree_spec};
+use crate::wire_format as wf;
 
 pub fn run(cmd: &OutcomeCmd, session: &Option<String>) -> Result<()> {
     match cmd {
@@ -107,74 +108,55 @@ fn cmd_add(
 /// so we OPTIONAL-bind both and project whichever the head carried.
 fn cmd_list(tree: &str, spec: &str) -> Result<()> {
     let store = SynthStore::discover()?;
-    let q = format!(
-        r#"
-        SELECT ?c ?tree ?spec ?status ?summary ?note ?at ?by WHERE {{
-          GRAPH ?g {{
-            ?c rdf:type synthesist:Outcome ;
-               synthesist:tree   ?tree ;
-               synthesist:spec   ?spec ;
-               synthesist:status ?status ;
-               prov:generatedAtTime ?at ;
-               prov:wasAttributedTo  ?by .
-            OPTIONAL {{ ?c synthesist:summary ?summary }}
-            OPTIONAL {{ ?c synthesist:note    ?note }}
-            FILTER(?tree = "{tree}")
-            FILTER(?spec = "{spec}")
-            FILTER NOT EXISTS {{
-              GRAPH ?g2 {{ ?later synthesist:supersedes ?c }}
-            }}
-          }}
-        }}
-        ORDER BY DESC(?at)
-        "#
-    );
-    let r = store.sparql(&q)?;
-    let mut outcomes: Vec<Value> = Vec::new();
-    for row in &r.rows {
-        use nomograph_claim::graph_view::Term;
-        let str_at = |i: usize| -> Option<String> {
-            match row.get(i) {
-                Some(Term::Literal { value, .. }) if !value.is_empty() => Some(value.clone()),
-                _ => None,
-            }
-        };
-        let iri_at = |i: usize| -> Option<String> {
-            match row.get(i) {
-                Some(Term::Iri(s)) if !s.is_empty() => Some(s.clone()),
-                Some(Term::Literal { value, .. }) if !value.is_empty() => Some(value.clone()),
-                _ => None,
-            }
-        };
-        let tree_v = match str_at(1) {
-            Some(s) => s,
-            None => continue,
-        };
-        let spec_v = match str_at(2) {
-            Some(s) => s,
-            None => continue,
-        };
-        let status = str_at(3).unwrap_or_default();
+    let mut rows: Vec<(String, Value)> = Vec::new();
+    for (_, doc) in store.live_docs(&wf::type_iri("outcome"))? {
+        let props = bare_props(&doc);
+        if props.get("tree").and_then(|v| v.as_str()) != Some(tree)
+            || props.get("spec").and_then(|v| v.as_str()) != Some(spec)
+        {
+            continue;
+        }
+        let status = props
+            .get("status")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
         // Prefer synthesist:summary if present, else synthesist:note --
         // the schema names the field `note`, the v2 projection called
         // it `summary`. Surface whichever the head carried under the
         // legacy column name to match the v2 output contract.
-        let summary = str_at(4).or_else(|| str_at(5));
-        let at = str_at(6).unwrap_or_default();
-        let by = iri_at(7).unwrap_or_default();
+        let summary = props
+            .get("summary")
+            .or_else(|| props.get("note"))
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string());
+        let at = doc
+            .get(wf::GENERATED_AT_PRED)
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let by = doc
+            .get(wf::ATTRIBUTED_TO_PRED)
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
 
         let mut obj = Map::new();
-        obj.insert("tree".into(), Value::String(tree_v));
-        obj.insert("spec".into(), Value::String(spec_v));
+        obj.insert("tree".into(), Value::String(tree.to_string()));
+        obj.insert("spec".into(), Value::String(spec.to_string()));
         obj.insert("status".into(), Value::String(status));
         obj.insert(
             "summary".into(),
             summary.map(Value::String).unwrap_or(Value::Null),
         );
-        obj.insert("asserted_at".into(), Value::String(at));
+        obj.insert("asserted_at".into(), Value::String(at.clone()));
         obj.insert("asserted_by".into(), Value::String(by));
-        outcomes.push(Value::Object(obj));
+        rows.push((at, Value::Object(obj)));
     }
+    // ORDER BY DESC(?at): lexical == chronological for the canonical form.
+    rows.sort_by(|a, b| b.0.cmp(&a.0));
+    let outcomes: Vec<Value> = rows.into_iter().map(|(_, v)| v).collect();
     json_out(&json!({ "outcomes": outcomes }))
 }
 

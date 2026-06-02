@@ -1,21 +1,22 @@
-//! Campaign commands -- ported to the v3 SPARQL substrate.
+//! Campaign commands -- ported to the gamma typed query surface (C-2).
 //!
 //! Campaign is a cross-spec coordination primitive: each Campaign claim
 //! per (tree, spec) is either `active`, `backlog`, or (after the close
 //! port lands at the CLI level) `closed`. Reads project the live head
-//! per (tree, spec) via SPARQL; writes route through `SynthStore::append`.
+//! per (tree, spec) via the gamma H2 live-head anti-join; writes route
+//! through `SynthStore::append`.
 //!
 //! NOTE: the v2 `CampaignCmd` enum exposes only `Add` and `List`. The
 //! Stage 2 brief mentions a `campaign close <tree>/<spec>` subcommand,
 //! which would require an additive change in `cli.rs`. That CLI surface
-//! is intentionally out of scope for this commit (the constraint pins
-//! us to `cmd_campaign.rs` / `cmd_outcome.rs`); see the report.
+//! is intentionally out of scope for this commit.
 
 use anyhow::Result;
 use serde_json::{Map, Value, json};
 
 use crate::cli::CampaignCmd;
-use crate::store::{SynthStore, json_out};
+use crate::store::{SynthStore, bare_props, json_out};
+use crate::wire_format as wf;
 
 /// Dispatch a `synthesist campaign <...>` subcommand.
 pub fn run(cmd: &CampaignCmd, session: &Option<String>) -> Result<()> {
@@ -95,7 +96,7 @@ fn cmd_add(
 
     let mut store = SynthStore::discover_for(session)?;
     store.append(
-        nomograph_claim::ClaimType::Campaign,
+        crate::claim_type::ClaimType::Campaign,
         Value::Object(props),
         None,
     )?;
@@ -104,9 +105,7 @@ fn cmd_add(
 }
 
 /// List the live Campaign head per (tree, spec) pair. Filter on `tree`
-/// when supplied (the v2 CLI takes a required positional `tree`; the
-/// `Option<&str>` signature anticipates the future `--tree`-as-flag
-/// surface mentioned in the Stage 2 brief).
+/// when supplied.
 ///
 /// Output:
 /// ```json
@@ -118,79 +117,57 @@ fn cmd_add(
 /// ```
 fn cmd_list(tree_filter: Option<&str>) -> Result<()> {
     let store = SynthStore::discover()?;
-    let tree_constraint = match tree_filter {
-        Some(t) => format!("FILTER(?tree = \"{t}\")"),
-        None => String::new(),
-    };
-    let q = format!(
-        r#"
-        SELECT ?c ?tree ?spec ?kind ?summary ?title
-               (GROUP_CONCAT(?blk; SEPARATOR="\u001F") AS ?blocked_by)
-        WHERE {{
-          GRAPH ?g {{
-            ?c rdf:type synthesist:Campaign ;
-               synthesist:tree ?tree ;
-               synthesist:spec ?spec .
-            OPTIONAL {{ ?c synthesist:kind      ?kind }}
-            OPTIONAL {{ ?c synthesist:summary   ?summary }}
-            OPTIONAL {{ ?c synthesist:title     ?title }}
-            OPTIONAL {{ ?c synthesist:blockedBy ?blk }}
-            FILTER NOT EXISTS {{
-              GRAPH ?g2 {{ ?later synthesist:supersedes ?c }}
-            }}
-            {tree_constraint}
-          }}
-        }}
-        GROUP BY ?c ?tree ?spec ?kind ?summary ?title
-        ORDER BY ?tree ?spec
-        "#
-    );
-    let r = store.sparql(&q)?;
-    let mut campaigns: Vec<Value> = Vec::new();
-    for row in &r.rows {
-        use nomograph_claim::graph_view::Term;
-        let str_at = |i: usize| -> Option<String> {
-            match row.get(i) {
-                Some(Term::Literal { value, .. }) if !value.is_empty() => Some(value.clone()),
-                _ => None,
-            }
-        };
-        let tree = match str_at(1) {
-            Some(s) => s,
+    let mut rows: Vec<((String, String), Value)> = Vec::new();
+    for (_, doc) in store.live_docs(&wf::type_iri("campaign"))? {
+        let props = bare_props(&doc);
+        let tree = match props.get("tree").and_then(|v| v.as_str()) {
+            Some(s) => s.to_string(),
             None => continue,
         };
-        let spec = match str_at(2) {
-            Some(s) => s,
+        let spec = match props.get("spec").and_then(|v| v.as_str()) {
+            Some(s) => s.to_string(),
             None => continue,
         };
-        let kind = str_at(3);
-        let summary = str_at(4);
-        let title = str_at(5);
-        let blocked_by_concat = str_at(6).unwrap_or_default();
-        let blocked_by: Vec<Value> = if blocked_by_concat.is_empty() {
-            Vec::new()
-        } else {
-            blocked_by_concat
-                .split('\u{001F}')
+        if let Some(t) = tree_filter
+            && tree != t
+        {
+            continue;
+        }
+        let str_opt = |k: &str| -> Option<String> {
+            props
+                .get(k)
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())
+                .map(|s| s.to_string())
+        };
+        // blockedBy is a member predicate -> bare_props yields an array.
+        let blocked_by: Vec<Value> = match props.get("blocked_by") {
+            Some(Value::Array(items)) => items
+                .iter()
+                .filter_map(|v| v.as_str())
                 .filter(|s| !s.is_empty())
                 .map(|s| Value::String(s.to_string()))
-                .collect()
+                .collect(),
+            Some(Value::String(s)) if !s.is_empty() => vec![Value::String(s.clone())],
+            _ => Vec::new(),
         };
 
         let mut obj = Map::new();
-        obj.insert("tree".into(), Value::String(tree));
-        obj.insert("spec".into(), Value::String(spec));
-        if let Some(v) = kind {
+        obj.insert("tree".into(), Value::String(tree.clone()));
+        obj.insert("spec".into(), Value::String(spec.clone()));
+        if let Some(v) = str_opt("kind") {
             obj.insert("kind".into(), Value::String(v));
         }
-        if let Some(v) = summary {
+        if let Some(v) = str_opt("summary") {
             obj.insert("summary".into(), Value::String(v));
         }
-        if let Some(v) = title {
+        if let Some(v) = str_opt("title") {
             obj.insert("title".into(), Value::String(v));
         }
         obj.insert("blocked_by".into(), Value::Array(blocked_by));
-        campaigns.push(Value::Object(obj));
+        rows.push(((tree, spec), Value::Object(obj)));
     }
+    rows.sort_by(|a, b| a.0.cmp(&b.0));
+    let campaigns: Vec<Value> = rows.into_iter().map(|(_, v)| v).collect();
     json_out(&json!({ "campaigns": campaigns }))
 }

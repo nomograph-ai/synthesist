@@ -5,7 +5,7 @@
 //! against the cached graph view.
 
 use anyhow::{Result, anyhow, bail};
-use nomograph_claim::ClaimType;
+use crate::claim_type::ClaimType;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -219,43 +219,22 @@ pub fn current_phase_claim(
     store: &SynthStore,
     session_id: &str,
 ) -> Result<Option<(String, String)>> {
-    let q = format!(
-        r#"
-        SELECT ?c ?name WHERE {{
-          GRAPH ?g {{
-            ?c rdf:type synthesist:Phase ;
-               synthesist:sessionId "{session_id}" ;
-               synthesist:name      ?name .
-            FILTER NOT EXISTS {{
-              GRAPH ?g2 {{ ?later synthesist:supersedes ?c }}
-            }}
-          }}
-        }}
-        LIMIT 1
-        "#
-    );
-    let results = store.sparql(&q)?;
-    if let Some(row) = results.rows.into_iter().next() {
-        use nomograph_claim::graph_view::Term;
-        let claim_iri = match row.first() {
-            Some(Term::Iri(s)) => s.clone(),
-            _ => return Ok(None),
-        };
-        let name = match row.get(1) {
-            Some(Term::Literal { value, .. }) => value.clone(),
-            _ => return Ok(None),
-        };
-        // Strip the expanded IRI prefix back to the bare hash so the
-        // caller can pass it straight to `SynthStore::append` as
-        // `supersedes`. The append helper will re-prefix it via
-        // `wire_format::claim_iri`.
-        let short = claim_iri
-            .strip_prefix("https://nomograph.org/synthesist/claim/")
-            .or_else(|| claim_iri.strip_prefix("synthesist:claim/"))
-            .unwrap_or(&claim_iri)
-            .to_string();
-        Ok(Some((short, name)))
-    } else {
-        Ok(None)
-    }
+    // H6: head of the Phase supersession chain for this session.
+    let Some(claim_id) = store.current_phase(session_id)? else {
+        return Ok(None);
+    };
+    let Some(doc) = store.doc(&claim_id)? else {
+        return Ok(None);
+    };
+    let name = match doc
+        .get(crate::wire_format::predicate_iri("name").as_str())
+        .and_then(|v| v.as_str())
+    {
+        Some(s) => s.to_string(),
+        None => return Ok(None),
+    };
+    // Strip the compact prefix to the bare hash so the caller can pass
+    // it straight to `SynthStore::append` as `supersedes` (which
+    // re-prefixes via `wire_format::claim_iri`).
+    Ok(Some((crate::store::short_claim_id(&claim_id), name)))
 }

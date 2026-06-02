@@ -7,11 +7,12 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::process::Command as ShellCommand;
 
 use anyhow::{Context, Result, anyhow, bail};
-use nomograph_claim::ClaimType;
+use crate::claim_type::ClaimType;
 use serde_json::{Value, json};
 
 use crate::cli::TaskCmd;
-use crate::store::{SynthStore, json_out, parse_tree_spec};
+use crate::store::{SynthStore, bare_props, json_out, parse_tree_spec, short_claim_id};
+use crate::wire_format as wf;
 
 pub fn run(cmd: &TaskCmd, session: &Option<String>) -> Result<()> {
     match cmd {
@@ -136,95 +137,59 @@ pub fn run(cmd: &TaskCmd, session: &Option<String>) -> Result<()> {
 /// Live Task heads for `(tree, spec)`. Returns `(prior_claim_id, props)`
 /// for each. Shared by every task command in this module.
 fn live_tasks(store: &SynthStore, tree: &str, spec: &str) -> Result<Vec<(String, Value)>> {
-    let q = format!(
-        r#"
-        SELECT ?c ?id ?status ?summary ?description ?gate
-               (GROUP_CONCAT(?dep; SEPARATOR="\u001F") AS ?deps)
-               (GROUP_CONCAT(?file; SEPARATOR="\u001F") AS ?files)
-        WHERE {{
-          GRAPH ?g {{
-            ?c rdf:type synthesist:Task ;
-               synthesist:tree   "{tree}" ;
-               synthesist:spec   "{spec}" ;
-               synthesist:id     ?id ;
-               synthesist:status ?status .
-            OPTIONAL {{ ?c synthesist:summary     ?summary }}
-            OPTIONAL {{ ?c synthesist:description ?description }}
-            OPTIONAL {{ ?c synthesist:gate        ?gate }}
-            OPTIONAL {{ ?c synthesist:dependsOn   ?dep }}
-            OPTIONAL {{ ?c synthesist:files       ?file }}
-            FILTER NOT EXISTS {{
-              GRAPH ?g2 {{ ?later synthesist:supersedes ?c }}
-            }}
-          }}
-        }}
-        GROUP BY ?c ?id ?status ?summary ?description ?gate
-        ORDER BY ?id
-        "#
-    );
-    let r = store.sparql(&q)?;
     let mut out: Vec<(String, Value)> = Vec::new();
-    for row in &r.rows {
-        use nomograph_claim::graph_view::Term;
-        let claim_iri = match row.first() {
-            Some(Term::Iri(s)) => s.clone(),
+    for (claim_id, doc) in store.live_docs(&wf::type_iri("task"))? {
+        let bare = bare_props(&doc);
+        if bare.get("tree").and_then(|v| v.as_str()) != Some(tree)
+            || bare.get("spec").and_then(|v| v.as_str()) != Some(spec)
+        {
+            continue;
+        }
+        let id = match bare.get("id").and_then(|v| v.as_str()) {
+            Some(s) if !s.is_empty() => s.to_string(),
             _ => continue,
         };
-        let prior_id = short_claim_id(&claim_iri);
-        let str_at = |i: usize| -> Option<String> {
-            match row.get(i) {
-                Some(Term::Literal { value, .. }) if !value.is_empty() => Some(value.clone()),
-                _ => None,
+        let prior_id = short_claim_id(&claim_id);
+        let str_opt = |k: &str| -> Option<String> {
+            bare.get(k)
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())
+                .map(|s| s.to_string())
+        };
+        let member = |k: &str| -> Vec<Value> {
+            match bare.get(k) {
+                Some(Value::Array(items)) => items
+                    .iter()
+                    .filter_map(|v| v.as_str())
+                    .filter(|s| !s.is_empty())
+                    .map(|s| Value::String(s.to_string()))
+                    .collect(),
+                Some(Value::String(s)) if !s.is_empty() => vec![Value::String(s.clone())],
+                _ => Vec::new(),
             }
         };
-        let id = match str_at(1) {
-            Some(s) => s,
-            None => continue,
-        };
-        let status = str_at(2).unwrap_or_default();
-        let summary = str_at(3);
-        let description = str_at(4);
-        let gate = str_at(5);
-        let deps_concat = str_at(6).unwrap_or_default();
-        let files_concat = str_at(7).unwrap_or_default();
-
-        let deps: Vec<Value> = if deps_concat.is_empty() {
-            Vec::new()
-        } else {
-            deps_concat
-                .split('\u{001F}')
-                .filter(|s| !s.is_empty())
-                .map(|s| Value::String(s.to_string()))
-                .collect()
-        };
-        let files: Vec<Value> = if files_concat.is_empty() {
-            Vec::new()
-        } else {
-            files_concat
-                .split('\u{001F}')
-                .filter(|s| !s.is_empty())
-                .map(|s| Value::String(s.to_string()))
-                .collect()
-        };
-
         let mut props = serde_json::Map::new();
         props.insert("tree".into(), json!(tree));
         props.insert("spec".into(), json!(spec));
         props.insert("id".into(), json!(id));
-        props.insert("status".into(), json!(status));
-        if let Some(s) = summary {
-            props.insert("summary".into(), json!(s));
+        props.insert("status".into(), json!(str_opt("status").unwrap_or_default()));
+        if let Some(sm) = str_opt("summary") {
+            props.insert("summary".into(), json!(sm));
         }
-        if let Some(s) = description {
-            props.insert("description".into(), json!(s));
+        if let Some(d) = str_opt("description") {
+            props.insert("description".into(), json!(d));
         }
-        if let Some(s) = gate {
-            props.insert("gate".into(), json!(s));
+        if let Some(g) = str_opt("gate") {
+            props.insert("gate".into(), json!(g));
         }
-        props.insert("depends_on".into(), Value::Array(deps));
-        props.insert("files".into(), Value::Array(files));
+        props.insert("depends_on".into(), Value::Array(member("depends_on")));
+        props.insert("files".into(), Value::Array(member("files")));
         out.push((prior_id, Value::Object(props)));
     }
+    out.sort_by(|a, b| {
+        a.1.get("id").and_then(|v| v.as_str()).unwrap_or("")
+            .cmp(b.1.get("id").and_then(|v| v.as_str()).unwrap_or(""))
+    });
     Ok(out)
 }
 
@@ -441,9 +406,11 @@ fn cmd_task_ready(tree: &str, spec: &str) -> Result<()> {
 }
 
 fn build_at_risk_set() -> Option<std::collections::HashSet<String>> {
-    let view = open_graph_view_best_effort()?;
+    // The plan-at-risk overlay opens its OWN gamma index on this hot
+    // path (`task ready`), bypassing the command's SynthStore. H10.
+    let gamma = open_gamma_best_effort()?;
     let overlay = crate::overlay::find("plan-at-risk")?;
-    let hits = overlay.run(&view).ok()?;
+    let hits = overlay.run(&gamma).ok()?;
     Some(at_risk_set_from_hits(&hits))
 }
 
@@ -463,7 +430,7 @@ fn at_risk_set_from_hits(hits: &[crate::overlay::OverlayResult]) -> std::collect
     at_risk
 }
 
-fn open_graph_view_best_effort() -> Option<nomograph_claim::graph_view::GraphView> {
+fn open_gamma_best_effort() -> Option<nomograph_claim::gamma::Gamma> {
     let start = std::env::current_dir().ok()?;
     let claims_dir = {
         let mut cur = start.as_path();
@@ -478,15 +445,8 @@ fn open_graph_view_best_effort() -> Option<nomograph_claim::graph_view::GraphVie
             }
         }
     }?;
-    let view_dir = claims_dir.join("_view.oxigraph");
-    nomograph_claim::graph_view::GraphView::open_or_in_memory(&view_dir, &claims_dir).ok()
-}
-
-fn short_claim_id(iri: &str) -> String {
-    iri.strip_prefix("https://nomograph.org/synthesist/claim/")
-        .or_else(|| iri.strip_prefix("synthesist:claim/"))
-        .unwrap_or(iri)
-        .to_string()
+    let view_dir = crate::store::gamma_view_path(&claims_dir);
+    nomograph_claim::gamma::Gamma::open(&view_dir, &claims_dir).ok()
 }
 
 /// `synthesist task update <tree>/<spec> <task_id> [--summary] [--description]
@@ -677,40 +637,21 @@ fn cmd_task_reset(
         // Find live (tree, spec, id) tuples whose owner is `owner_id`
         // and status is `in_progress`. Then reset each via the
         // single-task path.
-        let q = format!(
-            r#"
-            SELECT ?tree ?spec ?id WHERE {{
-              GRAPH ?g {{
-                ?c rdf:type synthesist:Task ;
-                   synthesist:tree   ?tree ;
-                   synthesist:spec   ?spec ;
-                   synthesist:id     ?id ;
-                   synthesist:status "in_progress" ;
-                   synthesist:owner  "{owner_id}" .
-                FILTER NOT EXISTS {{
-                  GRAPH ?g2 {{ ?later synthesist:supersedes ?c }}
-                }}
-              }}
-            }}
-            "#
-        );
-        let r = store.sparql(&q)?;
-        use nomograph_claim::graph_view::Term;
         let mut targets: Vec<(String, String, String)> = Vec::new();
-        for row in &r.rows {
-            let t = match row.first() {
-                Some(Term::Literal { value, .. }) => value.clone(),
-                _ => continue,
-            };
-            let s = match row.get(1) {
-                Some(Term::Literal { value, .. }) => value.clone(),
-                _ => continue,
-            };
-            let i = match row.get(2) {
-                Some(Term::Literal { value, .. }) => value.clone(),
-                _ => continue,
-            };
-            targets.push((t, s, i));
+        for (_, doc) in store.live_docs(&wf::type_iri("task"))? {
+            let bare = bare_props(&doc);
+            if bare.get("status").and_then(|v| v.as_str()) != Some("in_progress")
+                || bare.get("owner").and_then(|v| v.as_str()) != Some(owner_id)
+            {
+                continue;
+            }
+            let t = bare.get("tree").and_then(|v| v.as_str()).unwrap_or("");
+            let s = bare.get("spec").and_then(|v| v.as_str()).unwrap_or("");
+            let i = bare.get("id").and_then(|v| v.as_str()).unwrap_or("");
+            if t.is_empty() || s.is_empty() || i.is_empty() {
+                continue;
+            }
+            targets.push((t.to_string(), s.to_string(), i.to_string()));
         }
 
         let mut reset: Vec<Value> = Vec::new();
@@ -806,30 +747,38 @@ fn cmd_task_acceptance(
 /// query the (criterion, verify_cmd) pairs directly so the caller can
 /// rebuild a props array without re-walking the raw JSON-LD doc.
 fn load_acceptance(store: &SynthStore, prior_short_id: &str) -> Result<Vec<Value>> {
-    let claim_iri = format!("synthesist:claim/{}", prior_short_id);
-    let q = format!(
-        r#"
-        SELECT ?criterion ?verify WHERE {{
-          GRAPH ?g {{
-            <{claim_iri}> synthesist:acceptance ?a .
-            OPTIONAL {{ ?a synthesist:criterion ?criterion }}
-            OPTIONAL {{ ?a synthesist:verifyCmd ?verify }}
-          }}
-        }}
-        "#
-    );
-    let r = store.sparql(&q)?;
+    // Read the nested `synthesist:acceptance` array straight off the
+    // claim doc. Gamma keeps nested object arrays in the doc (no
+    // triple-shredding); H8 `task_acceptance` is the typed reader, but
+    // the synthesist write path stores the inner key as `verify_cmd`
+    // (snake) rather than the `verifyCmd` H8 looks for, so we read the
+    // doc directly to preserve the exact (criterion, verify_cmd) shape.
+    let claim_iri = wf::claim_iri(prior_short_id);
+    let Some(doc) = store.doc(&claim_iri)? else {
+        return Ok(Vec::new());
+    };
+    let arr = match doc
+        .get(wf::predicate_iri("acceptance").as_str())
+        .and_then(|v| v.as_array())
+    {
+        Some(a) => a,
+        None => return Ok(Vec::new()),
+    };
     let mut out: Vec<Value> = Vec::new();
-    use nomograph_claim::graph_view::Term;
-    for row in &r.rows {
-        let criterion = match row.first() {
-            Some(Term::Literal { value, .. }) => value.clone(),
-            _ => String::new(),
-        };
-        let verify = match row.get(1) {
-            Some(Term::Literal { value, .. }) => value.clone(),
-            _ => String::new(),
-        };
+    for item in arr {
+        let criterion = item
+            .get("criterion")
+            .or_else(|| item.get("synthesist:criterion"))
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string();
+        let verify = item
+            .get("verify_cmd")
+            .or_else(|| item.get("verifyCmd"))
+            .or_else(|| item.get("synthesist:verifyCmd"))
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string();
         if criterion.is_empty() && verify.is_empty() {
             continue;
         }

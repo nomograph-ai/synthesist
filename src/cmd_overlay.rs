@@ -15,13 +15,13 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
-use nomograph_claim::graph_view::GraphView;
+use nomograph_claim::gamma::Gamma;
 use nomograph_synthesist::telemetry::{Surface, TelemetryWriter};
 use serde_json::{json, Value};
 
 use crate::cli::OverlayCmd;
 use crate::overlay::{self, OverlayResult};
-use crate::store::json_out;
+use crate::store::{gamma_view_path, json_out};
 
 /// Dispatch an `OverlayCmd`.
 pub fn run(cmd: &OverlayCmd, data_dir: Option<&Path>) -> Result<()> {
@@ -114,15 +114,14 @@ fn serialize_result(r: &OverlayResult) -> Value {
     })
 }
 
-/// Open the graph view given an already-resolved `claims_dir`.
+/// Open the gamma index given an already-resolved `claims_dir`.
 ///
-/// Delegates to `nomograph_claim::graph_view::GraphView::open_or_in_memory`
-/// which handles the macOS ARM RocksDB TryFromIntError panic via catch_unwind.
-fn open_view_from_claims_dir(claims_dir: &Path) -> Result<GraphView> {
-    let view_dir = claims_dir.join("_view.oxigraph");
-    // Shared panic guard for macOS ARM oxigraph TryFromIntError:
-    // see nomograph_claim::graph_view::GraphView::open_or_in_memory.
-    GraphView::open_or_in_memory(&view_dir, claims_dir)
+/// Delegates to `nomograph_claim::gamma::Gamma::open`, which brings the
+/// on-disk redb index into sync with the log union (rebuilding when the
+/// heads signal has moved). Mirrors the open path in `store::ensure_gamma`.
+fn open_view_from_claims_dir(claims_dir: &Path) -> Result<Gamma> {
+    let view_dir = gamma_view_path(claims_dir);
+    Gamma::open(&view_dir, claims_dir).context("open gamma index")
 }
 
 /// Find the `claims/` directory from `data_dir` or by walking up from cwd.
@@ -164,7 +163,6 @@ fn find_claims_dir(data_dir: Option<&Path>) -> Result<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nomograph_claim::graph_view::GraphView;
 
     #[test]
     fn overlay_list_output_is_well_formed() {
@@ -199,7 +197,7 @@ mod tests {
 
     #[test]
     fn overlay_run_demo_on_empty_view_returns_zero_hits() {
-        let view = GraphView::open_in_memory().unwrap();
+        let view = Gamma::open_in_memory().unwrap();
         let overlay = overlay::find("demo-tasks-by-status").unwrap();
         let hits = overlay.run(&view).unwrap();
         assert!(hits.is_empty());
@@ -249,7 +247,7 @@ mod tests {
         // panics on macOS in the current oxigraph version).
         let overlay_name = "demo-tasks-by-status";
         let overlay = overlay::find(overlay_name).unwrap();
-        let view = GraphView::open_in_memory().unwrap();
+        let view = Gamma::open_in_memory().unwrap();
 
         let representative_query = format!("# overlay:{}", overlay_name);
 

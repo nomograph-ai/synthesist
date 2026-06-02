@@ -169,10 +169,10 @@ fn check_schema_walk(store: &SynthStore, issues: &mut Vec<Value>) -> Result<()> 
 /// does not own as schema errors; we map those to
 /// `NotOwnedBySynthesist` so the CLI surfaces them as warnings.
 fn synth_validate_outcome(
-    ct: &nomograph_claim::ClaimType,
+    ct: &crate::claim_type::ClaimType,
     v2_props: &Value,
 ) -> ValidationOutcome {
-    use nomograph_claim::ClaimType;
+    use crate::claim_type::ClaimType;
     let owned = matches!(
         ct,
         ClaimType::Tree
@@ -198,46 +198,20 @@ fn synth_validate_outcome(
 /// filter is `NOT EXISTS { GRAPH ?g2 { ?prior ?p ?o } }` so a prior
 /// claim recorded in any graph is treated as present.
 fn check_dangling_supersedes(store: &SynthStore, issues: &mut Vec<Value>) -> Result<()> {
-    let q = r#"
-        SELECT ?sup ?prior ?t WHERE {
-          GRAPH ?g {
-            ?sup synthesist:supersedes ?prior .
-            OPTIONAL { ?sup rdf:type ?t }
-          }
-          FILTER NOT EXISTS { GRAPH ?g2 { ?prior ?p ?o } }
-        }
-    "#;
-    let r = store.sparql(q)?;
-    for row in &r.rows {
-        use nomograph_claim::graph_view::Term;
-        let sup_iri = match row.first() {
-            Some(Term::Iri(s)) => s.clone(),
-            _ => continue,
-        };
-        let prior_iri = match row.get(1) {
-            Some(Term::Iri(s)) => s.clone(),
-            _ => String::new(),
-        };
-        let type_iri = match row.get(2) {
-            Some(Term::Iri(s)) => s.clone(),
-            _ => String::new(),
-        };
+    // H7: supersedes edges whose target is absent from the index.
+    for edge in store.dangling_supersedes()? {
         // Strip the compact prefix so the issue surfaces the bare hash
         // (matches the v2 wire shape).
-        let sup_id = sup_iri
-            .strip_prefix("synthesist:claim/")
-            .unwrap_or(&sup_iri)
-            .to_string();
-        let prior_id = prior_iri
-            .strip_prefix("synthesist:claim/")
-            .unwrap_or(&prior_iri)
-            .to_string();
-        let bare_type = lowercase_first(
-            type_iri
-                .strip_prefix("https://nomograph.org/synthesist/")
-                .or_else(|| type_iri.strip_prefix("synthesist:"))
-                .unwrap_or(""),
-        );
+        let sup_id = crate::store::short_claim_id(&edge.superseder);
+        let prior_id = crate::store::short_claim_id(&edge.target);
+        // Read the superseder's @type for the claim_type field.
+        let bare_type = store
+            .doc(&edge.superseder)?
+            .as_ref()
+            .and_then(|d| d.get("@type"))
+            .and_then(|v| v.as_str())
+            .map(lowercase_first_of_type)
+            .unwrap_or_default();
         issues.push(json!({
             "level": "error",
             "kind": "dangling_supersedes",
@@ -304,6 +278,16 @@ fn check_dangling_depends_on(store: &SynthStore, issues: &mut Vec<Value>) -> Res
     Ok(())
 }
 
+/// Strip the `@type` IRI prefix and lowercase the leading character so
+/// `synthesist:Task` reads `task` (matches the v2 wire shape).
+fn lowercase_first_of_type(iri: &str) -> String {
+    let bare = iri
+        .strip_prefix("https://nomograph.org/synthesist/")
+        .or_else(|| iri.strip_prefix("synthesist:"))
+        .unwrap_or(iri);
+    lowercase_first(bare)
+}
+
 /// Lowercase the first character of `s`. Used for issue `claim_type`
 /// payloads so `Task` -> `task` (matches v2).
 fn lowercase_first(s: &str) -> String {
@@ -319,73 +303,47 @@ fn lowercase_first(s: &str) -> String {
 // ---------------------------------------------------------------------------
 
 fn count_total_claims(store: &SynthStore) -> Result<i64> {
-    let q = r#"
-        SELECT (COUNT(DISTINCT ?c) AS ?n) WHERE {
-          GRAPH ?g { ?c rdf:type ?t }
-        }
-    "#;
-    let r = store.sparql(q)?;
-    Ok(literal_i64(&r, 0, 0))
+    Ok(store.count_total()? as i64)
 }
 
 fn count_by_type(store: &SynthStore) -> Result<Map<String, Value>> {
-    let q = r#"
-        SELECT ?t (COUNT(DISTINCT ?c) AS ?n) WHERE {
-          GRAPH ?g { ?c rdf:type ?t }
+    // Aggregate every claim by its @type. Not live-filtered (matches the
+    // prior non-live count). Walks the raw union since the breakdown
+    // spans every type, not a single one.
+    use std::collections::BTreeMap;
+    let mut counts: BTreeMap<String, i64> = BTreeMap::new();
+    for doc in store.iter_claims()? {
+        if let Some(t) = doc.get("@type").and_then(|v| v.as_str()) {
+            *counts.entry(strip_type_prefix(t)).or_insert(0) += 1;
         }
-        GROUP BY ?t
-    "#;
-    let r = store.sparql(q)?;
+    }
     let mut out = Map::new();
-    for row in &r.rows {
-        use nomograph_claim::graph_view::Term;
-        let type_str = match row.first() {
-            Some(Term::Iri(s)) => s.clone(),
-            _ => continue,
-        };
-        let bare = strip_type_prefix(&type_str);
-        let n = match row.get(1) {
-            Some(Term::Literal { value, .. }) => value.parse::<i64>().unwrap_or(0),
-            _ => 0,
-        };
-        out.insert(bare, json!(n));
+    for (k, n) in counts {
+        out.insert(k, json!(n));
     }
     Ok(out)
 }
 
 /// Live Tree heads: Tree claims that have not been superseded.
 fn live_tree_heads(store: &SynthStore) -> Result<Vec<Value>> {
-    let q = r#"
-        SELECT ?c ?name ?desc WHERE {
-          GRAPH ?g {
-            ?c rdf:type synthesist:Tree ;
-               synthesist:name ?name .
-            OPTIONAL { ?c synthesist:description ?desc }
-            FILTER NOT EXISTS {
-              GRAPH ?g2 { ?later synthesist:supersedes ?c }
-            }
-          }
-        }
-        ORDER BY ?name
-    "#;
-    let r = store.sparql(q)?;
     let mut out = Vec::new();
-    for row in &r.rows {
-        use nomograph_claim::graph_view::Term;
-        let name = match row.get(1) {
-            Some(Term::Literal { value, .. }) => value.clone(),
+    for (_, doc) in store.live_docs(&crate::wire_format::type_iri("tree"))? {
+        let props = crate::store::bare_props(&doc);
+        let name = match props.get("name").and_then(|v| v.as_str()) {
+            Some(s) if !s.is_empty() => s.to_string(),
             _ => continue,
         };
-        let desc = match row.get(2) {
-            Some(Term::Literal { value, .. }) => Value::String(value.clone()),
-            _ => Value::Null,
-        };
+        let desc = props.get("description").cloned().unwrap_or(Value::Null);
         out.push(json!({
             "name": name,
             "status": "active",
             "description": desc,
         }));
     }
+    out.sort_by(|a, b| {
+        a.get("name").and_then(|v| v.as_str()).unwrap_or("")
+            .cmp(b.get("name").and_then(|v| v.as_str()).unwrap_or(""))
+    });
     Ok(out)
 }
 
@@ -469,63 +427,39 @@ fn ready_tasks_all(store: &SynthStore) -> Result<Vec<Value>> {
 /// Pull every live Task claim's relevant props via one SPARQL
 /// SELECT. Shared by cmd_status and cmd_task_ready.
 pub(crate) fn live_task_props(store: &SynthStore) -> Result<Vec<Value>> {
-    // Aggregate depends_on into a list via GROUP_CONCAT so we can
-    // recover the array from a single result row per task claim.
-    let q = r#"
-        SELECT ?c ?tree ?spec ?id ?status ?summary ?gate
-               (GROUP_CONCAT(?dep; SEPARATOR="\u001F") AS ?deps)
-        WHERE {
-          GRAPH ?g {
-            ?c rdf:type synthesist:Task ;
-               synthesist:tree ?tree ;
-               synthesist:spec ?spec ;
-               synthesist:id   ?id ;
-               synthesist:status ?status .
-            OPTIONAL { ?c synthesist:summary ?summary }
-            OPTIONAL { ?c synthesist:gate ?gate }
-            OPTIONAL { ?c synthesist:dependsOn ?dep }
-            FILTER NOT EXISTS {
-              GRAPH ?g2 { ?later synthesist:supersedes ?c }
-            }
-          }
-        }
-        GROUP BY ?c ?tree ?spec ?id ?status ?summary ?gate
-    "#;
-    let r = store.sparql(q)?;
     let mut out = Vec::new();
-    for row in &r.rows {
-        use nomograph_claim::graph_view::Term;
-        let str_at = |i: usize| -> Option<String> {
-            match row.get(i) {
-                Some(Term::Literal { value, .. }) if !value.is_empty() => Some(value.clone()),
-                _ => None,
-            }
+    for (_, doc) in store.live_docs(&crate::wire_format::type_iri("task"))? {
+        let bare = crate::store::bare_props(&doc);
+        let getstr = |k: &str| -> String {
+            bare.get(k).and_then(|v| v.as_str()).unwrap_or("").to_string()
         };
-        let tree = str_at(1).unwrap_or_default();
-        let spec = str_at(2).unwrap_or_default();
-        let id = str_at(3).unwrap_or_default();
-        let status = str_at(4).unwrap_or_default();
-        let summary = str_at(5);
-        let gate = str_at(6);
-        let deps_concat = str_at(7).unwrap_or_default();
-        let deps: Vec<Value> = if deps_concat.is_empty() {
-            Vec::new()
-        } else {
-            deps_concat
-                .split('\u{001F}')
+        let tree = getstr("tree");
+        let spec = getstr("spec");
+        let id = getstr("id");
+        let status = getstr("status");
+        let deps: Vec<Value> = match bare.get("depends_on") {
+            Some(Value::Array(items)) => items
+                .iter()
+                .filter_map(|v| v.as_str())
                 .filter(|s| !s.is_empty())
                 .map(|s| Value::String(s.to_string()))
-                .collect()
+                .collect(),
+            Some(Value::String(s)) if !s.is_empty() => vec![Value::String(s.clone())],
+            _ => Vec::new(),
         };
         let mut props = serde_json::Map::new();
         props.insert("tree".into(), json!(tree));
         props.insert("spec".into(), json!(spec));
         props.insert("id".into(), json!(id));
         props.insert("status".into(), json!(status));
-        if let Some(s) = summary {
+        if let Some(s) = bare.get("summary").and_then(|v| v.as_str())
+            && !s.is_empty()
+        {
             props.insert("summary".into(), json!(s));
         }
-        if let Some(g) = gate {
+        if let Some(g) = bare.get("gate").and_then(|v| v.as_str())
+            && !g.is_empty()
+        {
             props.insert("gate".into(), json!(g));
         }
         props.insert("depends_on".into(), Value::Array(deps));
@@ -536,60 +470,40 @@ pub(crate) fn live_task_props(store: &SynthStore) -> Result<Vec<Value>> {
 
 /// Live sessions with their current phase (defaults to `orient`).
 fn live_sessions_with_phase(store: &SynthStore) -> Result<Vec<Value>> {
-    // A live session = a Session claim with no `supersedes` and not
-    // itself the target of a `supersedes` from a later Session claim.
-    let q = r#"
-        SELECT ?c ?id ?tree ?spec ?summary WHERE {
-          GRAPH ?g {
-            ?c rdf:type synthesist:Session ;
-               synthesist:id ?id .
-            OPTIONAL { ?c synthesist:tree ?tree }
-            OPTIONAL { ?c synthesist:spec ?spec }
-            OPTIONAL { ?c synthesist:summary ?summary }
-            FILTER NOT EXISTS { ?c synthesist:supersedes ?prev }
-            FILTER NOT EXISTS {
-              GRAPH ?g2 { ?later synthesist:supersedes ?c }
-            }
-          }
-        }
-        ORDER BY ?id
-    "#;
-    let r = store.sparql(q)?;
+    // A live session opener = a Session claim that neither supersedes a
+    // prior nor is superseded by a later (gamma H4 dual anti-join).
     let mut out: Vec<Value> = Vec::new();
-    for row in &r.rows {
-        use nomograph_claim::graph_view::Term;
-        let str_at = |i: usize| -> Option<String> {
-            match row.get(i) {
-                Some(Term::Literal { value, .. }) if !value.is_empty() => Some(value.clone()),
-                _ => None,
-            }
+    for opener in store.live_session_openers()? {
+        let Some(doc) = store.doc(&opener)? else {
+            continue;
         };
-        let id = match str_at(1) {
-            Some(s) => s,
-            None => continue,
+        let props = crate::store::bare_props(&doc);
+        let id = match props.get("id").and_then(|v| v.as_str()) {
+            Some(s) if !s.is_empty() => s.to_string(),
+            _ => continue,
         };
-        let tree = str_at(2);
-        let spec = str_at(3);
-        let summary = str_at(4);
+        let opt = |k: &str| -> Option<String> {
+            props
+                .get(k)
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())
+                .map(|s| s.to_string())
+        };
         let phase = crate::cmd_phase::current_phase_name(store, &id)?
             .unwrap_or_else(|| "orient".to_string());
         out.push(json!({
             "id": id,
-            "tree": tree,
-            "spec": spec,
-            "summary": summary,
+            "tree": opt("tree"),
+            "spec": opt("spec"),
+            "summary": opt("summary"),
             "phase": phase,
         }));
     }
+    out.sort_by(|a, b| {
+        a.get("id").and_then(|v| v.as_str()).unwrap_or("")
+            .cmp(b.get("id").and_then(|v| v.as_str()).unwrap_or(""))
+    });
     Ok(out)
-}
-
-fn literal_i64(r: &nomograph_claim::graph_view::SelectResults, row: usize, col: usize) -> i64 {
-    use nomograph_claim::graph_view::Term;
-    match r.rows.get(row).and_then(|r| r.get(col)) {
-        Some(Term::Literal { value, .. }) => value.parse().unwrap_or(0),
-        _ => 0,
-    }
 }
 
 /// Strip the prefix off a `@type` IRI to get the bare claim_type

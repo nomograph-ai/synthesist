@@ -16,7 +16,7 @@
 //! T8.1) slot in by implementing the same two methods.
 
 use anyhow::Result;
-use nomograph_claim::graph_view::GraphView;
+use nomograph_claim::gamma::Gamma;
 use serde_json::Value;
 
 mod demo;
@@ -80,12 +80,12 @@ pub trait Overlay: Send + Sync {
     /// Human-readable, one-sentence description for `overlay list`.
     fn description(&self) -> &str;
 
-    /// Execute the overlay against `view` and return any hits.
+    /// Execute the overlay against the gamma index and return any hits.
     ///
     /// An empty vec is a valid result: it means the overlay found no
-    /// issues. Errors (SPARQL failures, unexpected view state) are
-    /// returned as `Err`.
-    fn run(&self, view: &GraphView) -> Result<Vec<OverlayResult>>;
+    /// issues. Errors (index failures, unexpected state) are returned as
+    /// `Err`.
+    fn run(&self, gamma: &Gamma) -> Result<Vec<OverlayResult>>;
 }
 
 // ---------------------------------------------------------------------------
@@ -182,21 +182,19 @@ mod tests {
 
     #[test]
     fn demo_overlay_runs_against_empty_view() {
-        use nomograph_claim::graph_view::GraphView;
-        let view = GraphView::open_in_memory().unwrap();
+        let gamma = Gamma::open_in_memory().unwrap();
         let overlay = find("demo-tasks-by-status").unwrap();
-        let hits = overlay.run(&view).unwrap();
-        // Empty view: zero task types in the result, so zero hits.
+        let hits = overlay.run(&gamma).unwrap();
+        // Empty index: zero task types, so zero hits.
         assert!(
             hits.is_empty(),
-            "expected no hits on an empty view, got {:?}",
+            "expected no hits on an empty index, got {:?}",
             hits
         );
     }
 
     #[test]
     fn demo_overlay_returns_hits_on_populated_view() {
-        use nomograph_claim::graph_view::{rebuild, GraphView};
         use nomograph_claim::log::LogWriter;
         use serde_json::json;
         use tempfile::TempDir;
@@ -217,11 +215,11 @@ mod tests {
             writer.append("user:local:agd", &doc).unwrap();
         }
 
-        let view = GraphView::open_in_memory().unwrap();
-        rebuild(&view, tmp.path()).unwrap();
+        let mut gamma = Gamma::open_in_memory().unwrap();
+        gamma.sync(tmp.path()).unwrap();
 
         let overlay = find("demo-tasks-by-status").unwrap();
-        let hits = overlay.run(&view).unwrap();
+        let hits = overlay.run(&gamma).unwrap();
 
         // One hit per distinct (type, status) combination. The 5 claims
         // are all synthesist:Task with status "pending", so we expect one hit.

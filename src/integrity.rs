@@ -22,7 +22,7 @@
 //! only the prop-shape helper and the @type-IRI -> ClaimType helper
 //! they share.
 
-use nomograph_claim::ClaimType;
+use crate::claim_type::ClaimType;
 use serde_json::{Map, Value};
 
 /// Envelope predicates dropped during the v3-to-v2 props rewrite.

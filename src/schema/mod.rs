@@ -25,7 +25,8 @@
 //! the same module's enum constants from `cli.rs` via
 //! `clap::builder::PossibleValuesParser::new(crate::schema::<name>::STATUSES)`.
 
-use nomograph_claim::{Claim, ClaimType, SchemaError, SchemaResult};
+use crate::claim_type::ClaimType;
+use crate::validation::{SchemaError, SchemaResult};
 use serde_json::Value;
 
 pub mod campaign;
@@ -102,34 +103,6 @@ pub enum ValidationOutcome {
     NotOwnedBySynthesist,
 }
 
-/// Validate an existing [`Claim`] read from disk on the READ PATH.
-///
-/// Tolerates claims of types synthesist does not own. Used by
-/// `synthesist check` which walks the entire claim log; we want to
-/// surface schema regressions for synthesist-owned claims without
-/// crying about lattice claims that synthesist isn't responsible
-/// for. The write path ([`validate_props`]) is the strict gate.
-pub fn validate_claim(claim: &Claim) -> ValidationOutcome {
-    let owned = matches!(
-        claim.claim_type,
-        ClaimType::Tree
-            | ClaimType::Spec
-            | ClaimType::Task
-            | ClaimType::Discovery
-            | ClaimType::Campaign
-            | ClaimType::Session
-            | ClaimType::Phase
-            | ClaimType::Outcome
-    );
-    if !owned {
-        return ValidationOutcome::NotOwnedBySynthesist;
-    }
-    match validate_props(&claim.claim_type, &claim.props) {
-        Ok(()) => ValidationOutcome::Ok,
-        Err(e) => ValidationOutcome::SchemaFail(e),
-    }
-}
-
 /// Format a `SchemaError` as a human-friendly one-line string for CLI
 /// output. Structured variants are preserved at the library boundary;
 /// this is the formatting consumers see when an error rolls up to a
@@ -185,7 +158,7 @@ fn normalize_jsonld_props(props: &Value) -> Option<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nomograph_claim::ClaimType;
+    use crate::claim_type::ClaimType;
     use serde_json::json;
 
     #[test]

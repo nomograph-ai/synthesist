@@ -1,16 +1,15 @@
 //! `synthesist export` -- emit the claim log as JSON.
 //!
-//! Path B Stage 2: v3-native export. Output is a single JSON object
-//! with two views of the corpus:
+//! v3-native export ported to the gamma typed query surface (C-2).
+//! Output is a single JSON object with two views of the corpus:
 //!
 //! - `claims_raw`: the asserter-walked union of v3 JSON-LD documents,
 //!   one per write (every supersession step is a separate entry).
 //!   Streamed verbatim from `SynthStore::iter_claims()`.
 //! - per-type buckets (`trees`, `specs`, `tasks`, `discoveries`,
-//!   `campaigns`, `sessions`, `phases`, `outcomes`): SPARQL projections
-//!   of the *live heads* for each type (the `FILTER NOT EXISTS` chain
-//!   walk that every read command already uses). One props-shaped JSON
-//!   object per head.
+//!   `campaigns`, `sessions`, `phases`, `outcomes`): projections of the
+//!   *live heads* for each type (gamma H2 live-head anti-join). One
+//!   props-shaped JSON object per head.
 //!
 //! ## Round-trip semantics
 //!
@@ -19,18 +18,13 @@
 //! over (claim_type, props, asserter, generated_at), and `append_replay`
 //! samples a fresh wall clock for `generated_at`, **the import re-mints
 //! every id**. Logical content (props, supersession chain) is preserved;
-//! the @id strings change. The export's `claims_raw` retains the
-//! original @ids for reference but the import path drops the envelope.
-//!
-//! Stable-id round-trip is a 3.0.0-final concern and would require a
-//! SynthStore raw-write helper that writes a JSON-LD doc verbatim
-//! (preserving the exporter's @id and prov:* envelope). That helper is
-//! intentionally NOT added in this commit; see the report.
+//! the @id strings change.
 
 use anyhow::Result;
 use serde_json::{Map, Value, json};
 
-use crate::store::{SynthStore, json_out};
+use crate::store::{SynthStore, bare_props, json_out};
+use crate::wire_format as wf;
 
 pub fn cmd_export() -> Result<()> {
     let store = SynthStore::discover()?;
@@ -60,435 +54,237 @@ pub fn cmd_export() -> Result<()> {
 }
 
 // ---------------------------------------------------------------------------
-// SPARQL projections of live heads
+// Live-head projections
 //
 // Each projector returns one props-shaped JSON object per live head.
-// Shape mirrors the per-claim-type list commands (cmd_tree::list,
-// cmd_spec::list, etc.) so operators familiar with the existing list
-// surface recognize the export bucket immediately. The projector does
-// NOT include the @id; live-heads-only export prioritizes the values
-// view, and `claims_raw` carries the @ids if a caller needs them.
+// Shape mirrors the per-claim-type list commands. The projector does
+// NOT include the @id; `claims_raw` carries the @ids if a caller needs
+// them.
 // ---------------------------------------------------------------------------
 
-fn str_at(row: &[nomograph_claim::graph_view::Term], i: usize) -> Option<String> {
-    use nomograph_claim::graph_view::Term;
-    match row.get(i) {
-        Some(Term::Literal { value, .. }) if !value.is_empty() => Some(value.clone()),
-        _ => None,
+/// Copy a scalar string prop from `bare` into `props` when present and
+/// non-empty.
+fn copy_str(bare: &Map<String, Value>, props: &mut Map<String, Value>, key: &str) {
+    if let Some(v) = bare.get(key).and_then(|v| v.as_str())
+        && !v.is_empty()
+    {
+        props.insert(key.into(), Value::String(v.to_string()));
+    }
+}
+
+/// Read a member-array prop (e.g. `depends_on`, `files`, `blocked_by`)
+/// from `bare` as a vector of string Values.
+fn member_array(bare: &Map<String, Value>, key: &str) -> Vec<Value> {
+    match bare.get(key) {
+        Some(Value::Array(items)) => items
+            .iter()
+            .filter_map(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(|s| Value::String(s.to_string()))
+            .collect(),
+        Some(Value::String(s)) if !s.is_empty() => vec![Value::String(s.clone())],
+        _ => Vec::new(),
     }
 }
 
 fn project_trees(store: &SynthStore) -> Result<Vec<Value>> {
-    let q = r#"
-        SELECT ?name ?description ?status WHERE {
-          GRAPH ?g {
-            ?c rdf:type synthesist:Tree ;
-               synthesist:name ?name .
-            OPTIONAL { ?c synthesist:description ?description }
-            OPTIONAL { ?c synthesist:status      ?status }
-            FILTER NOT EXISTS {
-              GRAPH ?g2 { ?later synthesist:supersedes ?c }
-            }
-          }
-        }
-        ORDER BY ?name
-    "#;
-    let r = store.sparql(q)?;
-    let mut out = Vec::new();
-    for row in &r.rows {
-        let name = match str_at(row, 0) {
-            Some(s) => s,
-            None => continue,
+    let mut out: Vec<(String, Value)> = Vec::new();
+    for (_, doc) in store.live_docs(&wf::type_iri("tree"))? {
+        let bare = bare_props(&doc);
+        let name = match bare.get("name").and_then(|v| v.as_str()) {
+            Some(s) if !s.is_empty() => s.to_string(),
+            _ => continue,
         };
         let mut props = Map::new();
-        props.insert("name".into(), Value::String(name));
-        if let Some(v) = str_at(row, 1) {
-            props.insert("description".into(), Value::String(v));
-        }
-        if let Some(v) = str_at(row, 2) {
-            props.insert("status".into(), Value::String(v));
-        }
-        out.push(Value::Object(props));
+        props.insert("name".into(), Value::String(name.clone()));
+        copy_str(&bare, &mut props, "description");
+        copy_str(&bare, &mut props, "status");
+        out.push((name, Value::Object(props)));
     }
-    Ok(out)
+    out.sort_by(|a, b| a.0.cmp(&b.0));
+    Ok(out.into_iter().map(|(_, v)| v).collect())
 }
 
 fn project_specs(store: &SynthStore) -> Result<Vec<Value>> {
-    let q = r#"
-        SELECT ?tree ?id ?goal ?constraints ?decisions ?status ?outcome WHERE {
-          GRAPH ?g {
-            ?c rdf:type synthesist:Spec ;
-               synthesist:tree ?tree ;
-               synthesist:id   ?id .
-            OPTIONAL { ?c synthesist:goal        ?goal }
-            OPTIONAL { ?c synthesist:constraints ?constraints }
-            OPTIONAL { ?c synthesist:decisions   ?decisions }
-            OPTIONAL { ?c synthesist:status      ?status }
-            OPTIONAL { ?c synthesist:outcome     ?outcome }
-            FILTER NOT EXISTS {
-              GRAPH ?g2 { ?later synthesist:supersedes ?c }
-            }
-          }
-        }
-        ORDER BY ?tree ?id
-    "#;
-    let r = store.sparql(q)?;
-    let mut out = Vec::new();
-    for row in &r.rows {
-        let tree = match str_at(row, 0) {
-            Some(s) => s,
+    let mut out: Vec<((String, String), Value)> = Vec::new();
+    for (_, doc) in store.live_docs(&wf::type_iri("spec"))? {
+        let bare = bare_props(&doc);
+        let tree = match bare.get("tree").and_then(|v| v.as_str()) {
+            Some(s) => s.to_string(),
             None => continue,
         };
-        let id = match str_at(row, 1) {
-            Some(s) => s,
+        let id = match bare.get("id").and_then(|v| v.as_str()) {
+            Some(s) => s.to_string(),
             None => continue,
         };
         let mut props = Map::new();
-        props.insert("tree".into(), Value::String(tree));
-        props.insert("id".into(), Value::String(id));
-        if let Some(v) = str_at(row, 2) {
-            props.insert("goal".into(), Value::String(v));
+        props.insert("tree".into(), Value::String(tree.clone()));
+        props.insert("id".into(), Value::String(id.clone()));
+        for k in ["goal", "constraints", "decisions", "status", "outcome"] {
+            copy_str(&bare, &mut props, k);
         }
-        if let Some(v) = str_at(row, 3) {
-            props.insert("constraints".into(), Value::String(v));
-        }
-        if let Some(v) = str_at(row, 4) {
-            props.insert("decisions".into(), Value::String(v));
-        }
-        if let Some(v) = str_at(row, 5) {
-            props.insert("status".into(), Value::String(v));
-        }
-        if let Some(v) = str_at(row, 6) {
-            props.insert("outcome".into(), Value::String(v));
-        }
-        out.push(Value::Object(props));
+        out.push(((tree, id), Value::Object(props)));
     }
-    Ok(out)
+    out.sort_by(|a, b| a.0.cmp(&b.0));
+    Ok(out.into_iter().map(|(_, v)| v).collect())
 }
 
 fn project_tasks(store: &SynthStore) -> Result<Vec<Value>> {
-    let q = r#"
-        SELECT ?tree ?spec ?id ?status ?summary ?description ?gate
-               (GROUP_CONCAT(?dep; SEPARATOR="\u001F") AS ?deps)
-               (GROUP_CONCAT(?file; SEPARATOR="\u001F") AS ?files)
-        WHERE {
-          GRAPH ?g {
-            ?c rdf:type synthesist:Task ;
-               synthesist:tree   ?tree ;
-               synthesist:spec   ?spec ;
-               synthesist:id     ?id ;
-               synthesist:status ?status .
-            OPTIONAL { ?c synthesist:summary     ?summary }
-            OPTIONAL { ?c synthesist:description ?description }
-            OPTIONAL { ?c synthesist:gate        ?gate }
-            OPTIONAL { ?c synthesist:dependsOn   ?dep }
-            OPTIONAL { ?c synthesist:files       ?file }
-            FILTER NOT EXISTS {
-              GRAPH ?g2 { ?later synthesist:supersedes ?c }
-            }
-          }
-        }
-        GROUP BY ?tree ?spec ?id ?status ?summary ?description ?gate
-        ORDER BY ?tree ?spec ?id
-    "#;
-    let r = store.sparql(q)?;
-    let mut out = Vec::new();
-    for row in &r.rows {
-        let tree = match str_at(row, 0) {
-            Some(s) => s,
+    let mut out: Vec<((String, String, String), Value)> = Vec::new();
+    for (_, doc) in store.live_docs(&wf::type_iri("task"))? {
+        let bare = bare_props(&doc);
+        let tree = match bare.get("tree").and_then(|v| v.as_str()) {
+            Some(s) => s.to_string(),
             None => continue,
         };
-        let spec = match str_at(row, 1) {
-            Some(s) => s,
+        let spec = match bare.get("spec").and_then(|v| v.as_str()) {
+            Some(s) => s.to_string(),
             None => continue,
         };
-        let id = match str_at(row, 2) {
-            Some(s) => s,
+        let id = match bare.get("id").and_then(|v| v.as_str()) {
+            Some(s) => s.to_string(),
             None => continue,
         };
-        let status = str_at(row, 3).unwrap_or_default();
-        let summary = str_at(row, 4);
-        let description = str_at(row, 5);
-        let gate = str_at(row, 6);
-        let deps_concat = str_at(row, 7).unwrap_or_default();
-        let files_concat = str_at(row, 8).unwrap_or_default();
-
-        let deps: Vec<Value> = if deps_concat.is_empty() {
-            Vec::new()
-        } else {
-            deps_concat
-                .split('\u{001F}')
-                .filter(|s| !s.is_empty())
-                .map(|s| Value::String(s.to_string()))
-                .collect()
-        };
-        let files: Vec<Value> = if files_concat.is_empty() {
-            Vec::new()
-        } else {
-            files_concat
-                .split('\u{001F}')
-                .filter(|s| !s.is_empty())
-                .map(|s| Value::String(s.to_string()))
-                .collect()
-        };
-
+        let status = bare
+            .get("status")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
         let mut props = Map::new();
-        props.insert("tree".into(), Value::String(tree));
-        props.insert("spec".into(), Value::String(spec));
-        props.insert("id".into(), Value::String(id));
+        props.insert("tree".into(), Value::String(tree.clone()));
+        props.insert("spec".into(), Value::String(spec.clone()));
+        props.insert("id".into(), Value::String(id.clone()));
         props.insert("status".into(), Value::String(status));
-        if let Some(s) = summary {
-            props.insert("summary".into(), Value::String(s));
-        }
-        if let Some(s) = description {
-            props.insert("description".into(), Value::String(s));
-        }
-        if let Some(s) = gate {
-            props.insert("gate".into(), Value::String(s));
-        }
-        props.insert("depends_on".into(), Value::Array(deps));
-        props.insert("files".into(), Value::Array(files));
-        out.push(Value::Object(props));
+        copy_str(&bare, &mut props, "summary");
+        copy_str(&bare, &mut props, "description");
+        copy_str(&bare, &mut props, "gate");
+        props.insert("depends_on".into(), Value::Array(member_array(&bare, "depends_on")));
+        props.insert("files".into(), Value::Array(member_array(&bare, "files")));
+        out.push(((tree, spec, id), Value::Object(props)));
     }
-    Ok(out)
+    out.sort_by(|a, b| a.0.cmp(&b.0));
+    Ok(out.into_iter().map(|(_, v)| v).collect())
 }
 
 fn project_discoveries(store: &SynthStore) -> Result<Vec<Value>> {
-    let q = r#"
-        SELECT ?tree ?spec ?id ?date ?author ?finding ?impact ?action WHERE {
-          GRAPH ?g {
-            ?c rdf:type synthesist:Discovery ;
-               synthesist:tree ?tree ;
-               synthesist:spec ?spec ;
-               synthesist:id   ?id .
-            OPTIONAL { ?c synthesist:date    ?date }
-            OPTIONAL { ?c synthesist:author  ?author }
-            OPTIONAL { ?c synthesist:finding ?finding }
-            OPTIONAL { ?c synthesist:impact  ?impact }
-            OPTIONAL { ?c synthesist:action  ?action }
-            FILTER NOT EXISTS {
-              GRAPH ?g2 { ?later synthesist:supersedes ?c }
-            }
-          }
-        }
-        ORDER BY ?tree ?spec ?id
-    "#;
-    let r = store.sparql(q)?;
-    let mut out = Vec::new();
-    for row in &r.rows {
-        let tree = match str_at(row, 0) {
-            Some(s) => s,
+    let mut out: Vec<((String, String, String), Value)> = Vec::new();
+    for (_, doc) in store.live_docs(&wf::type_iri("discovery"))? {
+        let bare = bare_props(&doc);
+        let tree = match bare.get("tree").and_then(|v| v.as_str()) {
+            Some(s) => s.to_string(),
             None => continue,
         };
-        let spec = match str_at(row, 1) {
-            Some(s) => s,
+        let spec = match bare.get("spec").and_then(|v| v.as_str()) {
+            Some(s) => s.to_string(),
             None => continue,
         };
-        let id = match str_at(row, 2) {
-            Some(s) => s,
+        let id = match bare.get("id").and_then(|v| v.as_str()) {
+            Some(s) => s.to_string(),
             None => continue,
         };
         let mut props = Map::new();
-        props.insert("tree".into(), Value::String(tree));
-        props.insert("spec".into(), Value::String(spec));
-        props.insert("id".into(), Value::String(id));
-        if let Some(v) = str_at(row, 3) {
-            props.insert("date".into(), Value::String(v));
+        props.insert("tree".into(), Value::String(tree.clone()));
+        props.insert("spec".into(), Value::String(spec.clone()));
+        props.insert("id".into(), Value::String(id.clone()));
+        for k in ["date", "author", "finding", "impact", "action"] {
+            copy_str(&bare, &mut props, k);
         }
-        if let Some(v) = str_at(row, 4) {
-            props.insert("author".into(), Value::String(v));
-        }
-        if let Some(v) = str_at(row, 5) {
-            props.insert("finding".into(), Value::String(v));
-        }
-        if let Some(v) = str_at(row, 6) {
-            props.insert("impact".into(), Value::String(v));
-        }
-        if let Some(v) = str_at(row, 7) {
-            props.insert("action".into(), Value::String(v));
-        }
-        out.push(Value::Object(props));
+        out.push(((tree, spec, id), Value::Object(props)));
     }
-    Ok(out)
+    out.sort_by(|a, b| a.0.cmp(&b.0));
+    Ok(out.into_iter().map(|(_, v)| v).collect())
 }
 
 fn project_campaigns(store: &SynthStore) -> Result<Vec<Value>> {
-    let q = r#"
-        SELECT ?tree ?spec ?kind ?summary ?title
-               (GROUP_CONCAT(?blk; SEPARATOR="\u001F") AS ?blocked_by)
-        WHERE {
-          GRAPH ?g {
-            ?c rdf:type synthesist:Campaign ;
-               synthesist:tree ?tree ;
-               synthesist:spec ?spec .
-            OPTIONAL { ?c synthesist:kind      ?kind }
-            OPTIONAL { ?c synthesist:summary   ?summary }
-            OPTIONAL { ?c synthesist:title     ?title }
-            OPTIONAL { ?c synthesist:blockedBy ?blk }
-            FILTER NOT EXISTS {
-              GRAPH ?g2 { ?later synthesist:supersedes ?c }
-            }
-          }
-        }
-        GROUP BY ?tree ?spec ?kind ?summary ?title
-        ORDER BY ?tree ?spec
-    "#;
-    let r = store.sparql(q)?;
-    let mut out = Vec::new();
-    for row in &r.rows {
-        let tree = match str_at(row, 0) {
-            Some(s) => s,
+    let mut out: Vec<((String, String), Value)> = Vec::new();
+    for (_, doc) in store.live_docs(&wf::type_iri("campaign"))? {
+        let bare = bare_props(&doc);
+        let tree = match bare.get("tree").and_then(|v| v.as_str()) {
+            Some(s) => s.to_string(),
             None => continue,
         };
-        let spec = match str_at(row, 1) {
-            Some(s) => s,
+        let spec = match bare.get("spec").and_then(|v| v.as_str()) {
+            Some(s) => s.to_string(),
             None => continue,
-        };
-        let blocked_by_concat = str_at(row, 5).unwrap_or_default();
-        let blocked_by: Vec<Value> = if blocked_by_concat.is_empty() {
-            Vec::new()
-        } else {
-            blocked_by_concat
-                .split('\u{001F}')
-                .filter(|s| !s.is_empty())
-                .map(|s| Value::String(s.to_string()))
-                .collect()
         };
         let mut props = Map::new();
-        props.insert("tree".into(), Value::String(tree));
-        props.insert("spec".into(), Value::String(spec));
-        if let Some(v) = str_at(row, 2) {
-            props.insert("kind".into(), Value::String(v));
-        }
-        if let Some(v) = str_at(row, 3) {
-            props.insert("summary".into(), Value::String(v));
-        }
-        if let Some(v) = str_at(row, 4) {
-            props.insert("title".into(), Value::String(v));
-        }
-        props.insert("blocked_by".into(), Value::Array(blocked_by));
-        out.push(Value::Object(props));
+        props.insert("tree".into(), Value::String(tree.clone()));
+        props.insert("spec".into(), Value::String(spec.clone()));
+        copy_str(&bare, &mut props, "kind");
+        copy_str(&bare, &mut props, "summary");
+        copy_str(&bare, &mut props, "title");
+        props.insert("blocked_by".into(), Value::Array(member_array(&bare, "blocked_by")));
+        out.push(((tree, spec), Value::Object(props)));
     }
-    Ok(out)
+    out.sort_by(|a, b| a.0.cmp(&b.0));
+    Ok(out.into_iter().map(|(_, v)| v).collect())
 }
 
 fn project_sessions(store: &SynthStore) -> Result<Vec<Value>> {
-    let q = r#"
-        SELECT ?id ?tree ?spec ?summary WHERE {
-          GRAPH ?g {
-            ?c rdf:type synthesist:Session ;
-               synthesist:id ?id .
-            OPTIONAL { ?c synthesist:tree    ?tree }
-            OPTIONAL { ?c synthesist:spec    ?spec }
-            OPTIONAL { ?c synthesist:summary ?summary }
-            FILTER NOT EXISTS {
-              GRAPH ?g2 { ?later synthesist:supersedes ?c }
-            }
-          }
-        }
-        ORDER BY ?id
-    "#;
-    let r = store.sparql(q)?;
-    let mut out = Vec::new();
-    for row in &r.rows {
-        let id = match str_at(row, 0) {
-            Some(s) => s,
-            None => continue,
+    let mut out: Vec<(String, Value)> = Vec::new();
+    for opener in store.live_session_openers()? {
+        let Some(doc) = store.doc(&opener)? else {
+            continue;
+        };
+        let bare = bare_props(&doc);
+        let id = match bare.get("id").and_then(|v| v.as_str()) {
+            Some(s) if !s.is_empty() => s.to_string(),
+            _ => continue,
         };
         let mut props = Map::new();
-        props.insert("id".into(), Value::String(id));
-        if let Some(v) = str_at(row, 1) {
-            props.insert("tree".into(), Value::String(v));
-        }
-        if let Some(v) = str_at(row, 2) {
-            props.insert("spec".into(), Value::String(v));
-        }
-        if let Some(v) = str_at(row, 3) {
-            props.insert("summary".into(), Value::String(v));
-        }
-        out.push(Value::Object(props));
+        props.insert("id".into(), Value::String(id.clone()));
+        copy_str(&bare, &mut props, "tree");
+        copy_str(&bare, &mut props, "spec");
+        copy_str(&bare, &mut props, "summary");
+        out.push((id, Value::Object(props)));
     }
-    Ok(out)
+    out.sort_by(|a, b| a.0.cmp(&b.0));
+    Ok(out.into_iter().map(|(_, v)| v).collect())
 }
 
 fn project_phases(store: &SynthStore) -> Result<Vec<Value>> {
-    let q = r#"
-        SELECT ?sessionId ?name WHERE {
-          GRAPH ?g {
-            ?c rdf:type synthesist:Phase ;
-               synthesist:sessionId ?sessionId ;
-               synthesist:name      ?name .
-            FILTER NOT EXISTS {
-              GRAPH ?g2 { ?later synthesist:supersedes ?c }
-            }
-          }
-        }
-        ORDER BY ?sessionId
-    "#;
-    let r = store.sparql(q)?;
-    let mut out = Vec::new();
-    for row in &r.rows {
-        let session_id = match str_at(row, 0) {
-            Some(s) => s,
-            None => continue,
+    let mut out: Vec<(String, Value)> = Vec::new();
+    for (_, doc) in store.live_docs(&wf::type_iri("phase"))? {
+        let bare = bare_props(&doc);
+        let session_id = match bare.get("session_id").and_then(|v| v.as_str()) {
+            Some(s) if !s.is_empty() => s.to_string(),
+            _ => continue,
         };
-        let name = match str_at(row, 1) {
-            Some(s) => s,
-            None => continue,
+        let name = match bare.get("name").and_then(|v| v.as_str()) {
+            Some(s) if !s.is_empty() => s.to_string(),
+            _ => continue,
         };
         let mut props = Map::new();
-        props.insert("session_id".into(), Value::String(session_id));
+        props.insert("session_id".into(), Value::String(session_id.clone()));
         props.insert("name".into(), Value::String(name));
-        out.push(Value::Object(props));
+        out.push((session_id, Value::Object(props)));
     }
-    Ok(out)
+    out.sort_by(|a, b| a.0.cmp(&b.0));
+    Ok(out.into_iter().map(|(_, v)| v).collect())
 }
 
 fn project_outcomes(store: &SynthStore) -> Result<Vec<Value>> {
-    let q = r#"
-        SELECT ?tree ?spec ?status ?note ?linkedSpec ?date WHERE {
-          GRAPH ?g {
-            ?c rdf:type synthesist:Outcome ;
-               synthesist:tree ?tree ;
-               synthesist:spec ?spec .
-            OPTIONAL { ?c synthesist:status     ?status }
-            OPTIONAL { ?c synthesist:note       ?note }
-            OPTIONAL { ?c synthesist:linkedSpec ?linkedSpec }
-            OPTIONAL { ?c synthesist:date       ?date }
-            FILTER NOT EXISTS {
-              GRAPH ?g2 { ?later synthesist:supersedes ?c }
-            }
-          }
-        }
-        ORDER BY ?tree ?spec
-    "#;
-    let r = store.sparql(q)?;
-    let mut out = Vec::new();
-    for row in &r.rows {
-        let tree = match str_at(row, 0) {
-            Some(s) => s,
+    let mut out: Vec<((String, String), Value)> = Vec::new();
+    for (_, doc) in store.live_docs(&wf::type_iri("outcome"))? {
+        let bare = bare_props(&doc);
+        let tree = match bare.get("tree").and_then(|v| v.as_str()) {
+            Some(s) => s.to_string(),
             None => continue,
         };
-        let spec = match str_at(row, 1) {
-            Some(s) => s,
+        let spec = match bare.get("spec").and_then(|v| v.as_str()) {
+            Some(s) => s.to_string(),
             None => continue,
         };
         let mut props = Map::new();
-        props.insert("tree".into(), Value::String(tree));
-        props.insert("spec".into(), Value::String(spec));
-        if let Some(v) = str_at(row, 2) {
-            props.insert("status".into(), Value::String(v));
-        }
-        if let Some(v) = str_at(row, 3) {
-            props.insert("note".into(), Value::String(v));
-        }
-        if let Some(v) = str_at(row, 4) {
-            props.insert("linked_spec".into(), Value::String(v));
-        }
-        if let Some(v) = str_at(row, 5) {
-            props.insert("date".into(), Value::String(v));
-        }
-        out.push(Value::Object(props));
+        props.insert("tree".into(), Value::String(tree.clone()));
+        props.insert("spec".into(), Value::String(spec.clone()));
+        copy_str(&bare, &mut props, "status");
+        copy_str(&bare, &mut props, "note");
+        // The v2 projection surfaced linked_spec under that bare key.
+        copy_str(&bare, &mut props, "linked_spec");
+        copy_str(&bare, &mut props, "date");
+        out.push(((tree, spec), Value::Object(props)));
     }
-    Ok(out)
+    out.sort_by(|a, b| a.0.cmp(&b.0));
+    Ok(out.into_iter().map(|(_, v)| v).collect())
 }

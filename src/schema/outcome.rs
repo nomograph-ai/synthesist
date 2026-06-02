@@ -11,8 +11,8 @@
 //! surfaces Outcome as a first-class CLI surface so the workflow is
 //! discoverable.
 
-use nomograph_claim::validation::{check_enum, obj, opt_str, req_str};
-use nomograph_claim::SchemaResult;
+use crate::validation::{check_enum, obj, opt_str, req_str};
+use crate::validation::SchemaResult;
 use serde_json::Value;
 
 pub const TYPE_NAME: &str = "outcome";
@@ -40,7 +40,7 @@ pub fn validate(props: &Value) -> SchemaResult<()> {
     // pointer to the absorbing spec. Live at schema level so every
     // consumer (CLI, library, future writers) sees the same rule.
     if status == "superseded_by" && linked_spec.is_none() {
-        return Err(nomograph_claim::SchemaError::Other {
+        return Err(crate::validation::SchemaError::Other {
             claim_type: TYPE_NAME.to_string(),
             message:
                 "status `superseded_by` requires non-empty `linked_spec` naming the absorbing spec"
@@ -106,7 +106,7 @@ mod tests {
         let err = validate(&v).unwrap_err();
         assert!(matches!(
             err,
-            nomograph_claim::SchemaError::InvalidEnum { .. }
+            crate::validation::SchemaError::InvalidEnum { .. }
         ));
     }
 }

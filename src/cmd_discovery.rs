@@ -1,7 +1,7 @@
 //! Discovery commands -- ported to the v3 SPARQL substrate.
 //!
 //! Writes and reads `Discovery` claims via the synthesist claim store.
-//! Every `discovery add` appends one [`nomograph_claim::ClaimType::Discovery`]
+//! Every `discovery add` appends one [`crate::claim_type::ClaimType::Discovery`]
 //! claim through `SynthStore::append`; `discovery list` projects the live
 //! Discovery heads scoped to `(tree, spec)` via SPARQL.
 //!
@@ -17,7 +17,8 @@ use anyhow::Result;
 use serde_json::{Value, json};
 
 use crate::cli::DiscoveryCmd;
-use crate::store::{SynthStore, json_out, parse_tree_spec, today};
+use crate::store::{SynthStore, bare_props, json_out, parse_tree_spec, today};
+use crate::wire_format as wf;
 
 /// Dispatch a `synthesist discovery <...>` subcommand.
 pub fn run(cmd: &DiscoveryCmd, session: &Option<String>) -> Result<()> {
@@ -94,7 +95,7 @@ fn cmd_add(
 
     let mut store = SynthStore::discover_for(session)?;
     store.append(
-        nomograph_claim::ClaimType::Discovery,
+        crate::claim_type::ClaimType::Discovery,
         Value::Object(props),
         None,
     )?;
@@ -113,52 +114,57 @@ fn cmd_add(
 /// pattern shared with the rest of the Stage 1/2 ports).
 fn cmd_list(tree: &str, spec: &str) -> Result<()> {
     let store = SynthStore::discover()?;
-    let q = format!(
-        r#"
-        SELECT ?id ?date ?author ?finding ?impact ?action ?asserted_at ?asserted_by WHERE {{
-          GRAPH ?g {{
-            ?c rdf:type synthesist:Discovery ;
-               synthesist:tree "{tree}" ;
-               synthesist:spec "{spec}" ;
-               synthesist:id ?id .
-            OPTIONAL {{ ?c synthesist:date           ?date }}
-            OPTIONAL {{ ?c synthesist:author         ?author }}
-            OPTIONAL {{ ?c synthesist:finding        ?finding }}
-            OPTIONAL {{ ?c synthesist:impact         ?impact }}
-            OPTIONAL {{ ?c synthesist:action         ?action }}
-            OPTIONAL {{ ?c prov:generatedAtTime      ?asserted_at }}
-            OPTIONAL {{ ?c prov:wasAttributedTo      ?asserted_by }}
-            FILTER NOT EXISTS {{
-              GRAPH ?g2 {{ ?later synthesist:supersedes ?c }}
-            }}
-          }}
-        }}
-        ORDER BY DESC(?date)
-        "#
-    );
-    let r = store.sparql(&q)?;
-    let mut out: Vec<Value> = Vec::new();
-    for row in &r.rows {
-        use nomograph_claim::graph_view::Term;
-        let s = |i: usize| match row.get(i) {
-            Some(Term::Literal { value, .. }) if !value.is_empty() => Value::String(value.clone()),
-            // asserted_by is an IRI (asserter:user:local:...), surfaced
-            // as a string so the JSON contract stays scalar.
-            Some(Term::Iri(value)) if !value.is_empty() => Value::String(value.clone()),
-            _ => Value::Null,
+    let mut out: Vec<(String, Value)> = Vec::new();
+    for (_, doc) in store.live_docs(&wf::type_iri("discovery"))? {
+        let props = bare_props(&doc);
+        if props.get("tree").and_then(|v| v.as_str()) != Some(tree)
+            || props.get("spec").and_then(|v| v.as_str()) != Some(spec)
+        {
+            continue;
+        }
+        let s = |k: &str| -> Value {
+            props
+                .get(k)
+                .and_then(|v| v.as_str())
+                .filter(|v| !v.is_empty())
+                .map(|v| Value::String(v.to_string()))
+                .unwrap_or(Value::Null)
         };
-        out.push(json!({
-            "id":           s(0),
-            "date":         s(1),
-            "author":       s(2),
-            "finding":      s(3),
-            "impact":       s(4),
-            "action":       s(5),
-            "asserted_at":  s(6),
-            "asserted_by":  s(7),
-        }));
+        // asserted_at / asserted_by come from the substrate envelope
+        // (prov:generatedAtTime / prov:wasAttributedTo).
+        let asserted_at = doc
+            .get(wf::GENERATED_AT_PRED)
+            .and_then(|v| v.as_str())
+            .map(|v| Value::String(v.to_string()))
+            .unwrap_or(Value::Null);
+        let asserted_by = doc
+            .get(wf::ATTRIBUTED_TO_PRED)
+            .and_then(|v| v.as_str())
+            .map(|v| Value::String(v.to_string()))
+            .unwrap_or(Value::Null);
+        let date = props
+            .get("date")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        out.push((
+            date,
+            json!({
+                "id":           s("id"),
+                "date":         s("date"),
+                "author":       s("author"),
+                "finding":      s("finding"),
+                "impact":       s("impact"),
+                "action":       s("action"),
+                "asserted_at":  asserted_at,
+                "asserted_by":  asserted_by,
+            }),
+        ));
     }
-    json_out(&json!({"tree": tree, "spec": spec, "discoveries": out}))
+    // ORDER BY DESC(?date) in the v2 contract.
+    out.sort_by(|a, b| b.0.cmp(&a.0));
+    let discoveries: Vec<Value> = out.into_iter().map(|(_, v)| v).collect();
+    json_out(&json!({"tree": tree, "spec": spec, "discoveries": discoveries}))
 }
 
 /// Compute a short stable id for a discovery from `finding + date`.

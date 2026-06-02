@@ -1,28 +1,32 @@
-//! Demo overlay: count synthesist:Task claims by status.
+//! Demo overlay: count synthesist claims by (type, status).
 //!
-//! This overlay demonstrates the plumbing: it runs a SPARQL SELECT
-//! counting tasks by status and returns one `OverlayResult` per
-//! (type, status) pair found in the view. It is not a diagnostic
-//! overlay (plan-at-risk lands in T8.1); it exists to prove the
-//! registry, trait dispatch, and CLI wiring all work end to end.
+//! Plumbing demo (not a diagnostic). It proves the registry, trait
+//! dispatch, and CLI wiring end to end. Ported to the gamma surface
+//! (C-2): it walks the live heads of each synthesist type (H2) and
+//! groups them by status, emitting one `OverlayResult` per (type,
+//! status) pair found.
 //!
 //! Output shape per hit:
-//!   subject   = the task type IRI (e.g. "https://nomograph.org/synthesist/Task")
+//!   subject   = the type IRI (e.g. "synthesist:Task")
 //!   predicate = "synthesist:status"
 //!   object    = the status literal (e.g. "pending")
 //!   detail    = {"count": <n>}
 
+use std::collections::BTreeMap;
+
 use anyhow::Result;
-use nomograph_claim::graph_view::{GraphView, Term, select};
+use nomograph_claim::gamma::Gamma;
 use serde_json::json;
 
 use super::{Overlay, OverlayResult};
 
-/// Counts synthesist:Task claims grouped by status.
-///
-/// Returns one result per distinct (type, status) pair. The result is
-/// diagnostic in nature: an agent or human can see at a glance how many
-/// tasks are in each state across the entire graph view.
+/// The synthesist types the demo scans. Workflow types only; the demo's
+/// fixtures and CLI usage are workflow-scoped.
+const TYPES: &[&str] = &[
+    "tree", "spec", "task", "discovery", "campaign", "session", "phase", "outcome",
+];
+
+/// Counts synthesist claims grouped by (type, status).
 pub struct DemoTasksByStatus;
 
 impl Overlay for DemoTasksByStatus {
@@ -31,62 +35,35 @@ impl Overlay for DemoTasksByStatus {
     }
 
     fn description(&self) -> &str {
-        "Count synthesist:Task claims by status. Demo overlay; proves the registry and query plumbing."
+        "Count synthesist claims by status. Demo overlay; proves the registry and query plumbing."
     }
 
-    fn run(&self, view: &GraphView) -> Result<Vec<OverlayResult>> {
-        // Count tasks by type and status. Uses GRAPH ?g to sweep named
-        // graphs; the default graph is not queried because claim loading
-        // routes synthesist: types into the synth named graph.
-        let query = r#"
-            PREFIX rdf:   <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-            PREFIX synthesist: <https://nomograph.org/synthesist/>
-            SELECT ?type ?status (COUNT(?c) AS ?n)
-            WHERE {
-                GRAPH ?g {
-                    ?c rdf:type ?type .
-                    OPTIONAL { ?c synthesist:status ?status }
+    fn run(&self, gamma: &Gamma) -> Result<Vec<OverlayResult>> {
+        let status_pred = crate::wire_format::predicate_iri("status");
+        let mut hits = Vec::new();
+
+        for ty in TYPES {
+            let type_iri = crate::wire_format::type_iri(ty);
+            let live = gamma.live_heads(&type_iri, crate::wire_format::SUPERSEDES_PRED)?;
+
+            // Group the live heads by their status value.
+            let mut by_status: BTreeMap<String, u64> = BTreeMap::new();
+            for id in live {
+                if let Some(status) = gamma.scalar(&id, &status_pred)?
+                    && !status.is_empty()
+                {
+                    *by_status.entry(status).or_insert(0) += 1;
                 }
             }
-            GROUP BY ?type ?status
-            ORDER BY ?type ?status
-        "#;
 
-        let results = select(view, query)?;
-
-        let mut hits = Vec::new();
-        for row in &results.rows {
-            if row.len() < 3 {
-                continue;
+            for (status, count) in by_status {
+                hits.push(OverlayResult::with_detail(
+                    type_iri.clone(),
+                    "synthesist:status",
+                    status,
+                    json!({ "count": count }),
+                ));
             }
-            let type_str = match &row[0] {
-                Term::Iri(s) => s.clone(),
-                other => other.as_str().to_string(),
-            };
-            let status_str = match &row[1] {
-                Term::Literal { value, .. } => value.clone(),
-                Term::Iri(s) => s.clone(),
-                // Unbound OPTIONAL: no status predicate on this cluster.
-                Term::BlankNode(_) => "(no status)".to_string(),
-            };
-            // Skip rows where status is empty (OPTIONAL was unbound and
-            // came through as an empty literal from the SelectResults
-            // default-fill logic).
-            if status_str.is_empty() {
-                continue;
-            }
-            let count_str = match &row[2] {
-                Term::Literal { value, .. } => value.clone(),
-                other => other.as_str().to_string(),
-            };
-            let count: u64 = count_str.parse().unwrap_or(0);
-
-            hits.push(OverlayResult::with_detail(
-                type_str,
-                "synthesist:status",
-                status_str,
-                json!({ "count": count }),
-            ));
         }
 
         Ok(hits)

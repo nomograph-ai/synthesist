@@ -33,7 +33,7 @@ use std::fs;
 use std::io::{self, Read};
 
 use anyhow::{Context, Result, anyhow, bail};
-use nomograph_claim::ClaimType;
+use crate::claim_type::ClaimType;
 use serde_json::{Map, Value, json};
 
 use crate::store::{ClaimId, SynthStore, json_out};

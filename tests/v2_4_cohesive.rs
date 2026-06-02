@@ -409,6 +409,28 @@ fn tree_show_runs_without_session() {
 }
 
 #[test]
+fn tree_show_spec_count_counts_all_versions_not_live_heads() {
+    // `tree show`'s spec_count mirrors the retired SPARQL COUNT, which
+    // had no live-head filter: every Spec *version* on the tree counts,
+    // superseded revisions included. After bootstrap (one Spec opener)
+    // a single `spec update` writes a superseding version, so the tree
+    // holds two Spec claim versions even though only one is a live head.
+    let tmp = tempfile::tempdir().unwrap();
+    bootstrap(&tmp);
+    synth(&tmp)
+        .args(["--session", "s1", "spec", "update", "k/sample", "--status", "done"])
+        .assert()
+        .success();
+    synth(&tmp)
+        .args(["tree", "show", "k"])
+        .assert()
+        .success()
+        // All-versions semantics: opener + superseder = 2, not the
+        // single live head a live-only count would report.
+        .stdout(predicate::str::contains("\"spec_count\":2"));
+}
+
+#[test]
 fn phase_show_without_session_errors_with_guidance() {
     let tmp = tempfile::tempdir().unwrap();
     bootstrap(&tmp);

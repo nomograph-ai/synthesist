@@ -1,7 +1,7 @@
 //! Session claim schema.
 
-use nomograph_claim::validation::{obj, opt_str, req_str};
-use nomograph_claim::SchemaResult;
+use crate::validation::{obj, opt_str, req_str};
+use crate::validation::SchemaResult;
 use serde_json::Value;
 
 pub const TYPE_NAME: &str = "session";
