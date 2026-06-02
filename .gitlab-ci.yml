@@ -16,6 +16,11 @@ include:
       binary_name: synthesist
       project_description: "Specification graph manager for AI-augmented projects, on the nomograph-claim substrate."
       crates_publish: true
+      # Monorepo: synthesist is now a Cargo workspace whose members are the
+      # claim substrate (claim/) and the synthesist crate at the root. The
+      # publish job iterates this list in order, so the substrate (a path
+      # dependency of synthesist) is published to crates.io first.
+      crates_workspace_packages: "nomograph-claim, nomograph-synthesist"
 
 # Backstop against the .agent/skills recurrence class. If any committed
 # symlink in this repo resolves to an absolute path, fail before CI
