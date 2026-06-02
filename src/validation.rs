@@ -88,20 +88,11 @@ pub enum SchemaError {
 }
 
 impl SchemaError {
-    /// Name of the claim type the error pertains to.
-    pub fn claim_type(&self) -> &str {
-        match self {
-            Self::NotAnObject { claim_type }
-            | Self::MissingField { claim_type, .. }
-            | Self::EmptyString { claim_type, .. }
-            | Self::EmptyArray { claim_type, .. }
-            | Self::WrongType { claim_type, .. }
-            | Self::InvalidEnum { claim_type, .. }
-            | Self::Other { claim_type, .. } => claim_type,
-        }
-    }
-
     /// Field name when applicable (None for `NotAnObject` and `Other`).
+    /// Exercised by the per-type schema validation tests (e.g.
+    /// `schema::tree`) which assert the error names the offending field;
+    /// retained as the public accessor on this error type.
+    #[allow(dead_code)]
     pub fn field(&self) -> Option<&str> {
         match self {
             Self::MissingField { field, .. }

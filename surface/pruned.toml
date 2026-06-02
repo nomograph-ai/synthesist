@@ -14,7 +14,7 @@ include = [
     "campaign add", "campaign list",
     "session start", "session close", "session list", "session status",
     "phase set",
-    "conflicts", "migrate status", "migrate v1-to-v2",
+    "conflicts", "migrate status",
     "init", "check", "version", "skill",
     "outcome add", "outcome list",
 ]

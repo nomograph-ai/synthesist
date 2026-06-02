@@ -23,7 +23,6 @@ mod schema;
 mod surface;
 mod skill;
 mod store;
-mod task_dag;
 mod validation;
 mod wire_format;
 

@@ -914,7 +914,7 @@ add     = []
     }
 
     #[test]
-    fn sparql_exposed_manifest_includes_sparql_commands() {
+    fn overlay_exposed_manifest_includes_overlay_commands() {
         // A manifest that adds the overlay commands must produce a skill
         // that documents those commands.
         let toml = r#"

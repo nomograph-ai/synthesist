@@ -32,7 +32,7 @@
 use std::fs;
 use std::io::{self, Read};
 
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{Context, Result, anyhow};
 use crate::claim_type::ClaimType;
 use serde_json::{Map, Value, json};
 

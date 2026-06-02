@@ -55,11 +55,6 @@ impl Output {
         self
     }
 
-    pub fn warns(mut self, messages: impl IntoIterator<Item = String>) -> Self {
-        self.warnings.extend(messages);
-        self
-    }
-
     /// Render the output as a JSON value, attaching `warnings: [...]`
     /// only when non-empty (so quiet commands stay flat).
     pub fn into_value(self) -> Value {

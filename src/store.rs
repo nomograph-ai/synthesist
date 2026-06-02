@@ -697,10 +697,6 @@ fn build_jsonld_doc(
     Value::Object(doc)
 }
 
-/// Back-compat alias retained from the v2 wrapper days. Prefer
-/// `SynthStore` at call sites.
-pub type Store = SynthStore;
-
 #[cfg(test)]
 mod tests {
     use super::*;
