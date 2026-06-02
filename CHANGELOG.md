@@ -5,12 +5,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [3.0.0-pre.1] - 2026-05-29
 
-v3 substrate. The crate grows a JSON-LD log layer, a SPARQL graph
-view backed by Oxigraph, named-graph routing, an embedded base
-ontology, a SHACL Turtle artifact, and v2 surface deprecations that
-schedule removal for 3.0.0 final. The standalone migrate binary that
-shipped with v2.5 is removed; migration is now a subcommand under
-`synthesist migrate` (see `synthesist` 3.0.0-pre.1 changelog).
+v3 substrate. The crate keeps the JSON-LD per-asserter log as the
+source of truth and replaces the query engine: a redb-backed "gamma"
+typed-query index (`claim/src/gamma.rs`) stands in for the former
+Oxigraph SPARQL view. Oxigraph and its companion RDF crates are
+removed, the v2 Automerge substrate is deleted, and the dependency
+tree shrinks accordingly. A minimal v2-read shim is retained so an
+existing `.amc` estate can still be drained by migration. The
+standalone migrate binary that shipped with v2.5 is removed;
+migration is now a subcommand under `synthesist migrate` (see
+`synthesist` 3.0.0-pre.1 changelog).
 
 ### Added
 
@@ -19,18 +23,18 @@ shipped with v2.5 is removed; migration is now a subcommand under
   is a self-describing JSON-LD document with an inline `@context`
   declaring the `synthesist`, `nomograph`, `prov`, and `xsd` prefix
   bindings, plus `@type` and `@id` for supersedes/agreeSnapshot
-  predicates. Predicate names are lowerCamelCase throughout.
-  The writer and reader are byte-compatible: the v2-to-v3 migration
-  and the dual-write path produce identical documents.
-- **`GraphView` backed by Oxigraph.** Named-graph routing assigns
-  each module prefix its own named graph inside the Oxigraph store
-  (`Store::open` for persistent, in-memory rebuild on fallback).
-  SPARQL queries run directly against the graph without round-tripping
-  through JSON; the graph view is exposed to callers via the
-  `claim::graph` module.
-- **Named-graph routing.** Module prefixes in the claim type field
-  drive graph assignment; claims land in the graph that matches their
-  prefix, allowing cross-type SPARQL joins by named-graph scope.
+  predicates. Predicate names are lowerCamelCase throughout. The
+  per-asserter logs are the multi-user source of truth.
+- **Gamma typed-query index.** A redb-backed index
+  (`claim/src/gamma.rs`) replaces the Oxigraph SPARQL view. The
+  index is a disposable, gitignored, on-disk redb FILE
+  (`claims/_view.gamma`) rebuilt from the per-asserter JSON-LD log
+  union, heads-keyed: when the heads signal has not moved the open is
+  a no-op, otherwise the index rebuilds from the logs. It exposes
+  typed query helpers (live heads, live tasks, session openers,
+  dangling supersedes, diamond conflicts, plan-at-risk, counts)
+  instead of a SPARQL endpoint. It carries no source-of-truth state
+  and can be deleted at any time.
 - **Embedded base ontology.** The crate bundles the nomograph base
   ontology as a compiled-in Turtle string. Consumers can emit it with
   the `emit-shacl` binary (shipped from `synthesist`) or read it via
@@ -39,14 +43,21 @@ shipped with v2.5 is removed; migration is now a subcommand under
   the embedded ontology and can be used as documentation or for
   external validator tooling. The shapes are schema-stable as of
   pre.1; the format is not yet guaranteed across pre releases.
-- **v2 surface deprecations.** The `.amc`-based store modules are
-  annotated `#[deprecated]` with guidance pointing at the v3
-  equivalents. Consumers see 200-300 warnings on a clean build;
-  this is intentional. The deprecated APIs are scheduled for removal
-  in 3.0.0 final.
+- **Minimal v2-read shim.** A read-only path over the old Automerge
+  `.amc` change files remains so `synthesist migrate v2-to-v3` can
+  read an existing v2 estate and replay it into v3 logs. It is the
+  only v2 surface that survives.
 
 ### Removed
 
+- **Oxigraph and the RDF query stack.** `oxigraph`, `oxjsonld`,
+  `oxrdf`, and `oxttl` are removed. The crate no longer reparses a
+  multi-megabyte N-Quads snapshot on every process open; the gamma
+  index reads typed edges directly out of redb. The dependency tree
+  shrinks substantially as a result.
+- **v2 Automerge substrate.** The v2 Store/View, session, crypto, and
+  beacon modules are deleted from `nomograph-claim`. Only the minimal
+  v2-read shim (above) remains, scoped to migration.
 - **Standalone migrate binary.** The `claim-migrate` binary that
   shipped with claim 2.5.x is removed. Migration is now the
   `synthesist migrate v2-to-v3` subcommand, which lives in the
@@ -54,28 +65,15 @@ shipped with v2.5 is removed; migration is now a subcommand under
   the standalone binary on `$PATH` should uninstall it before
   installing synthesist 3.0.0-pre.1 to avoid confusion.
 
-### Known issues
+### Notes
 
-- **macOS ARM: Oxigraph `Store::open` panics (RocksDB
-  `TryFromIntError`).** The persistent Oxigraph store triggers a
-  panic on macOS ARM via oxigraph 0.4.11's RocksDB backend. The
-  `cmd_overlay` caller catches the panic and falls back to an
-  in-memory graph rebuild for the duration of the command. No data
-  loss occurs; the fallback is transparent to the operator. Root
-  cause investigation is tracked under Phase C.1 of the v3
-  integration plan. A fix or workaround is expected before 3.0.0
-  final.
-- **200-300 deprecation warnings on consumers.** The v2 `.amc`
-  surface carries `#[deprecated]` attributes. Consumers of
-  `nomograph-claim` 3.0.0-pre.1 that have not yet migrated will
-  see a large warning spray on `cargo build`. The warnings are
-  intentional; the deprecated surface is still functional for the
-  duration of the pre.1 cycle, which operates in dual-write mode.
-- **Runtime manifest dispatch is parser-side filtering only.**
-  Named-graph routing filters claims at parse time; the runtime
-  rejection layer that refuses writes for misrouted claims is
-  deferred. Phase D (rejection layer) targets 3.0.0-pre.2 if not
-  landed before the pre.1 tag.
+- **Vocabulary-agnostic substrate.** `nomograph-claim` stores and
+  indexes any well-formed claim regardless of `@type`; the synthesist
+  vocabulary (ClaimType, per-type validation) lives in the consumer,
+  not here.
+- **Platforms.** macOS ARM and (now) Linux ARM64 are supported. The
+  former Oxigraph/RocksDB `Store::open` panic on macOS ARM no longer
+  applies: there is no RocksDB dependency in the gamma path.
 
 ## [0.2.0] (2026-04-28)
 
