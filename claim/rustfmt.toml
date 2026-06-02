@@ -1,0 +1,4 @@
+# Shared nomograph Rust formatting config.
+# Edition aligned with Cargo.toml edition = "2024".
+edition = "2024"
+max_width = 100

@@ -1,0 +1,55 @@
+[package]
+name = "nomograph-claim"
+version = "3.0.0-pre.1"
+edition = "2024"
+rust-version = "1.88"
+license = "MIT"
+description = "Bi-temporal CRDT claim substrate with asserter attribution. Backbone of nomograph multi-user, multi-agent tooling."
+authors = ["Andrew Dunn <andunn@gitlab.com>"]
+repository = "https://gitlab.com/nomograph/claim"
+homepage = "https://gitlab.com/nomograph/claim"
+readme = "README.md"
+keywords = ["crdt", "bi-temporal", "claim", "substrate", "multi-agent"]
+categories = ["data-structures", "database-implementations"]
+exclude = [
+    "target/*",
+    "claims/*",
+    ".synth/*",
+    ".lock",
+    "*.swp",
+    "claim",
+    "dist/*",
+    "Cargo.lock.bak",
+]
+
+[lib]
+name = "nomograph_claim"
+path = "src/lib.rs"
+
+[dependencies]
+# v3 substrate: per-asserter JSON-LD logs (serde_json), gamma index
+# (redb), content addressing (blake3), timestamps (chrono).
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+blake3 = "1"
+anyhow = "1"
+thiserror = "1"
+chrono = { version = "0.4", features = ["serde"] }
+
+# v3 gamma graph index. A redb-backed POS/PSO triple index plus a
+# canonical-doc table, sized to the measured query surface (H1-H10).
+# The on-disk index is a disposable local cache rebuilt from the
+# per-asserter log union.
+redb = "4"
+
+# v2-read shim only: the v2-to-v3 migration drains legacy Automerge
+# `claims/changes/*.amc` logs through `store::Store::open`.
+automerge = "0.8"
+
+[dev-dependencies]
+tempfile = "3"
+proptest = "1"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
