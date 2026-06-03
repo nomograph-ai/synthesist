@@ -41,9 +41,7 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use redb::{
-    Database, ReadableDatabase, ReadableTable, ReadableTableMetadata, TableDefinition,
-};
+use redb::{Database, ReadableDatabase, ReadableTable, ReadableTableMetadata, TableDefinition};
 use serde_json::Value;
 
 use crate::heads;
@@ -137,8 +135,8 @@ impl Gamma {
     /// from the one recorded in `meta`. Returns the rebuild stats when a
     /// rebuild ran, or `None` when the index was already current.
     pub fn sync(&mut self, claims_dir: &Path) -> Result<Option<RebuildStats>> {
-        let current = heads::current_heads(claims_dir)
-            .context("compute current heads for gamma sync")?;
+        let current =
+            heads::current_heads(claims_dir).context("compute current heads for gamma sync")?;
         if self.stored_heads()?.as_deref() == Some(current.as_str()) {
             return Ok(None);
         }
@@ -334,8 +332,7 @@ impl Gamma {
         };
         match docs.get(claim_id)? {
             Some(v) => {
-                let parsed: Value = serde_json::from_str(v.value())
-                    .context("parse stored doc")?;
+                let parsed: Value = serde_json::from_str(v.value()).context("parse stored doc")?;
                 Ok(Some(parsed))
             }
             None => Ok(None),
@@ -384,8 +381,10 @@ impl Gamma {
         pred: &str,
         value: &str,
     ) -> Result<usize> {
-        let typed: HashSet<String> =
-            self.subjects_with(TYPE_PRED, type_value)?.into_iter().collect();
+        let typed: HashSet<String> = self
+            .subjects_with(TYPE_PRED, type_value)?
+            .into_iter()
+            .collect();
         let matching = self.subjects_with(pred, value)?;
         Ok(matching.into_iter().filter(|s| typed.contains(s)).count())
     }
@@ -575,10 +574,7 @@ impl Gamma {
         let mut out = Vec::new();
         for (superseder, target) in pairs {
             if docs.get(target.as_str())?.is_none() {
-                out.push(DanglingEdge {
-                    superseder,
-                    target,
-                });
+                out.push(DanglingEdge { superseder, target });
             }
         }
         out.sort_by(|a, b| {
@@ -703,8 +699,8 @@ impl Gamma {
                     };
                     // Lexical compare == chronological for canonical form.
                     if new_at > spec_agreed_at {
-                        let stakeholder = doc_scalar(&new_doc, ATTRIBUTED_TO_PRED)
-                            .unwrap_or_default();
+                        let stakeholder =
+                            doc_scalar(&new_doc, ATTRIBUTED_TO_PRED).unwrap_or_default();
                         hits.push(PlanAtRiskHit {
                             spec: spec.clone(),
                             old_claim: member.clone(),
@@ -804,17 +800,24 @@ pub fn is_canonical_datetime(s: &str) -> bool {
     let digit = |i: usize| b[i].is_ascii_digit();
     (0..4).all(digit)
         && b[4] == b'-'
-        && digit(5) && digit(6)
+        && digit(5)
+        && digit(6)
         && b[7] == b'-'
-        && digit(8) && digit(9)
+        && digit(8)
+        && digit(9)
         && b[10] == b'T'
-        && digit(11) && digit(12)
+        && digit(11)
+        && digit(12)
         && b[13] == b':'
-        && digit(14) && digit(15)
+        && digit(14)
+        && digit(15)
         && b[16] == b':'
-        && digit(17) && digit(18)
+        && digit(17)
+        && digit(18)
         && b[19] == b'.'
-        && digit(20) && digit(21) && digit(22)
+        && digit(20)
+        && digit(21)
+        && digit(22)
         && b[23] == b'Z'
 }
 

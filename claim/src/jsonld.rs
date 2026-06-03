@@ -117,18 +117,12 @@ mod tests {
             ctx["prov:generatedAtTime"]["@type"].as_str(),
             Some("xsd:dateTime")
         );
-        assert_eq!(
-            ctx["prov:wasAttributedTo"]["@type"].as_str(),
-            Some("@id")
-        );
+        assert_eq!(ctx["prov:wasAttributedTo"]["@type"].as_str(), Some("@id"));
     }
 
     #[test]
     fn claim_iri_composes_correctly() {
-        assert_eq!(
-            claim_iri("synthesist", "abc123"),
-            "synthesist:claim/abc123"
-        );
+        assert_eq!(claim_iri("synthesist", "abc123"), "synthesist:claim/abc123");
         assert_eq!(
             claim_iri("nomograph", "deadbeef"),
             "nomograph:claim/deadbeef"
@@ -137,10 +131,7 @@ mod tests {
 
     #[test]
     fn asserter_iri_composes_correctly() {
-        assert_eq!(
-            asserter_iri("user:local:agd"),
-            "asserter:user:local:agd"
-        );
+        assert_eq!(asserter_iri("user:local:agd"), "asserter:user:local:agd");
         assert_eq!(
             asserter_iri("user:local:agd:work"),
             "asserter:user:local:agd:work"

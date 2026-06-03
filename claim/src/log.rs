@@ -51,7 +51,7 @@
 //! `dir_name_for_asserter` lives here as a private helper with a public
 //! wrapper, kept next to its sole `LogWriter` call site.
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -95,10 +95,7 @@ impl LogWriter {
             bail!("claims directory does not exist: {}", claims_dir.display());
         }
         if !claims_dir.is_dir() {
-            bail!(
-                "claims path is not a directory: {}",
-                claims_dir.display()
-            );
+            bail!("claims path is not a directory: {}", claims_dir.display());
         }
         Ok(Self {
             claims_dir: claims_dir.to_owned(),
@@ -133,7 +130,12 @@ impl LogWriter {
             .as_object()
             .context("claim document must be a JSON object")?;
 
-        let required = ["@id", "@type", "prov:generatedAtTime", "prov:wasAttributedTo"];
+        let required = [
+            "@id",
+            "@type",
+            "prov:generatedAtTime",
+            "prov:wasAttributedTo",
+        ];
         for field in &required {
             if !obj.contains_key(*field) {
                 bail!(
@@ -187,9 +189,7 @@ impl LogWriter {
         let existing: Vec<u8> = if log_path.exists() {
             let mut buf = Vec::new();
             File::open(&log_path)
-                .with_context(|| {
-                    format!("failed to open log for reading: {}", log_path.display())
-                })?
+                .with_context(|| format!("failed to open log for reading: {}", log_path.display()))?
                 .read_to_end(&mut buf)
                 .with_context(|| format!("failed to read log: {}", log_path.display()))?;
             buf
@@ -205,7 +205,10 @@ impl LogWriter {
                 .truncate(true)
                 .open(&tmp_path)
                 .with_context(|| {
-                    format!("failed to open tmp file for writing: {}", tmp_path.display())
+                    format!(
+                        "failed to open tmp file for writing: {}",
+                        tmp_path.display()
+                    )
                 })?;
             tmp.write_all(&existing).with_context(|| {
                 format!(
@@ -277,13 +280,11 @@ fn reject_unsafe_asserter(asserter: &str) -> Result<()> {
     }
     for ch in asserter.chars() {
         match ch {
-            '/' | '\\' => bail!(
-                "path-unsafe asserter contains a path separator: {asserter:?}"
-            ),
+            '/' | '\\' => bail!("path-unsafe asserter contains a path separator: {asserter:?}"),
             '\0' => bail!("path-unsafe asserter contains a NUL byte: {asserter:?}"),
-            c if c.is_control() => bail!(
-                "path-unsafe asserter contains a control character: {asserter:?}"
-            ),
+            c if c.is_control() => {
+                bail!("path-unsafe asserter contains a control character: {asserter:?}")
+            }
             _ => {}
         }
     }
@@ -489,8 +490,7 @@ fn enumerate_log_sources(claims_dir: &Path) -> Vec<PathBuf> {
 }
 
 fn parse_line(line: &str) -> Result<Claim> {
-    let raw: Value = serde_json::from_str(line)
-        .with_context(|| "parse JSON-LD line")?;
+    let raw: Value = serde_json::from_str(line).with_context(|| "parse JSON-LD line")?;
     let id = raw
         .get("@id")
         .and_then(|v| v.as_str())
@@ -765,8 +765,7 @@ mod tests {
         let malicious = "user:local:../../outside-marker";
         let err = writer.append(malicious, &doc).unwrap_err();
         assert!(
-            err.to_string().contains("path-unsafe")
-                || err.to_string().contains("refusing"),
+            err.to_string().contains("path-unsafe") || err.to_string().contains("refusing"),
             "expected a path-unsafe rejection, got: {err}"
         );
 
@@ -808,8 +807,7 @@ mod tests {
     // -- Supplementary: new on non-existent dir fails gracefully --
     #[test]
     fn new_on_missing_dir_errors() {
-        let result =
-            LogWriter::new(Path::new("/tmp/nonexistent-nomograph-test-xyz-99999"));
+        let result = LogWriter::new(Path::new("/tmp/nonexistent-nomograph-test-xyz-99999"));
         assert!(result.is_err(), "should error if claims_dir does not exist");
     }
 
@@ -965,11 +963,9 @@ mod tests {
         let asserter_dir = tmp.path().join("user-local-agd");
         std::fs::create_dir_all(&asserter_dir).unwrap();
         let log_path = asserter_dir.join("log.jsonl");
-        let good = serde_json::to_string(&make_claim(
-            "synthesist:claim/x",
-            "asserter:user:local:agd",
-        ))
-        .unwrap();
+        let good =
+            serde_json::to_string(&make_claim("synthesist:claim/x", "asserter:user:local:agd"))
+                .unwrap();
         // Empty line at the top, then a good claim, then an empty line.
         let content = format!("\n{}\n\n", good);
         std::fs::write(&log_path, content).unwrap();
@@ -988,11 +984,7 @@ mod tests {
         std::fs::create_dir_all(tmp.path().join("_view")).unwrap();
         std::fs::write(tmp.path().join("_view/log.jsonl"), "garbage\n").unwrap();
         std::fs::create_dir_all(tmp.path().join("_telemetry")).unwrap();
-        std::fs::write(
-            tmp.path().join("_telemetry/log.jsonl"),
-            "also garbage\n",
-        )
-        .unwrap();
+        std::fs::write(tmp.path().join("_telemetry/log.jsonl"), "also garbage\n").unwrap();
 
         // Write a real claim.
         let doc = make_claim("synthesist:claim/real", "asserter:user:local:agd");

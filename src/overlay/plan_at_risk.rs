@@ -51,11 +51,8 @@ impl Overlay for PlanAtRiskOverlay {
         let agree_pred = crate::wire_format::predicate_iri("agree_snapshot");
         let id_pred = crate::wire_format::predicate_iri("id");
 
-        let hits = gamma.plan_at_risk(
-            &spec_type,
-            &agree_pred,
-            crate::wire_format::SUPERSEDES_PRED,
-        )?;
+        let hits =
+            gamma.plan_at_risk(&spec_type, &agree_pred, crate::wire_format::SUPERSEDES_PRED)?;
 
         let mut out = Vec::with_capacity(hits.len());
         for hit in hits {
@@ -176,7 +173,11 @@ mod tests {
             hits[0].object
         );
         assert_eq!(hits[0].predicate, "synthesist:planAtRisk");
-        let old = hits[0].detail.get("old_claim").and_then(|v| v.as_str()).unwrap_or("");
+        let old = hits[0]
+            .detail
+            .get("old_claim")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
         assert!(
             old.ends_with("claim-b"),
             "detail.old_claim should end with claim-b, got: {}",
@@ -230,7 +231,11 @@ mod tests {
         let hits = overlay.run(&gamma).unwrap();
 
         assert_eq!(hits.len(), 1, "expected 1 hit, got {:?}", hits);
-        let spec_id = hits[0].detail.get("spec_id").and_then(|v| v.as_str()).unwrap_or("");
+        let spec_id = hits[0]
+            .detail
+            .get("spec_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
         assert_eq!(
             spec_id, "my-spec",
             "detail.spec_id should be 'my-spec', got: {}",

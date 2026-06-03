@@ -737,69 +737,69 @@ pub enum JigCmd {
 /// from the user-facing surface in v2.1 and are not registered in manifests.
 const REGISTRY: &[(&str, bool)] = &[
     // --- top-level read/utility ---
-    ("status",             true),
-    ("check",              true),
-    ("conflicts",          true),
-    ("init",               true),
-    ("export",             true),
-    ("import",             true),
-    ("skill",              true),
-    ("version",            true),
+    ("status", true),
+    ("check", true),
+    ("conflicts", true),
+    ("init", true),
+    ("export", true),
+    ("import", true),
+    ("skill", true),
+    ("version", true),
     // --- tree ---
-    ("tree add",           true),
-    ("tree list",          true),
-    ("tree show",          true),
-    ("tree close",         true),
+    ("tree add", true),
+    ("tree list", true),
+    ("tree show", true),
+    ("tree close", true),
     // --- spec ---
-    ("spec add",           true),
-    ("spec show",          true),
-    ("spec update",        true),
-    ("spec list",          true),
+    ("spec add", true),
+    ("spec show", true),
+    ("spec update", true),
+    ("spec list", true),
     // --- task ---
-    ("task add",           true),
-    ("task list",          true),
-    ("task show",          true),
-    ("task update",        true),
-    ("task claim",         true),
-    ("task done",          true),
-    ("task reset",         true),
-    ("task block",         true),
-    ("task wait",          true),
-    ("task cancel",        true),
-    ("task ready",         true),
-    ("task acceptance",    true),
+    ("task add", true),
+    ("task list", true),
+    ("task show", true),
+    ("task update", true),
+    ("task claim", true),
+    ("task done", true),
+    ("task reset", true),
+    ("task block", true),
+    ("task wait", true),
+    ("task cancel", true),
+    ("task ready", true),
+    ("task acceptance", true),
     // --- discovery ---
-    ("discovery add",      true),
-    ("discovery list",     true),
+    ("discovery add", true),
+    ("discovery list", true),
     // --- campaign ---
-    ("campaign add",       true),
-    ("campaign list",      true),
+    ("campaign add", true),
+    ("campaign list", true),
     // --- session ---
-    ("session start",      true),
-    ("session close",      true),
-    ("session list",       true),
-    ("session status",     true),
+    ("session start", true),
+    ("session close", true),
+    ("session list", true),
+    ("session status", true),
     // --- phase ---
-    ("phase show",         true),
-    ("phase set",          true),
+    ("phase show", true),
+    ("phase set", true),
     // --- migrate ---
-    ("migrate list",       true),
-    ("migrate status",     true),
-    ("migrate run",        true),
-    ("migrate v2-to-v3",   true),
+    ("migrate list", true),
+    ("migrate status", true),
+    ("migrate run", true),
+    ("migrate v2-to-v3", true),
     // --- outcome ---
-    ("outcome add",        true),
-    ("outcome list",       true),
+    ("outcome add", true),
+    ("outcome list", true),
     // --- v3-alpha additions (not in v2.5 baseline) ---
-    ("overlay list",       false),
-    ("overlay run",        false),
-    ("jig run",            false),
+    ("overlay list", false),
+    ("overlay run", false),
+    ("jig run", false),
     ("jig list-scenarios", false),
     ("jig list-manifests", false),
     // --- surface (always permitted; never blocked by a manifest) ---
-    ("surface use",        true),
-    ("surface list",       true),
-    ("surface show",       true),
+    ("surface use", true),
+    ("surface list", true),
+    ("surface show", true),
 ];
 
 /// Registry keys that are ALWAYS permitted, regardless of the active surface
@@ -952,9 +952,7 @@ pub fn key_permitted(key: &str, manifest: &crate::surface::manifest::Manifest) -
         manifest.include.iter().any(|i| i == key) || in_add
     } else {
         // Empty include means "all baseline commands" plus anything in add.
-        let is_baseline = REGISTRY
-            .iter()
-            .any(|(k, baseline)| *k == key && *baseline);
+        let is_baseline = REGISTRY.iter().any(|(k, baseline)| *k == key && *baseline);
         is_baseline || in_add
     }
 }
@@ -1009,9 +1007,7 @@ pub fn build_app(manifest: &crate::surface::manifest::Manifest) -> clap::Command
     let mut app = clap::Command::new("synthesist")
         .version(env!("CARGO_PKG_VERSION"))
         .about("Specification graph manager for AI-augmented projects")
-        .after_help(
-            "All output is JSON. Run 'synthesist skill' for the full behavioral contract.",
-        )
+        .after_help("All output is JSON. Run 'synthesist skill' for the full behavioral contract.")
         .arg(
             Arg::new("session")
                 .long("session")

@@ -4,8 +4,8 @@
 //! Writes (add/update) call `SynthStore::append`, which writes one v3
 //! JSON-LD doc per call.
 
-use anyhow::{Result, anyhow, bail};
 use crate::claim_type::ClaimType;
+use anyhow::{Result, anyhow, bail};
 use serde_json::{Map, Value, json};
 
 use crate::cli::SpecCmd;
@@ -86,12 +86,12 @@ fn cmd_spec_add(
     decisions: Option<&str>,
     session: &Option<String>,
 ) -> Result<()> {
-    let goal = goal
-        .filter(|g| !g.is_empty())
-        .ok_or_else(|| anyhow!(
+    let goal = goal.filter(|g| !g.is_empty()).ok_or_else(|| {
+        anyhow!(
             "spec add requires --goal <text>; \
              example: synthesist --session=<id> spec add {tree}/{spec} --goal \"<description>\""
-        ))?;
+        )
+    })?;
 
     let mut props = Map::new();
     props.insert("tree".into(), Value::from(tree));
@@ -121,9 +121,10 @@ fn cmd_spec_add(
 fn cmd_spec_show(tree: &str, spec: &str) -> Result<()> {
     let store = SynthStore::discover()?;
     let heads = live_spec_heads(&store, tree)?;
-    match heads.into_iter().find(|(_, p)| {
-        p.get("id").and_then(|v| v.as_str()) == Some(spec)
-    }) {
+    match heads
+        .into_iter()
+        .find(|(_, p)| p.get("id").and_then(|v| v.as_str()) == Some(spec))
+    {
         Some((_, props)) => json_out(&json!({
             "tree": tree,
             "id": spec,
@@ -170,10 +171,12 @@ fn cmd_spec_update(
     let (prior_id, prior_props) = heads
         .into_iter()
         .find(|(_, p)| p.get("id").and_then(|v| v.as_str()) == Some(spec))
-        .ok_or_else(|| anyhow!(
-            "spec not found: {tree}/{spec}. \
+        .ok_or_else(|| {
+            anyhow!(
+                "spec not found: {tree}/{spec}. \
              List specs in this tree with `synthesist spec list {tree}`."
-        ))?;
+            )
+        })?;
 
     let mut props: Map<String, Value> = prior_props
         .as_object()

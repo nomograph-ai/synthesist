@@ -91,8 +91,8 @@ fn plan_at_risk_e2e_one_hit_after_agree() {
 
     // Step e: fetch the overlay from the registry by name and time the run.
     let start = Instant::now();
-    let plan_at_risk = overlay::find("plan-at-risk")
-        .expect("plan-at-risk overlay must be registered");
+    let plan_at_risk =
+        overlay::find("plan-at-risk").expect("plan-at-risk overlay must be registered");
     let hits = plan_at_risk.run(&view).unwrap();
     let elapsed_ms = start.elapsed().as_millis();
 
@@ -190,8 +190,8 @@ fn plan_at_risk_e2e_no_hit_when_plan_is_intact() {
     let mut view = Gamma::open_in_memory().unwrap();
     view.sync(tmp.path()).unwrap();
 
-    let plan_at_risk = overlay::find("plan-at-risk")
-        .expect("plan-at-risk overlay must be registered");
+    let plan_at_risk =
+        overlay::find("plan-at-risk").expect("plan-at-risk overlay must be registered");
     let hits = plan_at_risk.run(&view).unwrap();
 
     assert!(

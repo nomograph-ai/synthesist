@@ -116,10 +116,8 @@ pub fn cmd_check() -> Result<()> {
     let mut issues: Vec<Value> = Vec::new();
 
     check_schema_walk(&store, &mut issues).context("schema integrity walk")?;
-    check_dangling_supersedes(&store, &mut issues)
-        .context("dangling supersedes check")?;
-    check_dangling_depends_on(&store, &mut issues)
-        .context("dangling task depends_on check")?;
+    check_dangling_supersedes(&store, &mut issues).context("dangling supersedes check")?;
+    check_dangling_depends_on(&store, &mut issues).context("dangling task depends_on check")?;
 
     let errors = issues.iter().filter(|i| i["level"] == "error").count();
     let warnings = issues.iter().filter(|i| i["level"] == "warn").count();
@@ -363,7 +361,9 @@ fn live_tree_heads(store: &SynthStore) -> Result<Vec<Value>> {
         }));
     }
     out.sort_by(|a, b| {
-        a.get("name").and_then(|v| v.as_str()).unwrap_or("")
+        a.get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
             .cmp(b.get("name").and_then(|v| v.as_str()).unwrap_or(""))
     });
     Ok(out)
@@ -379,10 +379,26 @@ fn ready_tasks_all(store: &SynthStore) -> Result<Vec<Value>> {
     use std::collections::HashMap;
     let mut status_by_key: HashMap<(String, String, String), String> = HashMap::new();
     for props in &tasks {
-        let tree = props.get("tree").and_then(|v| v.as_str()).unwrap_or("").to_string();
-        let spec = props.get("spec").and_then(|v| v.as_str()).unwrap_or("").to_string();
-        let id = props.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
-        let status = props.get("status").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let tree = props
+            .get("tree")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let spec = props
+            .get("spec")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let id = props
+            .get("id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let status = props
+            .get("status")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
         if tree.is_empty() || spec.is_empty() || id.is_empty() {
             continue;
         }
@@ -395,9 +411,21 @@ fn ready_tasks_all(store: &SynthStore) -> Result<Vec<Value>> {
         if status != "pending" {
             continue;
         }
-        let tree = props.get("tree").and_then(|v| v.as_str()).unwrap_or("").to_string();
-        let spec = props.get("spec").and_then(|v| v.as_str()).unwrap_or("").to_string();
-        let id = props.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let tree = props
+            .get("tree")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let spec = props
+            .get("spec")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let id = props
+            .get("id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
         if tree.is_empty() || spec.is_empty() || id.is_empty() {
             continue;
         }
@@ -453,7 +481,10 @@ pub(crate) fn live_task_props(store: &SynthStore) -> Result<Vec<Value>> {
     for (_, doc) in store.live_docs(&crate::wire_format::type_iri("task"))? {
         let bare = crate::store::bare_props(&doc);
         let getstr = |k: &str| -> String {
-            bare.get(k).and_then(|v| v.as_str()).unwrap_or("").to_string()
+            bare.get(k)
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string()
         };
         let tree = getstr("tree");
         let spec = getstr("spec");
@@ -522,7 +553,9 @@ fn live_sessions_with_phase(store: &SynthStore) -> Result<Vec<Value>> {
         }));
     }
     out.sort_by(|a, b| {
-        a.get("id").and_then(|v| v.as_str()).unwrap_or("")
+        a.get("id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
             .cmp(b.get("id").and_then(|v| v.as_str()).unwrap_or(""))
     });
     Ok(out)

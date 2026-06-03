@@ -19,7 +19,7 @@ use nomograph_claim::log::LogWriter;
 use nomograph_claim::store::Store;
 use serde_json::{Map, Value};
 
-use super::{Migration, MigrationError, MigrationOpts, MigrationReport};
+use super::{Migration, MigrationError, MigrationOpts, MigrationReport, V3_SCHEMA_VERSION};
 
 // ---------------------------------------------------------------------------
 // V2ToV3 struct
@@ -34,20 +34,33 @@ impl Migration for V2ToV3 {
     }
 
     fn to_version(&self) -> &'static str {
-        "3.0.0-pre.1"
+        V3_SCHEMA_VERSION
     }
 
     fn description(&self) -> &'static str {
         "Translate v2 Automerge .amc claims to v3 per-asserter JSON-LD logs"
     }
 
-    /// Returns true iff `claims/changes/` exists and no `claims/<asserter>/log.jsonl`
-    /// files are present yet.
+    /// Returns true iff this looks like an un-migrated v2 estate.
+    ///
+    /// A v2 estate is signalled by `claims/genesis.amc` existing -- the v2
+    /// shim REQUIRES `genesis.amc`, and it is universal across BOTH estate
+    /// shapes: compacted (`genesis.amc` + `snapshot.amc`, NO `changes/`) and
+    /// with-changes (`genesis.amc` + `changes/*.amc`). Issue #11: the prior
+    /// logic gated on `claims/changes/` existing, which misclassified a
+    /// COMPACTED production estate as "fresh".
+    ///
+    /// `claims/config.toml` with `schema_version = "0.1"` corroborates, but
+    /// `genesis.amc` is primary and sufficient. We do NOT require `changes/`.
+    ///
+    /// Returns false when `genesis.amc` is absent, or when any
+    /// `claims/<asserter>/log.jsonl` already exists (migration already ran).
     fn detect(&self, root: &Path) -> Result<bool, MigrationError> {
         let claims = root.join("claims");
-        let changes = claims.join("changes");
 
-        if !changes.exists() {
+        // Primary signal: the v2 genesis document. Universal across
+        // compacted and with-changes shapes.
+        if !claims.join("genesis.amc").exists() {
             return Ok(false);
         }
 
@@ -118,20 +131,26 @@ impl Migration for V2ToV3 {
 
             let asserter_str = claim.asserted_by.as_str();
             if asserter::parse(asserter_str).is_err() {
-                skipped.push(format!("skipped {}: invalid asserter {asserter_str}", claim.id));
+                skipped.push(format!(
+                    "skipped {}: invalid asserter {asserter_str}",
+                    claim.id
+                ));
                 continue;
             }
 
             if let Some(w) = &writer {
-                w.append(asserter_str, &doc)
-                    .map_err(|e| MigrationError::Failed(format!("append claim {}: {e}", claim.id)))?;
+                w.append(asserter_str, &doc).map_err(|e| {
+                    MigrationError::Failed(format!("append claim {}: {e}", claim.id))
+                })?;
             }
 
             report.artifacts_touched += 1;
         }
 
         if !skipped.is_empty() {
-            report.notes.push(format!("skipped {} claims", skipped.len()));
+            report
+                .notes
+                .push(format!("skipped {} claims", skipped.len()));
             report.notes.extend(skipped);
         }
 
@@ -279,7 +298,10 @@ mod tests {
             json!({"summary": "Test", "status": "pending"}),
         );
         let v3 = v2_claim_to_v3(&claim);
-        assert_eq!(v3["@id"], Value::String("synthesist:claim/abc123def456fed7".into()));
+        assert_eq!(
+            v3["@id"],
+            Value::String("synthesist:claim/abc123def456fed7".into())
+        );
         assert_eq!(v3["@type"], Value::String("synthesist:Task".into()));
         assert_eq!(
             v3["prov:wasAttributedTo"],
@@ -292,13 +314,19 @@ mod tests {
     #[test]
     fn lattice_disposition_errors_on_module_for_type() {
         let result = module_for_type(&ClaimType::Disposition);
-        assert!(matches!(result, Err(MigrationError::UnsupportedClaimType { .. })));
+        assert!(matches!(
+            result,
+            Err(MigrationError::UnsupportedClaimType { .. })
+        ));
     }
 
     #[test]
     fn lattice_stakeholder_errors_on_module_for_type() {
         let result = module_for_type(&ClaimType::Stakeholder);
-        assert!(matches!(result, Err(MigrationError::UnsupportedClaimType { .. })));
+        assert!(matches!(
+            result,
+            Err(MigrationError::UnsupportedClaimType { .. })
+        ));
     }
 
     #[test]
@@ -337,14 +365,38 @@ mod tests {
 
     #[test]
     fn module_for_type_routes_synthesist_types_correctly() {
-        assert!(matches!(module_for_type(&ClaimType::Task), Ok("synthesist")));
-        assert!(matches!(module_for_type(&ClaimType::Spec), Ok("synthesist")));
-        assert!(matches!(module_for_type(&ClaimType::Outcome), Ok("synthesist")));
-        assert!(matches!(module_for_type(&ClaimType::Tree), Ok("synthesist")));
-        assert!(matches!(module_for_type(&ClaimType::Discovery), Ok("synthesist")));
-        assert!(matches!(module_for_type(&ClaimType::Campaign), Ok("synthesist")));
-        assert!(matches!(module_for_type(&ClaimType::Session), Ok("synthesist")));
-        assert!(matches!(module_for_type(&ClaimType::Phase), Ok("synthesist")));
+        assert!(matches!(
+            module_for_type(&ClaimType::Task),
+            Ok("synthesist")
+        ));
+        assert!(matches!(
+            module_for_type(&ClaimType::Spec),
+            Ok("synthesist")
+        ));
+        assert!(matches!(
+            module_for_type(&ClaimType::Outcome),
+            Ok("synthesist")
+        ));
+        assert!(matches!(
+            module_for_type(&ClaimType::Tree),
+            Ok("synthesist")
+        ));
+        assert!(matches!(
+            module_for_type(&ClaimType::Discovery),
+            Ok("synthesist")
+        ));
+        assert!(matches!(
+            module_for_type(&ClaimType::Campaign),
+            Ok("synthesist")
+        ));
+        assert!(matches!(
+            module_for_type(&ClaimType::Session),
+            Ok("synthesist")
+        ));
+        assert!(matches!(
+            module_for_type(&ClaimType::Phase),
+            Ok("synthesist")
+        ));
     }
 
     #[test]
@@ -359,8 +411,12 @@ mod tests {
             ClaimType::Directive,
         ] {
             assert!(
-                matches!(module_for_type(&ty), Err(MigrationError::UnsupportedClaimType { .. })),
-                "expected UnsupportedClaimType for {}", ty.as_str()
+                matches!(
+                    module_for_type(&ty),
+                    Err(MigrationError::UnsupportedClaimType { .. })
+                ),
+                "expected UnsupportedClaimType for {}",
+                ty.as_str()
             );
         }
     }

@@ -13,10 +13,10 @@
 
 use std::path::{Path, PathBuf};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use nomograph_claim::gamma::Gamma;
 use nomograph_synthesist::telemetry::{Surface, TelemetryWriter};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::cli::OverlayCmd;
 use crate::overlay::{self, OverlayResult};
@@ -209,12 +209,7 @@ mod tests {
 
     #[test]
     fn serialize_result_produces_expected_keys() {
-        let r = crate::overlay::OverlayResult::with_detail(
-            "subj",
-            "pred",
-            "obj",
-            Value::Null,
-        );
+        let r = crate::overlay::OverlayResult::with_detail("subj", "pred", "obj", Value::Null);
         let v = serialize_result(&r);
         assert_eq!(v["subject"], "subj");
         assert_eq!(v["predicate"], "pred");

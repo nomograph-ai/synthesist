@@ -78,7 +78,16 @@ fn generate_skill_for_manifest(manifest: &crate::surface::manifest::Manifest) ->
     emit_section_if_permitted(
         &mut out,
         &permitted,
-        &["status", "init", "check", "conflicts", "version", "skill", "export", "import"],
+        &[
+            "status",
+            "init",
+            "check",
+            "conflicts",
+            "version",
+            "skill",
+            "export",
+            "import",
+        ],
         ESTATE_SECTION,
     );
     emit_section_if_permitted(
@@ -97,9 +106,18 @@ fn generate_skill_for_manifest(manifest: &crate::surface::manifest::Manifest) ->
         &mut out,
         &permitted,
         &[
-            "task add", "task list", "task show", "task update", "task claim",
-            "task done", "task reset", "task block", "task wait", "task cancel",
-            "task ready", "task acceptance",
+            "task add",
+            "task list",
+            "task show",
+            "task update",
+            "task claim",
+            "task done",
+            "task reset",
+            "task block",
+            "task wait",
+            "task cancel",
+            "task ready",
+            "task acceptance",
         ],
         TASKS_SECTION,
     );
@@ -124,7 +142,12 @@ fn generate_skill_for_manifest(manifest: &crate::surface::manifest::Manifest) ->
     emit_section_if_permitted(
         &mut out,
         &permitted,
-        &["session start", "session close", "session list", "session status"],
+        &[
+            "session start",
+            "session close",
+            "session list",
+            "session status",
+        ],
         SESSIONS_SECTION,
     );
     emit_section_if_permitted(
@@ -141,7 +164,10 @@ fn generate_skill_for_manifest(manifest: &crate::surface::manifest::Manifest) ->
     );
 
     // Non-baseline additions: emit only when the manifest permits them.
-    if permitted.iter().any(|k| k == "overlay list" || k == "overlay run") {
+    if permitted
+        .iter()
+        .any(|k| k == "overlay list" || k == "overlay run")
+    {
         out.push_str(OVERLAY_SECTION);
         out.push('\n');
     }
@@ -797,7 +823,16 @@ mod tests {
         // the assertion uses the same builder the SHACL emitter does;
         // any rename or case shift surfaces here and in emit_shacl
         // simultaneously.
-        for ty in ["tree", "spec", "task", "discovery", "session", "phase", "campaign", "outcome"] {
+        for ty in [
+            "tree",
+            "spec",
+            "task",
+            "discovery",
+            "session",
+            "phase",
+            "campaign",
+            "outcome",
+        ] {
             let shape = crate::wire_format::shape_iri(ty);
             assert!(
                 SKILL_CONTENT.contains(&shape),

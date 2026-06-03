@@ -23,7 +23,14 @@ use super::{Overlay, OverlayResult};
 /// The synthesist types the demo scans. Workflow types only; the demo's
 /// fixtures and CLI usage are workflow-scoped.
 const TYPES: &[&str] = &[
-    "tree", "spec", "task", "discovery", "campaign", "session", "phase", "outcome",
+    "tree",
+    "spec",
+    "task",
+    "discovery",
+    "campaign",
+    "session",
+    "phase",
+    "outcome",
 ];
 
 /// Counts synthesist claims grouped by (type, status).

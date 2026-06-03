@@ -10,7 +10,9 @@
 //! Do NOT edit `ontology/synthesist.shacl.ttl` by hand; run the Makefile
 //! `shacl` target to regenerate it.
 
-use nomograph_synthesist::schema::{campaign, discovery, outcome, phase, session, spec, task, tree};
+use nomograph_synthesist::schema::{
+    campaign, discovery, outcome, phase, session, spec, task, tree,
+};
 
 /// Cardinality of a property in the shape.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -48,25 +50,53 @@ struct PropShape {
 
 impl PropShape {
     fn req_str(path: &'static str) -> Self {
-        Self { path, card: Card::Required, constraint: Constraint::XsdString }
+        Self {
+            path,
+            card: Card::Required,
+            constraint: Constraint::XsdString,
+        }
     }
     fn opt_str(path: &'static str) -> Self {
-        Self { path, card: Card::Optional, constraint: Constraint::XsdString }
+        Self {
+            path,
+            card: Card::Optional,
+            constraint: Constraint::XsdString,
+        }
     }
     fn req_enum(path: &'static str, values: &'static [&'static str]) -> Self {
-        Self { path, card: Card::Required, constraint: Constraint::Enum(values) }
+        Self {
+            path,
+            card: Card::Required,
+            constraint: Constraint::Enum(values),
+        }
     }
     fn opt_enum(path: &'static str, values: &'static [&'static str]) -> Self {
-        Self { path, card: Card::Optional, constraint: Constraint::Enum(values) }
+        Self {
+            path,
+            card: Card::Optional,
+            constraint: Constraint::Enum(values),
+        }
     }
     fn req_many_literal(path: &'static str) -> Self {
-        Self { path, card: Card::RequiredMany, constraint: Constraint::NodeKindLiteral }
+        Self {
+            path,
+            card: Card::RequiredMany,
+            constraint: Constraint::NodeKindLiteral,
+        }
     }
     fn many_literal(path: &'static str) -> Self {
-        Self { path, card: Card::Many, constraint: Constraint::NodeKindLiteral }
+        Self {
+            path,
+            card: Card::Many,
+            constraint: Constraint::NodeKindLiteral,
+        }
     }
     fn many_iri(path: &'static str) -> Self {
-        Self { path, card: Card::Many, constraint: Constraint::NodeKindIri }
+        Self {
+            path,
+            card: Card::Many,
+            constraint: Constraint::NodeKindIri,
+        }
     }
 }
 
@@ -244,10 +274,7 @@ fn emit_shape(shape: &NodeShape) -> String {
     // the helper (single-word TitleCase input survives unchanged).
     out.push_str(&format!("{} a sh:NodeShape ;\n", shape_iri(shape.class)));
     out.push_str(&format!("    sh:targetClass {} ;\n", type_iri(shape.class)));
-    out.push_str(&format!(
-        "    rdfs:label \"{}\"@en ;\n",
-        shape.label
-    ));
+    out.push_str(&format!("    rdfs:label \"{}\"@en ;\n", shape.label));
 
     for (i, prop) in shape.props.iter().enumerate() {
         let prop_str = emit_prop(prop);

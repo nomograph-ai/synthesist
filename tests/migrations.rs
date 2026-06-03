@@ -12,7 +12,7 @@
 //! - Lattice-typed claim errors with UnsupportedClaimType.
 //! - `migrate list` JSON output contains v2-to-v3 entry.
 //! - `migrate status` on fresh store says "fresh store".
-//! - `migrate v2-to-v3` routes to same code as `migrate run --target 3.0.0-pre.1`.
+//! - `migrate v2-to-v3` routes to same code as `migrate run --target 3.0.0`.
 
 #![allow(deprecated)]
 
@@ -23,11 +23,9 @@ use chrono::Utc;
 use nomograph_claim::claim::{Claim, ClaimType};
 use nomograph_claim::store::Store as V2Store;
 use nomograph_synthesist::migrations::{
-    Migration, MigrationError, MigrationOpts, registry,
-    runner, schema,
-    v2_to_v3::V2ToV3,
+    Migration, MigrationError, MigrationOpts, registry, runner, schema, v2_to_v3::V2ToV3,
 };
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tempfile::TempDir;
 
 // ---------------------------------------------------------------------------
@@ -99,7 +97,10 @@ fn detect_returns_true_on_v2_layout() {
 fn detect_returns_false_on_empty_dir() {
     let dir = TempDir::new().unwrap();
     let v2 = V2ToV3;
-    assert!(!v2.detect(dir.path()).unwrap(), "should not detect in empty dir");
+    assert!(
+        !v2.detect(dir.path()).unwrap(),
+        "should not detect in empty dir"
+    );
 }
 
 #[test]
@@ -113,7 +114,10 @@ fn detect_returns_false_on_v3_layout() {
     std::fs::create_dir_all(dir.path().join("claims").join("changes")).unwrap();
 
     let v2 = V2ToV3;
-    assert!(!v2.detect(dir.path()).unwrap(), "should not detect when log.jsonl present");
+    assert!(
+        !v2.detect(dir.path()).unwrap(),
+        "should not detect when log.jsonl present"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -136,7 +140,11 @@ fn end_to_end_v2_to_v3_produces_log_lines() {
 
     // Check that log.jsonl was written for the asserter.
     // LogWriter maps colons to hyphens in asserter dir names.
-    let log_path = dir.path().join("claims").join("user-local-test").join("log.jsonl");
+    let log_path = dir
+        .path()
+        .join("claims")
+        .join("user-local-test")
+        .join("log.jsonl");
     assert!(log_path.exists(), "log.jsonl should exist");
 
     let content = std::fs::read_to_string(&log_path).unwrap();
@@ -146,7 +154,10 @@ fn end_to_end_v2_to_v3_produces_log_lines() {
     // Spot-check one line: it should be valid JSON with synthesist: namespace.
     let first: Value = serde_json::from_str(lines[0]).unwrap();
     assert!(
-        first["@id"].as_str().unwrap().starts_with("synthesist:claim/"),
+        first["@id"]
+            .as_str()
+            .unwrap()
+            .starts_with("synthesist:claim/"),
         "id should use synthesist: prefix, got: {}",
         first["@id"]
     );
@@ -172,7 +183,7 @@ fn apply_chain_writes_schema_json() {
     assert!(schema_path.exists(), "_schema.json should be written");
 
     let record = schema::read(&dir.path().join("claims")).unwrap().unwrap();
-    assert_eq!(record.schema_version, "3.0.0-pre.1");
+    assert_eq!(record.schema_version, "3.0.0");
     assert!(!record.migrated_at.is_empty());
 }
 
@@ -196,7 +207,11 @@ fn tarball_backup_is_written() {
     let bp = report.backup_path.unwrap();
     assert!(bp.exists(), "tarball should exist at {}", bp.display());
     assert!(
-        bp.file_name().unwrap().to_str().unwrap().ends_with(".tar.gz"),
+        bp.file_name()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .ends_with(".tar.gz"),
         "backup should be .tar.gz"
     );
 }
@@ -217,9 +232,15 @@ fn no_backup_skips_tarball() {
     };
     let report = v2.run(dir.path(), &opts).unwrap();
 
-    assert!(report.backup_path.is_none(), "backup_path should be None with no_backup");
+    assert!(
+        report.backup_path.is_none(),
+        "backup_path should be None with no_backup"
+    );
     let archive = dir.path().join(".synthesist-v2-backup.tar.gz");
-    assert!(!archive.exists(), "tarball should not be written with no_backup");
+    assert!(
+        !archive.exists(),
+        "tarball should not be written with no_backup"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -241,11 +262,21 @@ fn dry_run_skips_schema_json_and_log_writes() {
 
     // Schema file should NOT exist.
     let schema_path = dir.path().join("claims").join("_schema.json");
-    assert!(!schema_path.exists(), "_schema.json should not be written in dry-run");
+    assert!(
+        !schema_path.exists(),
+        "_schema.json should not be written in dry-run"
+    );
 
     // Log file should NOT exist.
-    let log_path = dir.path().join("claims").join("user:local:test").join("log.jsonl");
-    assert!(!log_path.exists(), "log.jsonl should not be written in dry-run");
+    let log_path = dir
+        .path()
+        .join("claims")
+        .join("user:local:test")
+        .join("log.jsonl");
+    assert!(
+        !log_path.exists(),
+        "log.jsonl should not be written in dry-run"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -267,7 +298,8 @@ fn unsupported_claim_type_error_for_lattice_types() {
         let result = module_for_type(&ty);
         assert!(
             matches!(result, Err(MigrationError::UnsupportedClaimType { .. })),
-            "expected UnsupportedClaimType for {}", ty.as_str()
+            "expected UnsupportedClaimType for {}",
+            ty.as_str()
         );
     }
 }
@@ -291,7 +323,7 @@ fn migrate_list_json_contains_v2_to_v3() {
 
     let first = &migrations[0];
     assert_eq!(first["from_version"], "2.x");
-    assert_eq!(first["to_version"], "3.0.0-pre.1");
+    assert_eq!(first["to_version"], "3.0.0");
 }
 
 // ---------------------------------------------------------------------------
@@ -317,7 +349,7 @@ fn migrate_status_on_fresh_store_says_fresh() {
 }
 
 // ---------------------------------------------------------------------------
-// `migrate v2-to-v3` routes to same code as `migrate run --target 3.0.0-pre.1`
+// `migrate v2-to-v3` routes to same code as `migrate run --target 3.0.0`
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -337,14 +369,14 @@ fn migrate_v2_to_v3_equivalent_to_run_with_target() {
     );
 
     let record = schema::read(&dir.path().join("claims")).unwrap().unwrap();
-    assert_eq!(record.schema_version, "3.0.0-pre.1");
+    assert_eq!(record.schema_version, "3.0.0");
 
     // Now build a second fixture and run via `migrate run --target`.
     let dir2 = TempDir::new().unwrap();
     make_v2_store(dir2.path());
 
     let mut cmd2 = std::process::Command::cargo_bin("synthesist").unwrap();
-    cmd2.args(["migrate", "run", "--target", "3.0.0-pre.1"])
+    cmd2.args(["migrate", "run", "--target", "3.0.0"])
         .current_dir(dir2.path());
     let output2 = cmd2.output().unwrap();
     assert!(
@@ -354,7 +386,7 @@ fn migrate_v2_to_v3_equivalent_to_run_with_target() {
     );
 
     let record2 = schema::read(&dir2.path().join("claims")).unwrap().unwrap();
-    assert_eq!(record2.schema_version, "3.0.0-pre.1");
+    assert_eq!(record2.schema_version, "3.0.0");
 }
 
 // ---------------------------------------------------------------------------
@@ -366,5 +398,5 @@ fn registry_contains_v2_to_v3() {
     let reg = registry();
     assert_eq!(reg.len(), 1, "registry should have exactly 1 migration");
     assert_eq!(reg[0].source_version(), "2.x");
-    assert_eq!(reg[0].to_version(), "3.0.0-pre.1");
+    assert_eq!(reg[0].to_version(), "3.0.0");
 }

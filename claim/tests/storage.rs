@@ -100,15 +100,8 @@ fn write_200_claims_across_5_asserters_then_read_back() {
     for asserter in &asserters {
         let dir_name = asserter.replace(':', "-");
         let log_path = claims_dir.join(&dir_name).join("log.jsonl");
-        assert!(
-            log_path.exists(),
-            "log.jsonl missing for {}",
-            asserter
-        );
-        let line_count = fs::read_to_string(&log_path)
-            .unwrap()
-            .lines()
-            .count();
+        assert!(log_path.exists(), "log.jsonl missing for {}", asserter);
+        let line_count = fs::read_to_string(&log_path).unwrap().lines().count();
         assert_eq!(line_count, 40, "wrong line count for {}", asserter);
     }
 }

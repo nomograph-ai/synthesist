@@ -79,8 +79,7 @@ fn segment_is_path_safe(seg: &str) -> bool {
     if seg == ".." || seg == "." {
         return false;
     }
-    !seg
-        .chars()
+    !seg.chars()
         .any(|c| c == '/' || c == '\\' || c == '\0' || c.is_control())
 }
 
@@ -234,7 +233,12 @@ pub fn parse(s: &str) -> Result<Asserter, ParseError> {
         }
     };
 
-    Ok(Asserter { class, scope, id, session })
+    Ok(Asserter {
+        class,
+        scope,
+        id,
+        session,
+    })
 }
 
 #[cfg(test)]

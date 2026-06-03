@@ -158,7 +158,10 @@ fn project_tasks(store: &SynthStore) -> Result<Vec<Value>> {
         copy_str(&bare, &mut props, "summary");
         copy_str(&bare, &mut props, "description");
         copy_str(&bare, &mut props, "gate");
-        props.insert("depends_on".into(), Value::Array(member_array(&bare, "depends_on")));
+        props.insert(
+            "depends_on".into(),
+            Value::Array(member_array(&bare, "depends_on")),
+        );
         props.insert("files".into(), Value::Array(member_array(&bare, "files")));
         out.push(((tree, spec, id), Value::Object(props)));
     }
@@ -213,7 +216,10 @@ fn project_campaigns(store: &SynthStore) -> Result<Vec<Value>> {
         copy_str(&bare, &mut props, "kind");
         copy_str(&bare, &mut props, "summary");
         copy_str(&bare, &mut props, "title");
-        props.insert("blocked_by".into(), Value::Array(member_array(&bare, "blocked_by")));
+        props.insert(
+            "blocked_by".into(),
+            Value::Array(member_array(&bare, "blocked_by")),
+        );
         out.push(((tree, spec), Value::Object(props)));
     }
     out.sort_by(|a, b| a.0.cmp(&b.0));

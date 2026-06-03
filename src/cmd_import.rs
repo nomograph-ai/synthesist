@@ -50,8 +50,8 @@ use std::collections::HashMap;
 use std::fs;
 use std::io::{self, Read};
 
-use anyhow::{Context, Result, anyhow};
 use crate::claim_type::ClaimType;
+use anyhow::{Context, Result, anyhow};
 use serde_json::{Map, Value, json};
 
 use crate::store::{ClaimId, SynthStore, json_out};
@@ -64,10 +64,12 @@ pub fn cmd_import(file: &Option<String>) -> Result<()> {
     let claims_raw = doc
         .get("claims_raw")
         .and_then(|v| v.as_array())
-        .ok_or_else(|| anyhow!(
-            "import payload missing `claims_raw` array; \
+        .ok_or_else(|| {
+            anyhow!(
+                "import payload missing `claims_raw` array; \
              expected the output shape of `synthesist export`"
-        ))?;
+            )
+        })?;
 
     let mut imported = 0usize;
     let mut skipped = 0usize;
@@ -80,8 +82,26 @@ pub fn cmd_import(file: &Option<String>) -> Result<()> {
     let mut id_remap: HashMap<String, ClaimId> = HashMap::new();
     let mut store = SynthStore::discover()?;
 
+    // Branch on export shape. A v2.5.2 export carries top-level
+    // `"version":"2"` and FLAT SQL rows in `claims_raw` (keys: `id`,
+    // `claim_type`, `props`, `asserted_by`, `supersedes`, ...) -- NOT v3
+    // JSON-LD. The v3 extractor requires `@type` / `prov:wasAttributedTo`
+    // and would skip every flat row. We detect the shape once and route
+    // each row to the matching extractor; the remap + append loop is shared.
+    let is_v2_export = doc.get("version").and_then(|v| v.as_str()) == Some("2")
+        || claims_raw
+            .first()
+            .and_then(|e| e.as_object())
+            .map(|o| o.contains_key("claim_type") && !o.contains_key("@type"))
+            .unwrap_or(false);
+
     for entry in claims_raw {
-        match extract_replay_args(entry) {
+        let extracted = if is_v2_export {
+            extract_v2_row(entry)
+        } else {
+            extract_replay_args(entry)
+        };
+        match extracted {
             Ok(args) => {
                 // Remap the supersedes ref through the map. If the
                 // superseded claim was imported earlier we point at its
@@ -89,9 +109,9 @@ pub fn cmd_import(file: &Option<String>) -> Result<()> {
                 // original ref through (surfaces as a dangling edge --
                 // the honest signal of an incomplete export) rather than
                 // silently dropping the link.
-                let supersedes = args.supersedes.map(|old| {
-                    id_remap.get(&old).cloned().unwrap_or(old)
-                });
+                let supersedes = args
+                    .supersedes
+                    .map(|old| id_remap.get(&old).cloned().unwrap_or(old));
                 store = store.with_asserter(args.asserter);
                 match store.append_replay(args.claim_type, args.props, supersedes) {
                     Ok(new_id) => {
@@ -114,8 +134,9 @@ pub fn cmd_import(file: &Option<String>) -> Result<()> {
 
 fn read_input(file: Option<&str>) -> Result<String> {
     match file {
-        Some(p) if !p.is_empty() => fs::read_to_string(p)
-            .with_context(|| format!("read import file {p}")),
+        Some(p) if !p.is_empty() => {
+            fs::read_to_string(p).with_context(|| format!("read import file {p}"))
+        }
         _ => {
             let mut buf = String::new();
             io::stdin()
@@ -187,10 +208,7 @@ fn extract_replay_args(doc: &Value) -> Result<ReplayArgs> {
         .and_then(|v| v.as_str())
         .map(bare_claim_hash);
 
-    let old_id = obj
-        .get("@id")
-        .and_then(|v| v.as_str())
-        .map(bare_claim_hash);
+    let old_id = obj.get("@id").and_then(|v| v.as_str()).map(bare_claim_hash);
 
     let mut props = Map::new();
     let synth_prefix = format!("{MODULE_PREFIX}:");
@@ -225,6 +243,73 @@ fn extract_replay_args(doc: &Value) -> Result<ReplayArgs> {
     Ok(ReplayArgs {
         claim_type,
         props: Value::Object(props),
+        supersedes,
+        asserter,
+        old_id,
+    })
+}
+
+/// Convert one FLAT v2.5.2 export row into the pieces `append_replay`
+/// needs. A v2 row is a raw SQL projection, not JSON-LD:
+///
+/// ```json
+/// { "id": "<hash>", "claim_type": "spec", "props": { ... },
+///   "asserted_by": "user:local:agd", "supersedes": "<hash>|null", ... }
+/// ```
+///
+/// Mapping:
+/// 1. `claim_type` (snake/lowercase) -> `ClaimType` via `claim_type_from_snake`.
+/// 2. `props` -> the object VERBATIM (it is already the snake_case prop map;
+///    it is NOT re-stringified or re-namespaced).
+/// 3. `asserted_by` -> asserter, VALIDATED via `asserter::parse` (untrusted
+///    input -- mirror the v3 path; parse failure is treated as skip).
+/// 4. `supersedes` -> bare hash, if present and non-null (the remap key
+///    space is shared with `id`, so the remap loop resolves chains).
+/// 5. `id` -> the exporter-side id (the remap key for this row).
+///
+/// Returns `Err` (treated as skip) on a missing/unknown `claim_type`, a
+/// missing `asserted_by`, or an unparseable asserter.
+fn extract_v2_row(entry: &Value) -> Result<ReplayArgs> {
+    let obj = entry
+        .as_object()
+        .ok_or_else(|| anyhow!("claims_raw entry is not a JSON object"))?;
+
+    let type_str = obj
+        .get("claim_type")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow!("v2 row missing claim_type"))?;
+    let claim_type = claim_type_from_snake(type_str)
+        .ok_or_else(|| anyhow!("unknown v2 claim_type: {type_str}"))?;
+
+    let asserter = obj
+        .get("asserted_by")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow!("v2 row missing asserted_by"))?
+        .to_string();
+    // Untrusted input -- a malicious asserter could drive a write outside
+    // the claims tree. Validate before it routes any write. Mirror the v3
+    // path; the caller treats this Err as "skip".
+    nomograph_claim::asserter::parse(&asserter)
+        .map_err(|e| anyhow!("invalid asserted_by {asserter:?}: {e}"))?;
+
+    // props verbatim (already the snake_case prop object). Default to an
+    // empty object when absent so append_replay still has a valid map.
+    let props = obj
+        .get("props")
+        .cloned()
+        .unwrap_or_else(|| Value::Object(Map::new()));
+
+    // supersedes: bare hash, only when present AND non-null.
+    let supersedes = obj
+        .get("supersedes")
+        .and_then(|v| v.as_str())
+        .map(bare_claim_hash);
+
+    let old_id = obj.get("id").and_then(|v| v.as_str()).map(bare_claim_hash);
+
+    Ok(ReplayArgs {
+        claim_type,
+        props,
         supersedes,
         asserter,
         old_id,
@@ -401,5 +486,91 @@ mod tests {
             "@type": "synthesist:Task",
         });
         assert!(extract_replay_args(&doc).is_err());
+    }
+
+    // ---- v2 flat-row extractor ----
+
+    #[test]
+    fn extract_v2_row_maps_flat_fields() {
+        let row = json!({
+            "id": "a1f0c3d2e4b50617",
+            "claim_type": "spec",
+            "props": { "title": "v2->v3 migration", "status": "draft" },
+            "valid_from": "2026-01-02T09:05:00Z",
+            "valid_until": null,
+            "supersedes": null,
+            "asserted_by": "user:local:agd",
+            "asserted_at": "2026-01-02T09:05:00Z"
+        });
+        let args = extract_v2_row(&row).unwrap();
+        assert!(matches!(args.claim_type, ClaimType::Spec));
+        assert_eq!(args.asserter, "user:local:agd");
+        assert_eq!(args.old_id.as_deref(), Some("a1f0c3d2e4b50617"));
+        assert!(args.supersedes.is_none());
+        // props passed through verbatim (NOT re-namespaced).
+        let obj = args.props.as_object().unwrap();
+        assert_eq!(
+            obj.get("title").and_then(|v| v.as_str()),
+            Some("v2->v3 migration")
+        );
+        assert_eq!(obj.get("status").and_then(|v| v.as_str()), Some("draft"));
+    }
+
+    #[test]
+    fn extract_v2_row_carries_supersedes_for_remap() {
+        // Two rows: the second supersedes the first. After extraction the
+        // second's supersedes key equals the first's old_id, so the shared
+        // remap loop resolves the chain.
+        let earlier = json!({
+            "id": "b2e1d4c3f5a61728",
+            "claim_type": "spec",
+            "props": { "status": "draft" },
+            "supersedes": null,
+            "asserted_by": "user:local:agd"
+        });
+        let later = json!({
+            "id": "f6a5b8c7d9e05162",
+            "claim_type": "spec",
+            "props": { "status": "accepted" },
+            "supersedes": "b2e1d4c3f5a61728",
+            "asserted_by": "user:local:agd"
+        });
+        let a = extract_v2_row(&earlier).unwrap();
+        let b = extract_v2_row(&later).unwrap();
+        assert_eq!(a.old_id.as_deref(), Some("b2e1d4c3f5a61728"));
+        assert_eq!(b.supersedes.as_deref(), Some("b2e1d4c3f5a61728"));
+        assert_eq!(b.supersedes, a.old_id);
+    }
+
+    #[test]
+    fn extract_v2_row_invalid_asserter_is_skip() {
+        let row = json!({
+            "id": "deadbeef",
+            "claim_type": "task",
+            "props": { "summary": "x" },
+            "asserted_by": "not a valid asserter with spaces"
+        });
+        assert!(extract_v2_row(&row).is_err());
+    }
+
+    #[test]
+    fn extract_v2_row_unknown_type_is_skip() {
+        let row = json!({
+            "id": "deadbeef",
+            "claim_type": "bogus",
+            "props": {},
+            "asserted_by": "user:local:agd"
+        });
+        assert!(extract_v2_row(&row).is_err());
+    }
+
+    #[test]
+    fn extract_v2_row_missing_asserter_is_skip() {
+        let row = json!({
+            "id": "deadbeef",
+            "claim_type": "task",
+            "props": {}
+        });
+        assert!(extract_v2_row(&row).is_err());
     }
 }

@@ -14,8 +14,8 @@
 //! typed passes over the redb gamma index. Writes were already routed
 //! through `SynthStore::append` in Stage 1.
 
-use anyhow::{Context, Result};
 use crate::claim_type::ClaimType;
+use anyhow::{Context, Result};
 use serde_json::{Map, Value, json};
 
 use crate::cli::OutcomeCmd;

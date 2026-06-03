@@ -4,8 +4,8 @@
 //! typed gamma-index pass over live heads instead of a SQL
 //! `supersedes IS NULL` + client-side dedup.
 
-use anyhow::{Result, anyhow, bail};
 use crate::claim_type::ClaimType;
+use anyhow::{Result, anyhow, bail};
 use serde_json::{Value, json};
 
 use crate::cli::TreeCmd;
@@ -145,8 +145,10 @@ fn cmd_tree_close(name: &str, start_id: Option<&str>, session: &Option<String>) 
         }
         _ => {
             if active.len() > 1 {
-                let ids: Vec<String> =
-                    active.iter().map(|(iri, _, _)| short_claim_id(iri)).collect();
+                let ids: Vec<String> = active
+                    .iter()
+                    .map(|(iri, _, _)| short_claim_id(iri))
+                    .collect();
                 bail!(
                     "ambiguous: multiple active trees named '{name}'; \
                      disambiguate with `synthesist tree close {name} --start-id <prefix>` \
@@ -192,10 +194,7 @@ fn live_tree_heads(store: &SynthStore, include_closed: bool) -> Result<Vec<Value
             Some(s) if !s.is_empty() => s.to_string(),
             _ => continue,
         };
-        let desc = props
-            .get("description")
-            .cloned()
-            .unwrap_or(Value::Null);
+        let desc = props.get("description").cloned().unwrap_or(Value::Null);
         let status = props
             .get("status")
             .and_then(|v| v.as_str())
@@ -231,10 +230,6 @@ fn live_tree_heads(store: &SynthStore, include_closed: bool) -> Result<Vec<Value
 /// deliberately not live-filtered: `tree show`'s `spec_count` /
 /// `session_count` report total claim activity on the tree.
 fn count_for_tree(store: &SynthStore, type_value: &str, tree: &str) -> Result<i64> {
-    let n = store.count_by_type_and_value(
-        type_value,
-        &wf::predicate_iri("tree"),
-        tree,
-    )?;
+    let n = store.count_by_type_and_value(type_value, &wf::predicate_iri("tree"), tree)?;
     Ok(n as i64)
 }

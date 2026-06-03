@@ -254,8 +254,6 @@ mod tests {
         assert_eq!(asserter_iri("user:local:agd"), "asserter:user:local:agd");
     }
 
-
-
     #[test]
     fn jsonld_context_declares_all_iri_typed_predicates() {
         let ctx = jsonld_context();

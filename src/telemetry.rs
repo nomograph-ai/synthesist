@@ -64,9 +64,9 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use chrono::Utc;
 use serde::Serialize;
+use spargebra::Query;
 use spargebra::algebra::{Expression, GraphPattern};
 use spargebra::term::{NamedNodePattern, TermPattern};
-use spargebra::Query;
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -97,8 +97,8 @@ pub struct CanonForm {
 /// - **Topology-sensitive**: adding or removing triple patterns, or changing
 ///   join structure (OPTIONAL, UNION, GRAPH, ...) does change the output.
 pub fn canonicalize(sparql: &str) -> Result<CanonForm> {
-    let query = Query::parse(sparql, None)
-        .map_err(|e| anyhow::anyhow!("SPARQL parse error: {e}"))?;
+    let query =
+        Query::parse(sparql, None).map_err(|e| anyhow::anyhow!("SPARQL parse error: {e}"))?;
 
     let pattern = match &query {
         Query::Select { pattern, .. } => pattern,
@@ -176,8 +176,7 @@ impl TelemetryWriter {
             errored,
         };
 
-        let mut line = serde_json::to_string(&record)
-            .context("serialising telemetry record")?;
+        let mut line = serde_json::to_string(&record).context("serialising telemetry record")?;
         line.push('\n');
 
         self.append_line(line.as_bytes())
@@ -326,7 +325,9 @@ fn shape_of_pattern(
         GraphPattern::Minus { left, .. } => shape_of_pattern(left, var_map, filter_kinds),
         GraphPattern::Group { inner, .. } => shape_of_pattern(inner, var_map, filter_kinds),
         GraphPattern::Service { inner, .. } => shape_of_pattern(inner, var_map, filter_kinds),
-        GraphPattern::Path { subject, object, .. } => {
+        GraphPattern::Path {
+            subject, object, ..
+        } => {
             let s = normalise_term_pattern(subject, var_map);
             let o = normalise_term_pattern(object, var_map);
             format!("{s} <path> {o}")
@@ -487,7 +488,10 @@ mod tests {
         let (writer, tmp) = make_writer();
         // Deliberately broken SPARQL.
         let result = writer.record_query(Surface::Mcp, "NOT VALID SPARQL !!!!", 0, 0.0, true);
-        assert!(result.is_ok(), "record_query should not fail on parse error");
+        assert!(
+            result.is_ok(),
+            "record_query should not fail on parse error"
+        );
         let lines = read_lines(tmp.path());
         assert_eq!(lines.len(), 1);
         assert_eq!(lines[0]["bgp_shape"].as_str().unwrap(), "");
@@ -496,7 +500,8 @@ mod tests {
 
     #[test]
     fn filter_kinds_literal_eq_detected() {
-        let query = r#"SELECT ?s WHERE { ?s <http://example.org/status> ?v . FILTER(?v = "pending") }"#;
+        let query =
+            r#"SELECT ?s WHERE { ?s <http://example.org/status> ?v . FILTER(?v = "pending") }"#;
         let (_shape, kinds) = derive_shape(query);
         assert!(
             kinds.contains(&"literal-eq".to_string()),
@@ -506,7 +511,8 @@ mod tests {
 
     #[test]
     fn filter_kinds_regex_detected() {
-        let query = r#"SELECT ?s WHERE { ?s <http://example.org/name> ?n . FILTER(REGEX(?n, "foo")) }"#;
+        let query =
+            r#"SELECT ?s WHERE { ?s <http://example.org/name> ?n . FILTER(REGEX(?n, "foo")) }"#;
         let (_shape, kinds) = derive_shape(query);
         assert!(
             kinds.contains(&"regex".to_string()),

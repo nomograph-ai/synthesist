@@ -6,8 +6,8 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::process::Command as ShellCommand;
 
-use anyhow::{Context, Result, anyhow, bail};
 use crate::claim_type::ClaimType;
+use anyhow::{Context, Result, anyhow, bail};
 use serde_json::{Value, json};
 
 use crate::cli::TaskCmd;
@@ -172,7 +172,10 @@ fn live_tasks(store: &SynthStore, tree: &str, spec: &str) -> Result<Vec<(String,
         props.insert("tree".into(), json!(tree));
         props.insert("spec".into(), json!(spec));
         props.insert("id".into(), json!(id));
-        props.insert("status".into(), json!(str_opt("status").unwrap_or_default()));
+        props.insert(
+            "status".into(),
+            json!(str_opt("status").unwrap_or_default()),
+        );
         if let Some(sm) = str_opt("summary") {
             props.insert("summary".into(), json!(sm));
         }
@@ -187,7 +190,9 @@ fn live_tasks(store: &SynthStore, tree: &str, spec: &str) -> Result<Vec<(String,
         out.push((prior_id, Value::Object(props)));
     }
     out.sort_by(|a, b| {
-        a.1.get("id").and_then(|v| v.as_str()).unwrap_or("")
+        a.1.get("id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
             .cmp(b.1.get("id").and_then(|v| v.as_str()).unwrap_or(""))
     });
     Ok(out)
@@ -414,7 +419,9 @@ fn build_at_risk_set() -> Option<std::collections::HashSet<String>> {
     Some(at_risk_set_from_hits(&hits))
 }
 
-fn at_risk_set_from_hits(hits: &[crate::overlay::OverlayResult]) -> std::collections::HashSet<String> {
+fn at_risk_set_from_hits(
+    hits: &[crate::overlay::OverlayResult],
+) -> std::collections::HashSet<String> {
     let mut at_risk = std::collections::HashSet::new();
     for hit in hits {
         let raw_id = hit
@@ -497,11 +504,7 @@ fn cmd_task_update(
         props["files"] = Value::Array(arr);
     }
     if let Some(deps) = depends_on {
-        let new_deps: Vec<String> = deps
-            .iter()
-            .filter(|s| !s.is_empty())
-            .cloned()
-            .collect();
+        let new_deps: Vec<String> = deps.iter().filter(|s| !s.is_empty()).cloned().collect();
 
         // Build (id -> deps, status) maps across the live spec for the
         // self-dep / existence / cycle checks.
@@ -719,13 +722,12 @@ fn cmd_task_acceptance(
     }
 
     let mut store = SynthStore::discover_for(session)?;
-    let (prior_id, mut props) = find_task(&store, tree, spec, task_id)?
-        .with_context(|| {
-            format!(
-                "task {tree}/{spec}/{task_id} not found; \
+    let (prior_id, mut props) = find_task(&store, tree, spec, task_id)?.with_context(|| {
+        format!(
+            "task {tree}/{spec}/{task_id} not found; \
                  list tasks with `synthesist task list {tree}/{spec}`"
-            )
-        })?;
+        )
+    })?;
 
     let mut acceptance = load_acceptance(&store, &prior_id)?;
     acceptance.push(json!({

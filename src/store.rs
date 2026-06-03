@@ -43,8 +43,8 @@
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, anyhow, bail};
 use crate::claim_type::ClaimType;
+use anyhow::{Context, Result, anyhow, bail};
 use serde_json::Value;
 
 // Leaf helpers folded in from the dropped workflow crate. Every
@@ -271,19 +271,15 @@ impl SynthStore {
     /// Open at an explicit `claims/` directory.
     pub fn open_at(claims_dir: &Path) -> Result<Self> {
         if !claims_dir.is_dir() {
-            bail!(
-                "claims path is not a directory: {}",
-                claims_dir.display()
-            );
+            bail!("claims path is not a directory: {}", claims_dir.display());
         }
         Ok(Self::from_claims_dir(claims_dir.to_path_buf()))
     }
 
     /// Initialize a fresh store at `claims_dir`. Idempotent.
     pub fn init_at(claims_dir: &Path) -> Result<Self> {
-        std::fs::create_dir_all(claims_dir).with_context(|| {
-            format!("create claims dir {}", claims_dir.display())
-        })?;
+        std::fs::create_dir_all(claims_dir)
+            .with_context(|| format!("create claims dir {}", claims_dir.display()))?;
         Ok(Self::from_claims_dir(claims_dir.to_path_buf()))
     }
 
@@ -342,10 +338,11 @@ impl SynthStore {
         props: Value,
         supersedes: Option<ClaimId>,
     ) -> Result<ClaimId> {
-        let asserter = self
-            .asserter
-            .as_deref()
-            .ok_or_else(|| anyhow!("SynthStore::append requires an asserter; call with_asserter or discover_for first"))?;
+        let asserter = self.asserter.as_deref().ok_or_else(|| {
+            anyhow!(
+                "SynthStore::append requires an asserter; call with_asserter or discover_for first"
+            )
+        })?;
         let writer = self
             .log_writer
             .as_ref()
@@ -730,7 +727,12 @@ mod tests {
         assert_eq!(lines.len(), 1);
 
         let doc: Value = serde_json::from_str(lines[0]).unwrap();
-        assert!(doc["@id"].as_str().unwrap().starts_with("synthesist:claim/"));
+        assert!(
+            doc["@id"]
+                .as_str()
+                .unwrap()
+                .starts_with("synthesist:claim/")
+        );
         assert_eq!(doc["@type"].as_str().unwrap(), "synthesist:Task");
     }
 

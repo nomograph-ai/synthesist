@@ -43,17 +43,11 @@ pub enum ManifestError {
 
     /// The file is not valid TOML or does not conform to the manifest schema.
     #[error("manifest parse error in '{path}': {cause}")]
-    Parse {
-        path: String,
-        cause: String,
-    },
+    Parse { path: String, cause: String },
 
     /// A required field is absent.
     #[error("manifest '{path}' is missing required field '{field}'")]
-    MissingField {
-        path: String,
-        field: &'static str,
-    },
+    MissingField { path: String, field: &'static str },
 }
 
 // ---------------------------------------------------------------------------
@@ -132,13 +126,12 @@ pub fn load(path: &Path) -> Result<Manifest> {
 /// `source_label` is used only for error messages (e.g. the file path, or
 /// `"<inline>"` in tests).
 pub fn parse_str(text: &str, source_label: &str) -> Result<Manifest> {
-    let raw: RawManifest =
-        toml::from_str(text)
-            .map_err(|e| ManifestError::Parse {
-                path: source_label.to_owned(),
-                cause: e.to_string(),
-            })
-            .context("loading surface manifest")?;
+    let raw: RawManifest = toml::from_str(text)
+        .map_err(|e| ManifestError::Parse {
+            path: source_label.to_owned(),
+            cause: e.to_string(),
+        })
+        .context("loading surface manifest")?;
 
     let name = raw
         .manifest

@@ -1,7 +1,7 @@
 //! Phase claim schema.
 
-use crate::validation::{check_enum, obj, req_str};
 use crate::validation::SchemaResult;
+use crate::validation::{check_enum, obj, req_str};
 use serde_json::Value;
 
 pub const TYPE_NAME: &str = "phase";

@@ -46,24 +46,13 @@ use serde_json::{Map, Value};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SchemaError {
     /// Top-level value is not a JSON object.
-    NotAnObject {
-        claim_type: String,
-    },
+    NotAnObject { claim_type: String },
     /// A required field is missing.
-    MissingField {
-        claim_type: String,
-        field: String,
-    },
+    MissingField { claim_type: String, field: String },
     /// A required string field is present but empty.
-    EmptyString {
-        claim_type: String,
-        field: String,
-    },
+    EmptyString { claim_type: String, field: String },
     /// A required array field is empty.
-    EmptyArray {
-        claim_type: String,
-        field: String,
-    },
+    EmptyArray { claim_type: String, field: String },
     /// A field is the wrong JSON type (e.g. expected string, got
     /// number).
     WrongType {
@@ -81,10 +70,7 @@ pub enum SchemaError {
     /// A free-form schema violation that doesn't fit the structured
     /// variants. Avoid when possible; prefer adding a structured
     /// variant.
-    Other {
-        claim_type: String,
-        message: String,
-    },
+    Other { claim_type: String, message: String },
 }
 
 impl SchemaError {

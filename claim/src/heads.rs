@@ -42,8 +42,8 @@ pub fn current_heads(claims_dir: &Path) -> Result<String> {
         return Ok(hasher.finalize().to_hex().to_string());
     }
 
-    let entries = fs::read_dir(claims_dir)
-        .with_context(|| format!("read {}", claims_dir.display()))?;
+    let entries =
+        fs::read_dir(claims_dir).with_context(|| format!("read {}", claims_dir.display()))?;
 
     let mut asserter_dirs: Vec<std::path::PathBuf> = entries
         .filter_map(|e| e.ok())
@@ -90,8 +90,7 @@ pub fn current_heads(claims_dir: &Path) -> Result<String> {
 }
 
 fn count_lines(path: &Path) -> Result<u64> {
-    let file = fs::File::open(path)
-        .with_context(|| format!("open {}", path.display()))?;
+    let file = fs::File::open(path).with_context(|| format!("open {}", path.display()))?;
     let count = BufReader::new(file).lines().count() as u64;
     Ok(count)
 }
@@ -106,8 +105,7 @@ pub fn write_heads(view_dir: &Path, claims_dir: &Path) -> Result<()> {
         .with_context(|| format!("create view dir {}", view_dir.display()))?;
     let hash = current_heads(claims_dir)?;
     let path = view_dir.join(HEADS_FILE_NAME);
-    fs::write(&path, &hash)
-        .with_context(|| format!("write heads file {}", path.display()))?;
+    fs::write(&path, &hash).with_context(|| format!("write heads file {}", path.display()))?;
     Ok(())
 }
 
@@ -198,9 +196,7 @@ mod tests {
         write_heads(&view_dir, tmp.path()).unwrap();
 
         // Append another claim.
-        writer
-            .append("user:local:agd", &make_claim("new"))
-            .unwrap();
+        writer.append("user:local:agd", &make_claim("new")).unwrap();
 
         assert_eq!(heads_match(&view_dir, tmp.path()).unwrap(), false);
     }
@@ -248,14 +244,10 @@ mod tests {
     fn current_heads_changes_when_new_asserter_appears() {
         let tmp = TempDir::new().unwrap();
         let writer = LogWriter::new(tmp.path()).unwrap();
-        writer
-            .append("user:local:agd", &make_claim("a"))
-            .unwrap();
+        writer.append("user:local:agd", &make_claim("a")).unwrap();
         let h1 = current_heads(tmp.path()).unwrap();
 
-        writer
-            .append("user:local:jkolb", &make_claim("b"))
-            .unwrap();
+        writer.append("user:local:jkolb", &make_claim("b")).unwrap();
         let h2 = current_heads(tmp.path()).unwrap();
 
         assert_ne!(h1, h2);
@@ -265,15 +257,11 @@ mod tests {
     fn current_heads_is_deterministic_across_calls() {
         let tmp = TempDir::new().unwrap();
         let writer = LogWriter::new(tmp.path()).unwrap();
-        writer
-            .append("user:local:agd", &make_claim("d1"))
-            .unwrap();
+        writer.append("user:local:agd", &make_claim("d1")).unwrap();
         writer
             .append("user:local:jkolb", &make_claim("d2"))
             .unwrap();
-        writer
-            .append("user:local:agd", &make_claim("d3"))
-            .unwrap();
+        writer.append("user:local:agd", &make_claim("d3")).unwrap();
 
         let h1 = current_heads(tmp.path()).unwrap();
         let h2 = current_heads(tmp.path()).unwrap();

@@ -18,6 +18,13 @@ use std::path::{Path, PathBuf};
 
 use thiserror::Error;
 
+/// Canonical v3 schema id written to `claims/_schema.json`.
+///
+/// This tracks the on-disk FORMAT, not the binary release tag. The binary
+/// may ship as `3.0.0-rc.1` / `3.0.0` / etc., but the format produced by
+/// the v2-to-v3 migration is stable and identified as `"3.0.0"`.
+pub const V3_SCHEMA_VERSION: &str = "3.0.0";
+
 // ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
@@ -58,7 +65,7 @@ pub struct MigrationReport {
 pub trait Migration: Send + Sync {
     /// Source schema version this migration reads from (e.g. `"2.x"`).
     fn source_version(&self) -> &'static str;
-    /// Target schema version this migration produces (e.g. `"3.0.0-pre.1"`).
+    /// Target schema version this migration produces (e.g. `"3.0.0"`).
     fn to_version(&self) -> &'static str;
     /// One-line human description shown by `migrate list`.
     fn description(&self) -> &'static str;
@@ -79,7 +86,9 @@ pub trait Migration: Send + Sync {
 pub enum MigrationError {
     #[error("io: {0}")]
     Io(#[from] std::io::Error),
-    #[error("unsupported claim type: {ty} -- v2-to-v3 migration handles synthesist-owned claim types only; if your store contains lattice-typed claims, surface this to the synthesist authors")]
+    #[error(
+        "unsupported claim type: {ty} -- v2-to-v3 migration handles synthesist-owned claim types only; if your store contains lattice-typed claims, surface this to the synthesist authors"
+    )]
     UnsupportedClaimType { ty: String },
     #[error("no migration applicable: {0}")]
     NoApplicableMigration(String),

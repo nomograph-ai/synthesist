@@ -2,7 +2,7 @@
 //!
 //! Schema file shape:
 //! ```json
-//! { "schema_version": "3.0.0-pre.1", "migrated_at": "2026-05-29T14:00:00.000Z" }
+//! { "schema_version": "3.0.0", "migrated_at": "2026-05-29T14:00:00.000Z" }
 //! ```
 //!
 //! Missing file is valid: it means either a fresh v3 store (no migration
@@ -42,8 +42,7 @@ pub fn read(claims_dir: &Path) -> Result<Option<SchemaRecord>, MigrationError> {
 
 /// Write `claims/_schema.json` with the given version and current UTC timestamp.
 pub fn write(claims_dir: &Path, version: &str, at: DateTime<Utc>) -> Result<(), MigrationError> {
-    std::fs::create_dir_all(claims_dir)
-        .map_err(MigrationError::Io)?;
+    std::fs::create_dir_all(claims_dir).map_err(MigrationError::Io)?;
     let record = SchemaRecord {
         schema_version: version.to_string(),
         migrated_at: at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
@@ -51,7 +50,6 @@ pub fn write(claims_dir: &Path, version: &str, at: DateTime<Utc>) -> Result<(), 
     let path = claims_dir.join(SCHEMA_FILE);
     let json = serde_json::to_string_pretty(&record)
         .map_err(|e| MigrationError::Io(std::io::Error::other(e.to_string())))?;
-    std::fs::write(&path, json)
-        .map_err(MigrationError::Io)?;
+    std::fs::write(&path, json).map_err(MigrationError::Io)?;
     Ok(())
 }

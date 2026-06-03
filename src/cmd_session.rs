@@ -4,8 +4,8 @@
 //! asserter. `session close` writes a superseding Session claim.
 //! Reads (`list`, `status`) walk the redb gamma index.
 
-use anyhow::{Result, anyhow, bail};
 use crate::claim_type::ClaimType;
+use anyhow::{Result, anyhow, bail};
 use serde_json::{Value, json};
 
 use crate::cli::SessionCmd;
@@ -22,15 +22,13 @@ pub fn run(cmd: &SessionCmd, session: &Option<String>) -> Result<()> {
         } => cmd_session_start(id, tree.as_deref(), spec.as_deref(), summary.as_deref()),
         SessionCmd::List => cmd_session_list(),
         SessionCmd::Status { id } => cmd_session_status(id),
-        SessionCmd::Merge { .. } => bail!(
-            "session merge removed in v2; merges are automatic (git pull; CRDT merge)."
-        ),
-        SessionCmd::Discard { .. } => bail!(
-            "session discard removed in v2; use `synthesist session close <id>` instead."
-        ),
-        SessionCmd::Close { id, start_id } => {
-            cmd_session_close(id, start_id.as_deref(), session)
+        SessionCmd::Merge { .. } => {
+            bail!("session merge removed in v2; merges are automatic (git pull; CRDT merge).")
         }
+        SessionCmd::Discard { .. } => {
+            bail!("session discard removed in v2; use `synthesist session close <id>` instead.")
+        }
+        SessionCmd::Close { id, start_id } => cmd_session_close(id, start_id.as_deref(), session),
     }
 }
 
@@ -274,8 +272,7 @@ fn cmd_session_close(id: &str, start_id: Option<&str>, session: &Option<String>)
                 }
                 1 => matched.into_iter().next().unwrap(),
                 _ => {
-                    let ids: Vec<String> =
-                        matched.iter().map(|c| short_claim_id(&c.iri)).collect();
+                    let ids: Vec<String> = matched.iter().map(|c| short_claim_id(&c.iri)).collect();
                     bail!(
                         "--start-id '{prefix}' is ambiguous among {} live sessions named '{id}' \
                          (candidates: {}); supply a longer prefix",
