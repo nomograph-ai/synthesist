@@ -139,19 +139,31 @@ impl Migration for V2ToV3 {
                 continue;
             }
 
-            let doc = v2_claim_to_v3(claim);
-
-            let asserter_str = claim.asserted_by.as_str();
-            if asserter::parse(asserter_str).is_err() {
+            // LOSSLESS legacy-asserter normalization (migration only). Map
+            // known v2 legacy shapes -- a 2-segment `user:migration-v1-v2`
+            // artifact, and path-unsafe chars in a segment (e.g. a `/` in a
+            // session) -- into the strict v3 grammar BEFORE the strict parse,
+            // so historical claims are not dropped. Normalize ONCE here: the
+            // SAME value MUST feed both the append target (the log dir) AND the
+            // doc's prov:wasAttributedTo, or the two would disagree.
+            let normalized = asserter::normalize_legacy(claim.asserted_by.as_str());
+            if asserter::parse(&normalized).is_err() {
                 skipped.push(format!(
-                    "skipped {}: invalid asserter {asserter_str}",
-                    claim.id
+                    "skipped {}: invalid asserter {} (normalized {normalized})",
+                    claim.id, claim.asserted_by
                 ));
                 continue;
             }
 
+            // Build the doc from a clone carrying the normalized asserter so
+            // prov:wasAttributedTo == asserter:<normalized>, matching the
+            // append target below.
+            let mut normalized_claim = claim.clone();
+            normalized_claim.asserted_by = normalized.clone();
+            let doc = v2_claim_to_v3(&normalized_claim);
+
             if let Some(w) = &writer {
-                w.append(asserter_str, &doc).map_err(|e| {
+                w.append(&normalized, &doc).map_err(|e| {
                     MigrationError::Failed(format!("append claim {}: {e}", claim.id))
                 })?;
             }
@@ -431,6 +443,50 @@ mod tests {
                 ty.as_str()
             );
         }
+    }
+
+    #[test]
+    fn legacy_two_segment_asserter_doc_uses_normalized_attribution() {
+        // A 2-segment legacy asserter must normalize to local-scope BOTH in
+        // the doc's prov:wasAttributedTo AND (in run()) the append target.
+        // Here we assert the doc attribution matches the normalized value,
+        // mirroring what run() builds.
+        let mut claim = fake_claim(
+            ClaimType::Task,
+            "abc123def456fed7",
+            json!({"status": "done"}),
+        );
+        claim.asserted_by = "user:migration-v1-v2".to_string();
+        let normalized = asserter::normalize_legacy(claim.asserted_by.as_str());
+        assert_eq!(normalized, "user:local:migration-v1-v2");
+        let mut normalized_claim = claim.clone();
+        normalized_claim.asserted_by = normalized.clone();
+        let v3 = v2_claim_to_v3(&normalized_claim);
+        assert_eq!(
+            v3["prov:wasAttributedTo"],
+            Value::String("asserter:user:local:migration-v1-v2".into()),
+            "doc attribution must equal asserter:<normalized>"
+        );
+    }
+
+    #[test]
+    fn legacy_slash_session_asserter_normalizes_for_doc() {
+        let mut claim = fake_claim(
+            ClaimType::Task,
+            "deadbeefdeadbeef",
+            json!({"status": "done"}),
+        );
+        claim.asserted_by = "user:local:alex:ops/ps-168-rollout".to_string();
+        let normalized = asserter::normalize_legacy(claim.asserted_by.as_str());
+        assert_eq!(normalized, "user:local:alex:ops-ps-168-rollout");
+        assert!(asserter::parse(&normalized).is_ok());
+        let mut normalized_claim = claim.clone();
+        normalized_claim.asserted_by = normalized.clone();
+        let v3 = v2_claim_to_v3(&normalized_claim);
+        assert_eq!(
+            v3["prov:wasAttributedTo"],
+            Value::String("asserter:user:local:alex:ops-ps-168-rollout".into())
+        );
     }
 
     #[test]

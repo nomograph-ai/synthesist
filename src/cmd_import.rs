@@ -314,10 +314,14 @@ fn extract_replay_args(doc: &Value) -> Result<ReplayArgs> {
         .get(wire_format::ATTRIBUTED_TO_PRED)
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow!("claims_raw entry missing prov:wasAttributedTo"))?;
-    let asserter = asserter_iri
+    let asserter_bare = asserter_iri
         .strip_prefix("asserter:")
-        .unwrap_or(asserter_iri)
-        .to_string();
+        .unwrap_or(asserter_iri);
+    // Route through the legacy normalizer defensively: it is a no-op for an
+    // already-valid v3 asserter, but keeps the v2 and v3 import paths on one
+    // code path so a legacy-shape attribution that survived into a v3 export
+    // (e.g. a re-exported migrated estate) is repaired rather than dropped.
+    let asserter = nomograph_claim::asserter::normalize_legacy(asserter_bare);
     // Validate the imported attribution before it is ever used to route a
     // write. An import file is untrusted input; a malicious
     // `prov:wasAttributedTo` (e.g. `user:..:..:x` or one carrying a path
@@ -405,14 +409,20 @@ fn extract_v2_row(entry: &Value) -> Result<ReplayArgs> {
     let claim_type = claim_type_from_snake(type_str)
         .ok_or_else(|| anyhow!("unknown v2 claim_type: {type_str}"))?;
 
-    let asserter = obj
+    let asserted_by_raw = obj
         .get("asserted_by")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow!("v2 row missing asserted_by"))?
-        .to_string();
+        .ok_or_else(|| anyhow!("v2 row missing asserted_by"))?;
+    // LOSSLESS legacy-asserter normalization (migration/import only). Maps
+    // known v2 legacy shapes -- a 2-segment `user:migration-v1-v2` artifact,
+    // and path-unsafe chars in a segment (e.g. a `/` in a session) -- into the
+    // strict v3 grammar BEFORE the strict parse, so historical claims are not
+    // dropped. It does NOT relax `parse`; the normalized string is still
+    // validated below. It is a no-op for already-valid v3 asserters.
+    let asserter = nomograph_claim::asserter::normalize_legacy(asserted_by_raw);
     // Untrusted input -- a malicious asserter could drive a write outside
-    // the claims tree. Validate before it routes any write. Mirror the v3
-    // path; the caller treats this Err as "skip".
+    // the claims tree. Validate the NORMALIZED string before it routes any
+    // write. Mirror the v3 path; the caller treats this Err as "skip".
     nomograph_claim::asserter::parse(&asserter)
         .map_err(|e| anyhow!("invalid asserted_by {asserter:?}: {e}"))?;
 

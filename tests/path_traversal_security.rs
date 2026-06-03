@@ -12,7 +12,16 @@
 //!
 //! Before the fix, a value containing `..` or `/` could redirect the
 //! write outside the claims tree. These tests drive the real binary and
-//! assert the write is rejected and nothing lands outside `claims/`.
+//! assert nothing lands outside `claims/`.
+//!
+//! Two safe outcomes uphold that invariant, depending on the source:
+//!   - `--session` / `$USER` (live write path): the value is parse-guarded
+//!     and the write is REJECTED.
+//!   - `import` `prov:wasAttributedTo` (migration/import path): the value is
+//!     first run through the lossless legacy-asserter normalizer, which
+//!     collapses path-unsafe characters to `-`, so a traversal attribution is
+//!     NEUTRALIZED into a safe in-tree directory rather than dropped. Either
+//!     way, nothing escapes `claims/`.
 
 use std::fs;
 use std::process::Command;
@@ -126,10 +135,19 @@ fn user_with_traversal_is_handled() {
     assert_only_under_claims(tmp.path(), &tmp.path().join("claims"));
 }
 
-// -- Vector 3: import with a malicious prov:wasAttributedTo is skipped,
-//    writes nothing outside claims/. --
+// -- Vector 3: import with a malicious prov:wasAttributedTo is NEUTRALIZED
+//    (sanitized into a safe in-tree dir), writes nothing outside claims/.
+//
+//    The lossless legacy-asserter normalizer (migration/import path) replaces
+//    every path-unsafe character in an asserter segment with `-` BEFORE the
+//    strict parse. A traversal attribution like `user:local:../../../pwned`
+//    therefore no longer reaches `parse` verbatim: its `/`-laden id segment is
+//    collapsed to a single path-safe segment, so the claim lands UNDER
+//    `claims/` (under a hyphenated dir name) instead of being rejected. The
+//    security guarantee is unchanged -- nothing escapes the claims tree -- but
+//    the claim is preserved rather than dropped, matching the lossless policy.
 #[test]
-fn import_with_malicious_attribution_is_skipped() {
+fn import_with_malicious_attribution_is_neutralized_in_tree() {
     let tmp = tempfile::tempdir().unwrap();
     synth(&tmp).args(["init"]).assert().success();
     // Import writes claims, so the session needs a write-permitting phase.
@@ -163,18 +181,23 @@ fn import_with_malicious_attribution_is_skipped() {
         .stdout
         .clone();
     let report: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    // The claim is preserved (normalized), not dropped. The security property
+    // -- nothing escapes claims/ -- is asserted below.
     assert_eq!(
         report["imported"].as_u64(),
-        Some(0),
-        "malicious attribution must not be imported"
+        Some(1),
+        "traversal attribution is sanitized and imported in-tree, not dropped"
     );
     assert_eq!(
         report["skipped"].as_u64(),
-        Some(1),
-        "malicious attribution must be skipped"
+        Some(0),
+        "the sanitized attribution parses, so nothing is skipped"
     );
 
-    // Nothing escaped the claims tree.
+    // THE security guarantee: nothing escaped the claims tree. The traversal
+    // segment was collapsed to a single hyphenated dir name; no file or dir
+    // named `pwned` exists outside claims/, and every claim artifact stays
+    // under claims/.
     assert!(!tmp.path().join("pwned").exists());
     assert_only_under_claims(tmp.path(), &tmp.path().join("claims"));
 }

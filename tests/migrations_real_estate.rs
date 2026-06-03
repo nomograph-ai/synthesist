@@ -49,6 +49,16 @@ fn export_json_path() -> PathBuf {
         .join("export_v2_5_2.json")
 }
 
+/// Path to the distilled legacy-asserter export (the real-bug regression).
+fn legacy_asserters_export_path() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("claim")
+        .join("tests")
+        .join("fixtures")
+        .join("v2_estates")
+        .join("legacy_asserters_export.json")
+}
+
 /// Recursively copy `src` into `dst`.
 fn copy_dir(src: &Path, dst: &Path) {
     fs::create_dir_all(dst).unwrap();
@@ -341,5 +351,118 @@ fn import_v2_export_imports_all_rows() {
         status.status.success(),
         "status should succeed; stderr: {}",
         String::from_utf8_lossy(&status.stderr)
+    );
+}
+
+// ---------------------------------------------------------------------------
+// THE REAL-ESTATE REGRESSION: lossless legacy-asserter normalization.
+//
+// Distilled from Josh's v2.5.1 export. Two legacy asserter shapes the strict
+// v3 grammar rejects -- a 2-segment `user:migration-v1-v2` and a `/` in a
+// session segment -- caused 631 claims to be DROPPED and supersession chains
+// to break on the real estate. The normalizer must map both into the strict
+// grammar BEFORE strict parse so EVERY row imports (imported == row_count,
+// skipped == 0) and the supersedes ref from a normal row to the 2-segment
+// legacy row resolves (zero dangling).
+// ---------------------------------------------------------------------------
+
+#[test]
+fn import_legacy_asserters_export_is_lossless() {
+    let temp = TempDir::new().unwrap();
+
+    let init = synth(temp.path()).args(["init"]).output().unwrap();
+    assert!(
+        init.status.success(),
+        "init should succeed; stderr: {}",
+        String::from_utf8_lossy(&init.stderr)
+    );
+
+    // row_count from the export itself (single source of truth).
+    let export_raw = fs::read_to_string(legacy_asserters_export_path()).unwrap();
+    let export: Value = serde_json::from_str(&export_raw).unwrap();
+    let rows = export["claims_raw"].as_array().unwrap();
+    let row_count = rows.len();
+    assert_eq!(row_count, 8, "fixture sanity: export has 8 rows");
+    // Fixture precondition: at least one 2-segment legacy asserter and at
+    // least one slash-session asserter are present -- the shapes the bug
+    // dropped. Without the normalizer these rows skip on strict parse.
+    let asserters: Vec<&str> = rows
+        .iter()
+        .filter_map(|r| r["asserted_by"].as_str())
+        .collect();
+    assert!(
+        asserters.contains(&"user:migration-v1-v2"),
+        "fixture must carry the 2-segment legacy asserter"
+    );
+    assert!(
+        asserters
+            .iter()
+            .any(|a| a == &"user:local:alexromano:ops/ps-168-rollout"),
+        "fixture must carry a slash-session asserter"
+    );
+
+    let export_path = legacy_asserters_export_path();
+    let output = synth(temp.path())
+        .args(["import", export_path.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "import should succeed; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let v: Value = serde_json::from_str(std::str::from_utf8(&output.stdout).unwrap()).unwrap();
+    assert_eq!(
+        v["imported"].as_u64().unwrap() as usize,
+        row_count,
+        "EVERY row must import after legacy-asserter normalization (real-estate bug): {v}"
+    );
+    assert_eq!(
+        v["skipped"].as_u64().unwrap(),
+        0,
+        "no legacy-asserter row should be skipped: {v}"
+    );
+    assert_eq!(
+        v["dangling_supersedes"].as_u64().unwrap(),
+        0,
+        "the supersedes ref to the 2-segment legacy row must resolve (not dangle): {v}"
+    );
+
+    // The 2-segment legacy asserter must have landed in its normalized,
+    // local-scoped log dir -- proving the append target used the normalized
+    // value (NOT the raw 2-segment string, which is not a valid dir name).
+    let legacy_log = temp
+        .path()
+        .join("claims")
+        .join("user-local-migration-v1-v2")
+        .join("log.jsonl");
+    assert!(
+        legacy_log.exists(),
+        "2-segment legacy asserter must land in normalized local-scope log dir"
+    );
+
+    // `synthesist check` must report ZERO dangling_supersedes and zero errors.
+    let check = synth(temp.path()).args(["check"]).output().unwrap();
+    let cv: Value = serde_json::from_str(std::str::from_utf8(&check.stdout).unwrap()).unwrap();
+    let dangling = cv["issues"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter(|i| i["kind"] == "dangling_supersedes")
+                .count()
+        })
+        .unwrap_or(0);
+    assert_eq!(
+        dangling, 0,
+        "synthesist check must report zero dangling_supersedes after lossless import: {cv}"
+    );
+    let errors = cv["issues"]
+        .as_array()
+        .map(|arr| arr.iter().filter(|i| i["level"] == "error").count())
+        .unwrap_or(0);
+    assert_eq!(
+        errors, 0,
+        "synthesist check must report zero errors after lossless import: {cv}"
     );
 }

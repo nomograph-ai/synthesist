@@ -83,6 +83,88 @@ fn segment_is_path_safe(seg: &str) -> bool {
         .any(|c| c == '/' || c == '\\' || c == '\0' || c.is_control())
 }
 
+/// Map a single asserter segment to a path-safe form by replacing any
+/// unsafe character with `-` and collapsing a bare `..`/`.` traversal
+/// token to `-`. Mirror of the rejection rule in [`segment_is_path_safe`]:
+/// every input that function would reject becomes safe here, and every
+/// input it accepts is returned unchanged.
+///
+/// Migration/import only -- see [`normalize_legacy`].
+fn normalize_segment(seg: &str) -> String {
+    if seg == ".." {
+        return "-".to_string();
+    }
+    if seg == "." {
+        return "-".to_string();
+    }
+    seg.chars()
+        .map(|c| {
+            if c == '/' || c == '\\' || c == '\0' || c.is_control() {
+                '-'
+            } else {
+                c
+            }
+        })
+        .collect()
+}
+
+/// Normalize a known-legacy v2 asserter string into the strict v3 grammar.
+///
+/// **Migration/import only.** Maps known legacy v2 asserter shapes into the
+/// strict v3 grammar so historical claims are not dropped. The result is
+/// still validated by [`parse`]; the live write path never calls this.
+///
+/// This function does NOT relax [`parse`]. It is a pure, deterministic
+/// string transform that produces a string which is THEN handed to the
+/// strict parser. Anything it cannot map into the grammar stays
+/// unparseable and is honestly skipped by the caller.
+///
+/// Two legacy shapes are repaired, matching real v2.5.x production exports:
+///
+/// 1. **2-segment legacy asserter** (`class:name`, no scope/id split) -- an
+///    artifact of an earlier v1->v2 migration, e.g. `user:migration-v1-v2`.
+///    The missing scope is defaulted to `local`, keeping the trailing name
+///    as the id: `user:migration-v1-v2` -> `user:local:migration-v1-v2`.
+///    Applied identically to `agent:` and `ingest:`.
+///
+/// 2. **Path-unsafe characters in any segment** -- e.g. a `/` in a session
+///    suffix (`user:local:alex:ops/ps-168-rollout`), which the strict
+///    grammar rejects as path-unsafe. Every unsafe character (`/`, `\`,
+///    NUL, control) is replaced with `-`, and a segment equal to `..`/`.`
+///    becomes `-`, so the result is path-safe:
+///    `user:local:alex:ops/ps-168-rollout`
+///    -> `user:local:alex:ops-ps-168-rollout`.
+///
+/// The transform is idempotent on already-valid v3 asserters (a no-op),
+/// which lets the import path route both v2 and v3 inputs through one
+/// code path.
+pub fn normalize_legacy(raw: &str) -> String {
+    // An empty string or a string with no recognized class is left
+    // untouched -- it is real junk and must stay unparseable.
+    let parts: Vec<&str> = raw.splitn(5, ':').collect();
+    let class = match parts.first() {
+        Some(&"user") | Some(&"agent") | Some(&"ingest") => parts[0],
+        _ => return raw.to_string(),
+    };
+
+    // Shape (1): a 2-segment `class:name` legacy asserter. Insert the
+    // default scope `local`, keeping `name` as the id. Recurse so the
+    // newly-3-segment string also gets per-segment path-safe normalization.
+    if parts.len() == 2 {
+        return normalize_legacy(&format!("{class}:local:{}", parts[1]));
+    }
+
+    // Shape (2): per-segment path-safe normalization of scope/id/session.
+    // (parts[0] is the already-validated class; segments 1.. are content.)
+    let mut out = String::with_capacity(raw.len());
+    out.push_str(class);
+    for seg in &parts[1..] {
+        out.push(':');
+        out.push_str(&normalize_segment(seg));
+    }
+    out
+}
+
 /// The class of an asserter, indicating what kind of entity wrote the claim.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AsserterClass {
@@ -482,6 +564,120 @@ mod tests {
         let a = parse(s).unwrap();
         let b = parse(s).unwrap();
         assert_eq!(a.dir_name(), b.dir_name());
+    }
+
+    // -- normalize_legacy: migration/import-only legacy-shape repair --
+
+    #[test]
+    fn normalize_two_segment_user_inserts_local_scope() {
+        // The real v1->v2 migration artifact: `user:migration-v1-v2`.
+        let n = normalize_legacy("user:migration-v1-v2");
+        assert_eq!(n, "user:local:migration-v1-v2");
+        // The normalized string parses, and keeps the name as the id.
+        let a = parse(&n).unwrap();
+        assert_eq!(a.class(), &AsserterClass::User);
+        assert_eq!(a.scope(), "local");
+        assert_eq!(a.id(), "migration-v1-v2");
+        assert_eq!(a.session(), None);
+    }
+
+    #[test]
+    fn normalize_two_segment_agent_and_ingest_insert_local() {
+        assert_eq!(normalize_legacy("agent:some-bot"), "agent:local:some-bot");
+        assert_eq!(
+            normalize_legacy("ingest:some-feed"),
+            "ingest:local:some-feed"
+        );
+        assert!(parse(&normalize_legacy("agent:some-bot")).is_ok());
+        assert!(parse(&normalize_legacy("ingest:some-feed")).is_ok());
+    }
+
+    #[test]
+    fn normalize_slash_in_session_is_hyphenated_and_parses() {
+        // The real path-unsafe-session shapes.
+        let cases = [
+            (
+                "user:local:alexromano:ops/ps-168-rollout",
+                "user:local:alexromano:ops-ps-168-rollout",
+                "ops-ps-168-rollout",
+            ),
+            (
+                "user:local:User21:ng-fusion/infra-terraform-migration",
+                "user:local:User21:ng-fusion-infra-terraform-migration",
+                "ng-fusion-infra-terraform-migration",
+            ),
+            (
+                "user:local:User1.baron:legacy-website/dev-environment-ecs",
+                "user:local:User1.baron:legacy-website-dev-environment-ecs",
+                "legacy-website-dev-environment-ecs",
+            ),
+        ];
+        for (raw, expected, sess) in cases {
+            let n = normalize_legacy(raw);
+            assert_eq!(n, expected, "normalize {raw}");
+            let a = parse(&n).unwrap_or_else(|e| panic!("normalized {n} must parse: {e}"));
+            assert_eq!(a.session(), Some(sess));
+        }
+    }
+
+    #[test]
+    fn normalize_path_unsafe_in_scope_and_id() {
+        // Unsafe chars in any segment (not just session) are hyphenated.
+        assert_eq!(normalize_legacy("user:a/b:c\\d"), "user:a-b:c-d");
+        assert!(parse(&normalize_legacy("user:a/b:c\\d")).is_ok());
+        // A bare traversal token collapses to a single hyphen.
+        assert_eq!(normalize_legacy("user:..:agd"), "user:-:agd");
+        assert!(parse(&normalize_legacy("user:..:agd")).is_ok());
+    }
+
+    #[test]
+    fn normalize_idempotent_on_valid_v3() {
+        // Already-valid v3 asserters are unchanged (no-op), so the import
+        // path can route v2 and v3 through one normalizer.
+        let valid = [
+            "user:local:agd",
+            "user:local:agd:edc-bootstrap",
+            "agent:claude-opus-4-7:sess-abc123",
+            "ingest:gitlab:nomograph-keaton",
+            "user:github:agd:overnight-deploy",
+        ];
+        for s in valid {
+            assert_eq!(normalize_legacy(s), s, "must be a no-op for {s}");
+            assert!(parse(&normalize_legacy(s)).is_ok());
+            // Idempotent: normalizing twice equals normalizing once.
+            assert_eq!(normalize_legacy(&normalize_legacy(s)), normalize_legacy(s));
+        }
+    }
+
+    #[test]
+    fn normalize_known_shapes_always_parse() {
+        // For every known legacy shape, the normalized result parses.
+        let known = [
+            "user:migration-v1-v2",
+            "agent:legacy-bot",
+            "ingest:legacy-feed",
+            "user:local:alex:ops/ps-168-rollout",
+            "user:local:User1.baron:legacy-website/dev-environment-ecs",
+        ];
+        for s in known {
+            let n = normalize_legacy(s);
+            assert!(parse(&n).is_ok(), "normalized {s} -> {n} must parse");
+        }
+    }
+
+    #[test]
+    fn normalize_junk_stays_unparseable() {
+        // Real junk: empty, class-only, unknown class. Normalization is a
+        // no-op (or local-scope insert that still cannot satisfy the
+        // grammar), and parse still rejects it -- honestly skipped.
+        assert_eq!(normalize_legacy(""), "");
+        assert!(parse(&normalize_legacy("")).is_err());
+        // class-only (1 segment): unchanged, still missing scope+id.
+        assert_eq!(normalize_legacy("user"), "user");
+        assert!(parse(&normalize_legacy("user")).is_err());
+        // unknown class: left untouched, still rejected.
+        assert_eq!(normalize_legacy("system:local:bot"), "system:local:bot");
+        assert!(parse(&normalize_legacy("system:local:bot")).is_err());
     }
 
     #[test]

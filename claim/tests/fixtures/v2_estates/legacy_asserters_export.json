@@ -1,0 +1,117 @@
+{
+  "version": "2",
+  "exported": "2026-01-04",
+  "_note": "Distilled from Josh's REAL v2.5.1 production export. Reproduces the two legacy asserter shapes that the strict v3 grammar rejects, WITHOUT committing the 16MB original. Shape 1: a 2-segment legacy asserter 'user:migration-v1-v2' (an artifact of an earlier v1->v2 migration; no scope:id split). Shape 2: a path-unsafe '/' in the session segment. A correct lossless normalizer maps both into the strict grammar so NO row is dropped. Row 5 (a normal asserter) supersedes row 2 (the 2-segment legacy asserter) -- before the fix that target row was dropped and the supersedes ref dangled; after the fix it resolves. Props are schema-valid so `synthesist check` reports zero errors.",
+  "claims_raw": [
+    {
+      "id": "1111111111111111111111111111111111111111111111111111111111111111",
+      "claim_type": "tree",
+      "props": { "name": "synthesist", "root": true },
+      "valid_from": "2026-01-02T09:00:00Z",
+      "valid_until": null,
+      "supersedes": null,
+      "asserted_by": "user:local:agd",
+      "asserted_at": "2026-01-02T09:00:00Z"
+    },
+    {
+      "id": "2222222222222222222222222222222222222222222222222222222222222222",
+      "claim_type": "spec",
+      "props": {
+        "tree": "synthesist",
+        "id": "legacy-spec",
+        "goal": "carry legacy-migrated spec through v2->v3",
+        "status": "draft",
+        "topics": ["migration"]
+      },
+      "valid_from": "2026-01-02T09:05:00Z",
+      "valid_until": "2026-01-02T11:30:00Z",
+      "supersedes": null,
+      "asserted_by": "user:migration-v1-v2",
+      "asserted_at": "2026-01-02T09:05:00Z"
+    },
+    {
+      "id": "3333333333333333333333333333333333333333333333333333333333333333",
+      "claim_type": "task",
+      "props": {
+        "tree": "synthesist",
+        "spec": "legacy-spec",
+        "id": "ps-168",
+        "summary": "ps-168 rollout",
+        "status": "pending"
+      },
+      "valid_from": "2026-01-02T09:10:00Z",
+      "valid_until": null,
+      "supersedes": null,
+      "asserted_by": "user:local:alexromano:ops/ps-168-rollout",
+      "asserted_at": "2026-01-02T09:10:00Z"
+    },
+    {
+      "id": "4444444444444444444444444444444444444444444444444444444444444444",
+      "claim_type": "session",
+      "props": { "id": "infra-terraform-migration", "tree": "synthesist" },
+      "valid_from": "2026-01-02T09:15:00Z",
+      "valid_until": null,
+      "supersedes": null,
+      "asserted_by": "user:local:User21:ng-fusion/infra-terraform-migration",
+      "asserted_at": "2026-01-02T09:15:00Z"
+    },
+    {
+      "id": "5555555555555555555555555555555555555555555555555555555555555555",
+      "claim_type": "spec",
+      "props": {
+        "tree": "synthesist",
+        "id": "legacy-spec",
+        "goal": "carry legacy-migrated spec through v2->v3",
+        "status": "active",
+        "topics": ["migration"]
+      },
+      "valid_from": "2026-01-02T11:30:00Z",
+      "valid_until": null,
+      "supersedes": "2222222222222222222222222222222222222222222222222222222222222222",
+      "asserted_by": "user:local:agd",
+      "asserted_at": "2026-01-02T11:30:00Z"
+    },
+    {
+      "id": "6666666666666666666666666666666666666666666666666666666666666666",
+      "claim_type": "outcome",
+      "props": { "tree": "synthesist", "spec": "legacy-spec", "status": "completed" },
+      "valid_from": "2026-01-02T11:35:00Z",
+      "valid_until": null,
+      "supersedes": null,
+      "asserted_by": "user:local:User1.baron:legacy-website/dev-environment-ecs",
+      "asserted_at": "2026-01-02T11:35:00Z"
+    },
+    {
+      "id": "7777777777777777777777777777777777777777777777777777777777777777",
+      "claim_type": "discovery",
+      "props": {
+        "tree": "synthesist",
+        "spec": "legacy-spec",
+        "id": "disc-1",
+        "date": "2026-01-02",
+        "finding": "legacy asserters drop on strict parse"
+      },
+      "valid_from": "2026-01-02T11:40:00Z",
+      "valid_until": null,
+      "supersedes": null,
+      "asserted_by": "user:local:jkolb",
+      "asserted_at": "2026-01-02T11:40:00Z"
+    },
+    {
+      "id": "8888888888888888888888888888888888888888888888888888888888888888",
+      "claim_type": "task",
+      "props": {
+        "tree": "synthesist",
+        "spec": "legacy-spec",
+        "id": "wire-normalizer",
+        "summary": "wire normalizer",
+        "status": "pending"
+      },
+      "valid_from": "2026-01-02T11:45:00Z",
+      "valid_until": null,
+      "supersedes": null,
+      "asserted_by": "agent:claude-opus-4-7:sess-legacy",
+      "asserted_at": "2026-01-02T11:45:00Z"
+    }
+  ]
+}
