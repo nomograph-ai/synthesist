@@ -373,14 +373,7 @@ fn normalise_var(var: &str, var_map: &mut HashMap<String, usize>) -> String {
 /// Classify a FILTER expression into a coarse kind string.
 fn classify_filter(expr: &Expression) -> String {
     match expr {
-        Expression::Equal(_, b) => {
-            // literal-eq when either side is a literal.
-            if matches!(b.as_ref(), Expression::Literal(_)) {
-                "literal-eq".to_string()
-            } else {
-                "literal-eq".to_string()
-            }
-        }
+        Expression::Equal(_, _) => "literal-eq".to_string(),
         Expression::FunctionCall(f, _) => {
             use spargebra::algebra::Function;
             match f {

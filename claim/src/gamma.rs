@@ -200,12 +200,11 @@ impl Gamma {
                     if pred == "@id" || pred == "@context" {
                         continue;
                     }
-                    if pred == GENERATED_AT_PRED {
-                        if let Some(ts) = value.as_str() {
-                            if !is_canonical_datetime(ts) {
-                                datetime_violations += 1;
-                            }
-                        }
+                    if pred == GENERATED_AT_PRED
+                        && let Some(ts) = value.as_str()
+                        && !is_canonical_datetime(ts)
+                    {
+                        datetime_violations += 1;
                     }
                     for obj_str in scalar_members(value) {
                         insert_triple(&mut pos, &mut pso, pred, &id, &obj_str)?;
@@ -838,7 +837,7 @@ fn insert_triple(
 ///
 /// - String -> one member (the string).
 /// - Array  -> each STRING element is a member; nested objects are NOT
-///             shredded (they remain in the doc, read by H8).
+///   shredded (they remain in the doc, read by H8).
 /// - Bool / Number -> stringified (rare on the query surface).
 /// - Object / Null -> no members (read from the doc when needed).
 fn scalar_members(value: &Value) -> Vec<String> {

@@ -57,7 +57,7 @@ pub struct MigrationReport {
 /// registry and be shared across threads.
 pub trait Migration: Send + Sync {
     /// Source schema version this migration reads from (e.g. `"2.x"`).
-    fn from_version(&self) -> &'static str;
+    fn source_version(&self) -> &'static str;
     /// Target schema version this migration produces (e.g. `"3.0.0-pre.1"`).
     fn to_version(&self) -> &'static str;
     /// One-line human description shown by `migrate list`.

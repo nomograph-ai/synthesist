@@ -30,8 +30,8 @@ fn cmd_list() -> anyhow::Result<()> {
         .iter()
         .map(|m| {
             serde_json::json!({
-                "name": format!("v{}-to-v{}", m.from_version(), m.to_version()),
-                "from_version": m.from_version(),
+                "name": format!("v{}-to-v{}", m.source_version(), m.to_version()),
+                "from_version": m.source_version(),
                 "to_version": m.to_version(),
                 "description": m.description(),
             })
@@ -67,7 +67,7 @@ fn cmd_status() -> anyhow::Result<()> {
             .iter()
             .map(|m| {
                 serde_json::json!({
-                    "from_version": m.from_version(),
+                    "from_version": m.source_version(),
                     "to_version": m.to_version(),
                     "description": m.description(),
                 })
@@ -123,7 +123,7 @@ fn cmd_run(target: Option<&str>, dry_run: bool, no_backup: bool) -> anyhow::Resu
             .iter()
             .map(|m| {
                 serde_json::json!({
-                    "from_version": m.from_version(),
+                    "from_version": m.source_version(),
                     "to_version": m.to_version(),
                     "description": m.description(),
                 })

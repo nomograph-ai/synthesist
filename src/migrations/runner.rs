@@ -36,7 +36,7 @@ fn current_version(root: &Path) -> Result<String, MigrationError> {
     // misclassified partially migrated stores.
     for migration in registry() {
         if migration.detect(root)? {
-            return Ok(migration.from_version().to_string());
+            return Ok(migration.source_version().to_string());
         }
     }
 
@@ -95,7 +95,7 @@ pub fn plan(
         if cursor == resolved_target {
             break;
         }
-        if migration.from_version() == cursor {
+        if migration.source_version() == cursor {
             cursor = migration.to_version().to_string();
             chain.push(migration);
         }

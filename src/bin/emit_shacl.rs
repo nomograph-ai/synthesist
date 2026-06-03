@@ -191,7 +191,7 @@ fn shapes() -> Vec<NodeShape> {
 
 fn emit_prop(prop: &PropShape) -> String {
     let mut lines = Vec::new();
-    lines.push(format!("    sh:property ["));
+    lines.push("    sh:property [".to_string());
     lines.push(format!("        sh:path synthesist:{} ;", prop.path));
 
     match prop.card {

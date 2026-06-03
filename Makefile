@@ -36,8 +36,8 @@ clean: ## Remove all build artifacts (cargo target/ + dist/ + binary)
 test: build ## Run all tests
 	cargo test
 
-lint: ## Run clippy
-	cargo clippy -- -D warnings
+lint: ## Run clippy (matches CI exactly)
+	cargo clippy --release --all-targets -- -D warnings
 
 check: build ## Quick smoke-check (binary --help)
 	./$(BINARY) help > /dev/null

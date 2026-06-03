@@ -29,7 +29,7 @@ use super::{Migration, MigrationError, MigrationOpts, MigrationReport};
 pub struct V2ToV3;
 
 impl Migration for V2ToV3 {
-    fn from_version(&self) -> &'static str {
+    fn source_version(&self) -> &'static str {
         "2.x"
     }
 
@@ -72,7 +72,7 @@ impl Migration for V2ToV3 {
     fn run(&self, root: &Path, opts: &MigrationOpts) -> Result<MigrationReport, MigrationError> {
         let claims = root.join("claims");
         let mut report = MigrationReport {
-            from: self.from_version().to_string(),
+            from: self.source_version().to_string(),
             to: self.to_version().to_string(),
             artifacts_touched: 0,
             backup_path: None,

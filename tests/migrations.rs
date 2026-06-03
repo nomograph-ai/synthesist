@@ -365,6 +365,6 @@ fn migrate_v2_to_v3_equivalent_to_run_with_target() {
 fn registry_contains_v2_to_v3() {
     let reg = registry();
     assert_eq!(reg.len(), 1, "registry should have exactly 1 migration");
-    assert_eq!(reg[0].from_version(), "2.x");
+    assert_eq!(reg[0].source_version(), "2.x");
     assert_eq!(reg[0].to_version(), "3.0.0-pre.1");
 }

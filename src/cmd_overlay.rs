@@ -77,16 +77,16 @@ fn cmd_overlay_run(name: &str, data_dir: Option<&Path>) -> Result<()> {
         Err(_) => (true, 0),
     };
 
-    if let Ok(writer) = TelemetryWriter::new(&claims_dir) {
-        if let Err(e) = writer.record_query(
+    if let Ok(writer) = TelemetryWriter::new(&claims_dir)
+        && let Err(e) = writer.record_query(
             Surface::Cli,
             &representative_query,
             result_count,
             elapsed_ms,
             errored,
-        ) {
-            eprintln!("warning: telemetry record failed: {}", e);
-        }
+        )
+    {
+        eprintln!("warning: telemetry record failed: {}", e);
     }
 
     let hits = run_result.with_context(|| format!("overlay {:?} failed", name))?;
@@ -296,7 +296,7 @@ mod tests {
         let record: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
         assert_eq!(record["surface"].as_str().unwrap(), "cli");
         assert_eq!(record["result_count"].as_u64().unwrap(), 0);
-        assert_eq!(record["errored"].as_bool().unwrap(), false);
+        assert!(!record["errored"].as_bool().unwrap());
         assert!(record.get("bgp_shape").is_some());
         assert!(record.get("latency_ms").is_some());
     }

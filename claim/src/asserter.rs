@@ -96,18 +96,19 @@ pub struct Asserter {
     session: Option<String>,
 }
 
-impl Asserter {
+impl std::fmt::Display for Asserter {
     /// The canonical asserter string (without the `asserter:` IRI prefix).
     /// This is the form stored in git logs and emitted by `synthesist status`.
-    pub fn to_string(&self) -> String {
-        let mut s = format!("{}:{}:{}", self.class.as_str(), self.scope, self.id);
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}:{}:{}", self.class.as_str(), self.scope, self.id)?;
         if let Some(sess) = &self.session {
-            s.push(':');
-            s.push_str(sess);
+            write!(f, ":{sess}")?;
         }
-        s
+        Ok(())
     }
+}
 
+impl Asserter {
     /// The IRI form: `asserter:<class>:<scope>:<id>[:<session>]`.
     ///
     /// This is the value written to `prov:wasAttributedTo` in JSON-LD claims.
@@ -169,13 +170,13 @@ pub fn parse(s: &str) -> Result<Asserter, ParseError> {
 
     let scope = match parts.get(1) {
         None => return Err(ParseError::MissingScope(s.to_string())),
-        Some(seg) if seg.is_empty() => return Err(ParseError::EmptyScope(s.to_string())),
+        Some(&"") => return Err(ParseError::EmptyScope(s.to_string())),
         Some(seg) => seg.to_string(),
     };
 
     let id = match parts.get(2) {
         None => return Err(ParseError::MissingId(s.to_string())),
-        Some(seg) if seg.is_empty() => return Err(ParseError::EmptyId(s.to_string())),
+        Some(&"") => return Err(ParseError::EmptyId(s.to_string())),
         Some(seg) => seg.to_string(),
     };
 
