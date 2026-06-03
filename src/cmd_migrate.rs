@@ -4,7 +4,7 @@
 //! only wires CLI arguments to the migration module and formats output.
 
 use crate::cli::MigrateCmd;
-use crate::migrations::{MigrationError, MigrationOpts, registry, runner};
+use crate::migrations::{MigrationError, MigrationOpts, V3_SCHEMA_VERSION, registry, runner};
 use crate::store::json_out;
 
 /// Top-level dispatch for `synthesist migrate`.
@@ -18,7 +18,9 @@ pub fn run(cmd: &MigrateCmd) -> anyhow::Result<()> {
             no_backup,
         } => cmd_run(target.as_deref(), *dry_run, *no_backup),
         MigrateCmd::V2ToV3 { dry_run } => {
-            cmd_run(Some("3.0.0-pre.1"), *dry_run, false)
+            // Target the v3 schema id explicitly (safest once more
+            // migrations exist; equivalent to `migrate run --target 3.0.0`).
+            cmd_run(Some(V3_SCHEMA_VERSION), *dry_run, false)
         }
     }
 }
@@ -45,19 +47,14 @@ fn cmd_status() -> anyhow::Result<()> {
     let root = std::env::current_dir()?;
     let claims = root.join("claims");
 
-    // Read schema record if present.
+    // Read schema record if present (for migrated_at only).
     let schema_record = crate::migrations::schema::read(&claims).unwrap_or(None);
 
-    let current_version = schema_record
-        .as_ref()
-        .map(|r| r.schema_version.as_str())
-        .unwrap_or_else(|| {
-            if claims.join("changes").exists() {
-                "2.x"
-            } else {
-                "fresh"
-            }
-        });
+    // SINGLE source of truth for the displayed version: the runner's
+    // `current_version`. It applies Rule 1 (_schema.json), Rule 2 (registry
+    // detect walk -- now correct on compacted estates per issue #11), then
+    // Rule 3 ("fresh"). No parallel `claims/changes/` heuristic here.
+    let current_version = runner::current_version(&root).unwrap_or_else(|_| "fresh".to_string());
 
     let migrated_at = schema_record.as_ref().map(|r| r.migrated_at.as_str());
 
@@ -169,4 +166,3 @@ fn cmd_run(target: Option<&str>, dry_run: bool, no_backup: bool) -> anyhow::Resu
 
     Ok(())
 }
-

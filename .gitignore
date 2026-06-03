@@ -5,6 +5,10 @@
 # by scripts/agent-shape-fixture.sh; the output has no value tracked.
 fixtures/
 
+# EXCEPTION for the committed v2 estate fixtures -- see the negation block
+# at the END of this file (it must come after the broad `claims/` rule to
+# win last-match-wins).
+
 # Rust build artifacts (root + nested tool crates)
 /target
 tools/*/target/
@@ -39,3 +43,13 @@ claims/
 # subscriptions, same drift class as `.claude/skills/`. Per-developer
 # state; not part of the repo's public contract.
 AGENTS.md
+
+# Committed v2 estate fixtures for the v2->v3 migration tests (issue #11).
+# Negated LAST so it overrides the broad `fixtures/` and `claims/` rules
+# above (git is last-match-wins). These deterministic, real-shape v2
+# artifacts (genesis.amc / snapshot.amc / changes/*.amc) are loaded directly
+# by tests/migrations_real_estate.rs and claim/tests/fixtures_v2_estates.rs,
+# so they MUST be tracked. Regenerate with
+# `cargo test -p nomograph-claim --test fixtures_v2_estates`.
+!claim/tests/fixtures/
+!claim/tests/fixtures/**

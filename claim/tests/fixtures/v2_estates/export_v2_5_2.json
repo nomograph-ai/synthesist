@@ -1,0 +1,85 @@
+{
+  "version": "2",
+  "exported": "2026-01-03",
+  "discoveries": [
+    { "finding": "changes/ absent after compaction" }
+  ],
+  "outcomes": [
+    { "result": "snapshot read validated", "ok": true }
+  ],
+  "sessions": [
+    { "label": "morning", "agent": "claude" }
+  ],
+  "specs": [
+    { "title": "v2->v3 migration", "status": "draft" },
+    { "title": "v2->v3 migration", "status": "accepted" }
+  ],
+  "tasks": [
+    { "summary": "detect compacted estates", "state": "open" }
+  ],
+  "trees": [
+    { "name": "synthesist", "root": true }
+  ],
+  "claims_raw": [
+    {
+      "id": "a1f0c3d2e4b50617283940a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5",
+      "claim_type": "tree",
+      "props": { "name": "synthesist", "root": true },
+      "valid_from": "2026-01-02T09:00:00Z",
+      "valid_until": null,
+      "supersedes": null,
+      "asserted_by": "user:local:agd",
+      "asserted_at": "2026-01-02T09:00:00Z"
+    },
+    {
+      "id": "b2e1d4c3f5a61728394051b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f6",
+      "claim_type": "spec",
+      "props": { "title": "v2->v3 migration", "status": "draft" },
+      "valid_from": "2026-01-02T09:05:00Z",
+      "valid_until": "2026-01-02T11:30:00Z",
+      "supersedes": null,
+      "asserted_by": "user:local:agd",
+      "asserted_at": "2026-01-02T09:05:00Z"
+    },
+    {
+      "id": "c3d2e5f4a6b72839405162c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f607",
+      "claim_type": "task",
+      "props": { "summary": "detect compacted estates", "state": "open" },
+      "valid_from": "2026-01-02T09:10:00Z",
+      "valid_until": null,
+      "supersedes": null,
+      "asserted_by": "user:local:agd",
+      "asserted_at": "2026-01-02T09:10:00Z"
+    },
+    {
+      "id": "d4e3f6a5b7c8394051627384d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f6071",
+      "claim_type": "session",
+      "props": { "label": "morning", "agent": "claude" },
+      "valid_from": "2026-01-02T09:15:00Z",
+      "valid_until": null,
+      "supersedes": null,
+      "asserted_by": "user:local:jkolb",
+      "asserted_at": "2026-01-02T09:15:00Z"
+    },
+    {
+      "id": "e5f4a7b6c8d940516273849505e5f60718293a4b5c6d7e8f90a1b2c3d4e5f6072",
+      "claim_type": "outcome",
+      "props": { "result": "snapshot read validated", "ok": true },
+      "valid_from": "2026-01-02T09:20:00Z",
+      "valid_until": null,
+      "supersedes": null,
+      "asserted_by": "user:local:jkolb",
+      "asserted_at": "2026-01-02T09:20:00Z"
+    },
+    {
+      "id": "f6a5b8c7d9e051627384950617f60718293a4b5c6d7e8f90a1b2c3d4e5f60738",
+      "claim_type": "spec",
+      "props": { "title": "v2->v3 migration", "status": "accepted" },
+      "valid_from": "2026-01-02T11:30:00Z",
+      "valid_until": null,
+      "supersedes": "b2e1d4c3f5a61728394051b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f6",
+      "asserted_by": "user:local:agd",
+      "asserted_at": "2026-01-02T11:30:00Z"
+    }
+  ]
+}

@@ -27,7 +27,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use automerge::transaction::Transactable;
-use automerge::{AutoCommit, ObjId, ObjType, ReadDoc, ROOT};
+use automerge::{AutoCommit, ObjId, ObjType, ROOT, ReadDoc};
 
 use crate::claim::{AsserterId, Claim, ClaimId, ClaimType};
 use crate::error::{Error, Result};
@@ -216,6 +216,30 @@ impl Store {
         Ok(out)
     }
 
+    /// Test/fixture helper: write the full doc state to `snapshot.amc`
+    /// and remove the `changes/` dir, producing a *compacted* estate --
+    /// the shape a real v2.5.2 store produces after compaction (genesis +
+    /// snapshot, no changes/). This is exactly the production shape that
+    /// issue #11's migration detector mis-classified as "fresh".
+    ///
+    /// FIXTURE-ONLY. Production v3 never compacts through this path (the
+    /// v2 write surface was retired); it exists so the v2-to-v3 migration
+    /// test suite can build the compacted shape with the *same* automerge
+    /// version the read path (`Store::open`) reads with, which is what
+    /// validates the production read path end to end.
+    ///
+    /// `AutoCommit::save` takes `&mut self`, so this does too.
+    pub fn compact(&mut self) -> Result<()> {
+        let snapshot_path = self.root.join(SNAPSHOT_FILE);
+        let bytes = self.doc.save();
+        atomic_write(&snapshot_path, &bytes)?;
+        let changes_dir = self.root.join(CHANGES_DIR);
+        if changes_dir.exists() {
+            fs::remove_dir_all(&changes_dir)?;
+        }
+        Ok(())
+    }
+
     /// Path to this store's `claims/` directory.
     pub fn root(&self) -> &Path {
         &self.root
@@ -305,10 +329,7 @@ fn get_str(doc: &AutoCommit, obj: &ObjId, key: &str) -> Result<String> {
     match doc.get(obj, key)? {
         Some((val, _)) => match val.to_str() {
             Some(s) => Ok(s.to_string()),
-            None => Err(Error::Corrupt(format!(
-                "field `{}` is not a string",
-                key
-            ))),
+            None => Err(Error::Corrupt(format!("field `{}` is not a string", key))),
         },
         None => Err(Error::Corrupt(format!(
             "field `{}` missing from claim entry",
@@ -321,10 +342,7 @@ fn get_str_opt(doc: &AutoCommit, obj: &ObjId, key: &str) -> Result<Option<String
     match doc.get(obj, key)? {
         Some((val, _)) => match val.to_str() {
             Some(s) => Ok(Some(s.to_string())),
-            None => Err(Error::Corrupt(format!(
-                "field `{}` is not a string",
-                key
-            ))),
+            None => Err(Error::Corrupt(format!("field `{}` is not a string", key))),
         },
         None => Ok(None),
     }
@@ -334,10 +352,7 @@ fn get_int(doc: &AutoCommit, obj: &ObjId, key: &str) -> Result<i64> {
     match doc.get(obj, key)? {
         Some((val, _)) => match val.to_i64() {
             Some(i) => Ok(i),
-            None => Err(Error::Corrupt(format!(
-                "field `{}` is not an integer",
-                key
-            ))),
+            None => Err(Error::Corrupt(format!("field `{}` is not an integer", key))),
         },
         None => Err(Error::Corrupt(format!(
             "field `{}` missing from claim entry",
@@ -350,10 +365,7 @@ fn get_int_opt(doc: &AutoCommit, obj: &ObjId, key: &str) -> Result<Option<i64>> 
     match doc.get(obj, key)? {
         Some((val, _)) => match val.to_i64() {
             Some(i) => Ok(Some(i)),
-            None => Err(Error::Corrupt(format!(
-                "field `{}` is not an integer",
-                key
-            ))),
+            None => Err(Error::Corrupt(format!("field `{}` is not an integer", key))),
         },
         None => Ok(None),
     }

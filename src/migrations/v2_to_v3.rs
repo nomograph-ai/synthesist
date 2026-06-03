@@ -19,7 +19,7 @@ use nomograph_claim::log::LogWriter;
 use nomograph_claim::store::Store;
 use serde_json::{Map, Value};
 
-use super::{Migration, MigrationError, MigrationOpts, MigrationReport};
+use super::{Migration, MigrationError, MigrationOpts, MigrationReport, V3_SCHEMA_VERSION};
 
 // ---------------------------------------------------------------------------
 // V2ToV3 struct
@@ -34,36 +34,61 @@ impl Migration for V2ToV3 {
     }
 
     fn to_version(&self) -> &'static str {
-        "3.0.0-pre.1"
+        V3_SCHEMA_VERSION
     }
 
     fn description(&self) -> &'static str {
         "Translate v2 Automerge .amc claims to v3 per-asserter JSON-LD logs"
     }
 
-    /// Returns true iff `claims/changes/` exists and no `claims/<asserter>/log.jsonl`
-    /// files are present yet.
+    /// Returns true iff this looks like an un-migrated v2 estate.
+    ///
+    /// A v2 estate is signalled by `claims/genesis.amc` existing -- the v2
+    /// shim REQUIRES `genesis.amc`, and it is universal across BOTH estate
+    /// shapes: compacted (`genesis.amc` + `snapshot.amc`, NO `changes/`) and
+    /// with-changes (`genesis.amc` + `changes/*.amc`). Issue #11: the prior
+    /// logic gated on `claims/changes/` existing, which misclassified a
+    /// COMPACTED production estate as "fresh".
+    ///
+    /// `claims/config.toml` with `schema_version = "0.1"` corroborates, but
+    /// `genesis.amc` is primary and sufficient. We do NOT require `changes/`.
+    ///
+    /// Returns false when `genesis.amc` is absent, or when the migration has
+    /// COMPLETED -- which is signalled authoritatively by `claims/_schema.json`
+    /// reporting a v3+ version, NOT by the mere presence of a `log.jsonl`.
+    ///
+    /// Issue #11 follow-up: the migration writes per-asserter logs
+    /// incrementally inside `run()`, but `_schema.json` is written only AFTER
+    /// `run()` returns in full (see `runner::apply_chain`). An interrupted run
+    /// (process killed mid-loop, or an abort partway) therefore leaves
+    /// genesis.amc + a PARTIAL log.jsonl + NO `_schema.json`, with the bulk of
+    /// the v2 claims still un-translated in genesis/snapshot. Gating
+    /// "already-migrated" on first-log presence would misclassify that
+    /// half-migrated estate as done and refuse to re-run -- a silent stuck
+    /// state with claim loss on the un-translated remainder. So we treat a
+    /// log-without-`_schema.json` estate as still-v2 and re-runnable (the v2
+    /// claim set re-translates idempotently; `LogWriter::append` is
+    /// content-addressed per claim id so a resumed run does not double-write).
     fn detect(&self, root: &Path) -> Result<bool, MigrationError> {
         let claims = root.join("claims");
-        let changes = claims.join("changes");
 
-        if !changes.exists() {
+        // Primary signal: the v2 genesis document. Universal across
+        // compacted and with-changes shapes.
+        if !claims.join("genesis.amc").exists() {
             return Ok(false);
         }
 
-        // Check whether any per-asserter log.jsonl files already exist.
-        if let Ok(entries) = std::fs::read_dir(&claims) {
-            for entry in entries.flatten() {
-                let ft = entry.file_type().map_err(MigrationError::Io)?;
-                if !ft.is_dir() {
-                    continue;
-                }
-                let log_path = entry.path().join("log.jsonl");
-                if log_path.exists() {
-                    // v3 logs already present -- migration already ran.
-                    return Ok(false);
-                }
-            }
+        // Authoritative completion signal: `_schema.json` exists. It is
+        // written ONLY by `runner::apply_chain` AFTER a migration step's
+        // `run()` returns in full, so its presence means the v2->v3 step (or a
+        // later one) completed. A partial log.jsonl WITHOUT this file is an
+        // interrupted migration, not a finished one, so we must still report
+        // v2 (true) in that case. (Note: once `_schema.json` exists,
+        // `runner::current_version` short-circuits on it at Rule 1 and never
+        // consults detect for the displayed version -- this guard's sole job
+        // is to keep a COMPLETED estate from being re-run.)
+        if super::schema::read(&claims)?.is_some() {
+            return Ok(false);
         }
 
         Ok(true)
@@ -114,24 +139,42 @@ impl Migration for V2ToV3 {
                 continue;
             }
 
-            let doc = v2_claim_to_v3(claim);
-
-            let asserter_str = claim.asserted_by.as_str();
-            if asserter::parse(asserter_str).is_err() {
-                skipped.push(format!("skipped {}: invalid asserter {asserter_str}", claim.id));
+            // LOSSLESS legacy-asserter normalization (migration only). Map
+            // known v2 legacy shapes -- a 2-segment `user:migration-v1-v2`
+            // artifact, and path-unsafe chars in a segment (e.g. a `/` in a
+            // session) -- into the strict v3 grammar BEFORE the strict parse,
+            // so historical claims are not dropped. Normalize ONCE here: the
+            // SAME value MUST feed both the append target (the log dir) AND the
+            // doc's prov:wasAttributedTo, or the two would disagree.
+            let normalized = asserter::normalize_legacy(claim.asserted_by.as_str());
+            if asserter::parse(&normalized).is_err() {
+                skipped.push(format!(
+                    "skipped {}: invalid asserter {} (normalized {normalized})",
+                    claim.id, claim.asserted_by
+                ));
                 continue;
             }
 
+            // Build the doc from a clone carrying the normalized asserter so
+            // prov:wasAttributedTo == asserter:<normalized>, matching the
+            // append target below.
+            let mut normalized_claim = claim.clone();
+            normalized_claim.asserted_by = normalized.clone();
+            let doc = v2_claim_to_v3(&normalized_claim);
+
             if let Some(w) = &writer {
-                w.append(asserter_str, &doc)
-                    .map_err(|e| MigrationError::Failed(format!("append claim {}: {e}", claim.id)))?;
+                w.append(&normalized, &doc).map_err(|e| {
+                    MigrationError::Failed(format!("append claim {}: {e}", claim.id))
+                })?;
             }
 
             report.artifacts_touched += 1;
         }
 
         if !skipped.is_empty() {
-            report.notes.push(format!("skipped {} claims", skipped.len()));
+            report
+                .notes
+                .push(format!("skipped {} claims", skipped.len()));
             report.notes.extend(skipped);
         }
 
@@ -279,7 +322,10 @@ mod tests {
             json!({"summary": "Test", "status": "pending"}),
         );
         let v3 = v2_claim_to_v3(&claim);
-        assert_eq!(v3["@id"], Value::String("synthesist:claim/abc123def456fed7".into()));
+        assert_eq!(
+            v3["@id"],
+            Value::String("synthesist:claim/abc123def456fed7".into())
+        );
         assert_eq!(v3["@type"], Value::String("synthesist:Task".into()));
         assert_eq!(
             v3["prov:wasAttributedTo"],
@@ -292,13 +338,19 @@ mod tests {
     #[test]
     fn lattice_disposition_errors_on_module_for_type() {
         let result = module_for_type(&ClaimType::Disposition);
-        assert!(matches!(result, Err(MigrationError::UnsupportedClaimType { .. })));
+        assert!(matches!(
+            result,
+            Err(MigrationError::UnsupportedClaimType { .. })
+        ));
     }
 
     #[test]
     fn lattice_stakeholder_errors_on_module_for_type() {
         let result = module_for_type(&ClaimType::Stakeholder);
-        assert!(matches!(result, Err(MigrationError::UnsupportedClaimType { .. })));
+        assert!(matches!(
+            result,
+            Err(MigrationError::UnsupportedClaimType { .. })
+        ));
     }
 
     #[test]
@@ -337,14 +389,38 @@ mod tests {
 
     #[test]
     fn module_for_type_routes_synthesist_types_correctly() {
-        assert!(matches!(module_for_type(&ClaimType::Task), Ok("synthesist")));
-        assert!(matches!(module_for_type(&ClaimType::Spec), Ok("synthesist")));
-        assert!(matches!(module_for_type(&ClaimType::Outcome), Ok("synthesist")));
-        assert!(matches!(module_for_type(&ClaimType::Tree), Ok("synthesist")));
-        assert!(matches!(module_for_type(&ClaimType::Discovery), Ok("synthesist")));
-        assert!(matches!(module_for_type(&ClaimType::Campaign), Ok("synthesist")));
-        assert!(matches!(module_for_type(&ClaimType::Session), Ok("synthesist")));
-        assert!(matches!(module_for_type(&ClaimType::Phase), Ok("synthesist")));
+        assert!(matches!(
+            module_for_type(&ClaimType::Task),
+            Ok("synthesist")
+        ));
+        assert!(matches!(
+            module_for_type(&ClaimType::Spec),
+            Ok("synthesist")
+        ));
+        assert!(matches!(
+            module_for_type(&ClaimType::Outcome),
+            Ok("synthesist")
+        ));
+        assert!(matches!(
+            module_for_type(&ClaimType::Tree),
+            Ok("synthesist")
+        ));
+        assert!(matches!(
+            module_for_type(&ClaimType::Discovery),
+            Ok("synthesist")
+        ));
+        assert!(matches!(
+            module_for_type(&ClaimType::Campaign),
+            Ok("synthesist")
+        ));
+        assert!(matches!(
+            module_for_type(&ClaimType::Session),
+            Ok("synthesist")
+        ));
+        assert!(matches!(
+            module_for_type(&ClaimType::Phase),
+            Ok("synthesist")
+        ));
     }
 
     #[test]
@@ -359,10 +435,58 @@ mod tests {
             ClaimType::Directive,
         ] {
             assert!(
-                matches!(module_for_type(&ty), Err(MigrationError::UnsupportedClaimType { .. })),
-                "expected UnsupportedClaimType for {}", ty.as_str()
+                matches!(
+                    module_for_type(&ty),
+                    Err(MigrationError::UnsupportedClaimType { .. })
+                ),
+                "expected UnsupportedClaimType for {}",
+                ty.as_str()
             );
         }
+    }
+
+    #[test]
+    fn legacy_two_segment_asserter_doc_uses_normalized_attribution() {
+        // A 2-segment legacy asserter must normalize to local-scope BOTH in
+        // the doc's prov:wasAttributedTo AND (in run()) the append target.
+        // Here we assert the doc attribution matches the normalized value,
+        // mirroring what run() builds.
+        let mut claim = fake_claim(
+            ClaimType::Task,
+            "abc123def456fed7",
+            json!({"status": "done"}),
+        );
+        claim.asserted_by = "user:migration-v1-v2".to_string();
+        let normalized = asserter::normalize_legacy(claim.asserted_by.as_str());
+        assert_eq!(normalized, "user:local:migration-v1-v2");
+        let mut normalized_claim = claim.clone();
+        normalized_claim.asserted_by = normalized.clone();
+        let v3 = v2_claim_to_v3(&normalized_claim);
+        assert_eq!(
+            v3["prov:wasAttributedTo"],
+            Value::String("asserter:user:local:migration-v1-v2".into()),
+            "doc attribution must equal asserter:<normalized>"
+        );
+    }
+
+    #[test]
+    fn legacy_slash_session_asserter_normalizes_for_doc() {
+        let mut claim = fake_claim(
+            ClaimType::Task,
+            "deadbeefdeadbeef",
+            json!({"status": "done"}),
+        );
+        claim.asserted_by = "user:local:alex:ops/ps-168-rollout".to_string();
+        let normalized = asserter::normalize_legacy(claim.asserted_by.as_str());
+        assert_eq!(normalized, "user:local:alex:ops-ps-168-rollout");
+        assert!(asserter::parse(&normalized).is_ok());
+        let mut normalized_claim = claim.clone();
+        normalized_claim.asserted_by = normalized.clone();
+        let v3 = v2_claim_to_v3(&normalized_claim);
+        assert_eq!(
+            v3["prov:wasAttributedTo"],
+            Value::String("asserter:user:local:alex:ops-ps-168-rollout".into())
+        );
     }
 
     #[test]
