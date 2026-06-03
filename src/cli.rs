@@ -42,6 +42,13 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub force: bool,
 
+    /// One-shot active surface override: a builtin manifest name (see
+    /// `surface list`) or a path to a manifest TOML file. Takes precedence
+    /// over `SYNTHESIST_MANIFEST` and the sticky `surface use` setting for
+    /// this invocation only. Governs which commands the runtime permits.
+    #[arg(long, global = true, value_name = "NAME-OR-PATH")]
+    pub manifest: Option<String>,
+
     #[command(subcommand)]
     pub command: Command,
 }
@@ -173,6 +180,33 @@ pub enum Command {
         #[command(subcommand)]
         cmd: JigCmd,
     },
+    /// Inspect and switch the active surface manifest.
+    ///
+    /// The active surface governs which commands the runtime permits:
+    /// invoking a command the active manifest does not expose is rejected
+    /// before dispatch. `surface` itself is always permitted, regardless of
+    /// the active manifest, so an operator can never lock themselves out.
+    Surface {
+        #[command(subcommand)]
+        cmd: SurfaceCmd,
+    },
+}
+
+// --- Surface ---
+
+#[derive(Subcommand)]
+pub enum SurfaceCmd {
+    /// Persist the active surface manifest for this estate (sticky setting).
+    /// Accepts a builtin manifest name (see `surface list`) or a path to a
+    /// manifest TOML file. Emits JSON `{"ok":true,"active":"<name>"}`.
+    Use {
+        /// Builtin manifest name or path to a manifest TOML file.
+        name: String,
+    },
+    /// List the builtin manifest names and mark which surface is active.
+    List,
+    /// Show the active manifest name and the command keys it enables.
+    Show,
 }
 
 // --- Outcome ---
@@ -762,7 +796,134 @@ const REGISTRY: &[(&str, bool)] = &[
     ("jig run",            false),
     ("jig list-scenarios", false),
     ("jig list-manifests", false),
+    // --- surface (always permitted; never blocked by a manifest) ---
+    ("surface use",        true),
+    ("surface list",       true),
+    ("surface show",       true),
 ];
+
+/// Registry keys that are ALWAYS permitted, regardless of the active surface
+/// manifest. These commands must never be blockable, so an operator can
+/// always recover from a restrictive surface: `surface` lets them switch
+/// surfaces, and `version` always reports the build.
+///
+/// A key whose top-level command is in this set is allowed even when the
+/// active manifest would otherwise exclude it.
+const ALWAYS_ALLOWED_TOP: &[&str] = &["surface", "version", "init", "skill"];
+
+/// True when `key` is always permitted regardless of the active manifest.
+pub fn always_allowed(key: &str) -> bool {
+    let top = key.split_whitespace().next().unwrap_or(key);
+    ALWAYS_ALLOWED_TOP.contains(&top)
+}
+
+/// Map a parsed [`Command`] (including its subcommand) to its REGISTRY key.
+///
+/// Returns `None` for commands that carry no registry key (e.g. the
+/// landscape family that moved to `lattice`, or `session merge`/`discard`
+/// removed-in-v2 stubs). Callers treat `None` as "allowed": the rejection
+/// layer only blocks commands it can positively identify in the registry.
+pub fn command_key(cmd: &Command) -> Option<&'static str> {
+    Some(match cmd {
+        Command::Init => "init",
+        Command::Status => "status",
+        Command::Check => "check",
+        Command::Conflicts => "conflicts",
+        Command::Export => "export",
+        Command::Import { .. } => "import",
+        Command::Skill { .. } => "skill",
+        Command::Version { .. } => "version",
+        Command::Tree { cmd } => match cmd {
+            TreeCmd::Add { .. } => "tree add",
+            TreeCmd::List { .. } => "tree list",
+            TreeCmd::Show { .. } => "tree show",
+            TreeCmd::Close { .. } => "tree close",
+        },
+        Command::Spec { cmd } => match cmd {
+            SpecCmd::Add { .. } => "spec add",
+            SpecCmd::Show { .. } => "spec show",
+            SpecCmd::Update { .. } => "spec update",
+            SpecCmd::List { .. } => "spec list",
+        },
+        Command::Task { cmd } => match cmd {
+            TaskCmd::Add { .. } => "task add",
+            TaskCmd::List { .. } => "task list",
+            TaskCmd::Show { .. } => "task show",
+            TaskCmd::Update { .. } => "task update",
+            TaskCmd::Claim { .. } => "task claim",
+            TaskCmd::Done { .. } => "task done",
+            TaskCmd::Reset { .. } => "task reset",
+            TaskCmd::Block { .. } => "task block",
+            TaskCmd::Wait { .. } => "task wait",
+            TaskCmd::Cancel { .. } => "task cancel",
+            TaskCmd::Ready { .. } => "task ready",
+            TaskCmd::Acceptance { .. } => "task acceptance",
+        },
+        Command::Discovery { cmd } => match cmd {
+            DiscoveryCmd::Add { .. } => "discovery add",
+            DiscoveryCmd::List { .. } => "discovery list",
+        },
+        Command::Campaign { cmd } => match cmd {
+            CampaignCmd::Add { .. } => "campaign add",
+            CampaignCmd::List { .. } => "campaign list",
+        },
+        Command::Session { cmd } => match cmd {
+            SessionCmd::Start { .. } => "session start",
+            SessionCmd::Close { .. } => "session close",
+            SessionCmd::List => "session list",
+            SessionCmd::Status { .. } => "session status",
+            // merge/discard were removed in v2 and short-circuit before the
+            // rejection layer; they carry no registry key.
+            SessionCmd::Merge { .. } | SessionCmd::Discard { .. } => return None,
+        },
+        Command::Phase { cmd } => match cmd {
+            PhaseCmd::Show => "phase show",
+            PhaseCmd::Set { .. } => "phase set",
+        },
+        Command::Migrate { cmd } => match cmd {
+            MigrateCmd::List => "migrate list",
+            MigrateCmd::Status => "migrate status",
+            MigrateCmd::Run { .. } => "migrate run",
+            MigrateCmd::V2ToV3 { .. } => "migrate v2-to-v3",
+        },
+        Command::Outcome { cmd } => match cmd {
+            OutcomeCmd::Add { .. } => "outcome add",
+            OutcomeCmd::List { .. } => "outcome list",
+        },
+        Command::Overlay { cmd } => match cmd {
+            OverlayCmd::List => "overlay list",
+            OverlayCmd::Run { .. } => "overlay run",
+        },
+        Command::Jig { cmd } => match cmd {
+            JigCmd::Run { .. } => "jig run",
+            JigCmd::ListScenarios => "jig list-scenarios",
+            JigCmd::ListManifests => "jig list-manifests",
+            // `jig aggregate` has no registry key; treat as allowed.
+            JigCmd::Aggregate { .. } => return None,
+        },
+        Command::Surface { cmd } => match cmd {
+            SurfaceCmd::Use { .. } => "surface use",
+            SurfaceCmd::List => "surface list",
+            SurfaceCmd::Show => "surface show",
+        },
+        // Landscape family moved to `lattice`: no registry key.
+        Command::Stakeholder { .. }
+        | Command::Disposition { .. }
+        | Command::Signal { .. }
+        | Command::Stance { .. } => return None,
+    })
+}
+
+/// The set of registry keys permitted by `manifest`, in registry order.
+///
+/// Used by `surface show` to report the active surface's enabled commands.
+pub fn permitted_keys(manifest: &crate::surface::manifest::Manifest) -> Vec<&'static str> {
+    REGISTRY
+        .iter()
+        .filter(|(key, _)| key_permitted(key, manifest))
+        .map(|(key, _)| *key)
+        .collect()
+}
 
 /// Determine whether a command key is permitted by the manifest.
 ///
@@ -771,7 +932,7 @@ const REGISTRY: &[(&str, bool)] = &[
 /// 2. If `include` is non-empty, the key must appear in `include` OR in `add`.
 /// 3. If `include` is empty, the key is permitted when it is a v2.5 baseline
 ///    command OR it appears in `add`.
-fn key_permitted(key: &str, manifest: &crate::surface::manifest::Manifest) -> bool {
+pub fn key_permitted(key: &str, manifest: &crate::surface::manifest::Manifest) -> bool {
     // Rule 1: explicit exclusion always wins.
     if manifest.exclude.iter().any(|e| e == key) {
         return false;

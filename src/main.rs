@@ -14,6 +14,7 @@ mod cmd_overlay;
 mod cmd_phase;
 mod cmd_session;
 mod cmd_spec;
+mod cmd_surface;
 mod cmd_task;
 mod cmd_tree;
 mod integrity;
@@ -69,9 +70,47 @@ fn run(cli: cli::Cli) -> anyhow::Result<()> {
         }
     }
 
+    // ---------------------------------------------------------------------
+    // Rejection layer (manifest RUNTIME dispatch, Phase D).
+    //
+    // Parse-then-filter: `Cli::parse()` and the typed enum dispatch below
+    // are untouched. After parse, if the invoked command carries a registry
+    // key that the ACTIVE surface manifest does not permit, reject with a
+    // prescriptive error and exit 2 (usage) BEFORE dispatch.
+    //
+    // `surface`/`version` (and `init`/`skill`) are always allowed so an
+    // operator can never lock themselves out of recovery. Commands with no
+    // registry key (the landscape family, removed-in-v2 session stubs) are
+    // allowed: the layer only blocks what it can positively identify.
+    if let Some(key) = cli::command_key(&cli.command)
+        && !cli::always_allowed(key)
+    {
+        // Resolve the active manifest. The sticky lookup needs the estate's
+        // claims dir; best-effort discover (None when no estate exists yet,
+        // which simply skips the sticky layer).
+        let claims_dir = store::SynthStore::discover().ok().map(|s| s.root().to_path_buf());
+        let (reference, manifest) =
+            surface::resolve::active_manifest(cli.manifest.as_deref(), claims_dir.as_deref())?;
+        if !cli::key_permitted(key, &manifest) {
+            eprintln!(
+                "error: command `{key}` is not permitted by the active surface `{name}` (resolved from `{reference}`).",
+                name = manifest.name,
+            );
+            eprintln!(
+                "  switch surface: synthesist surface use <manifest>   (e.g. surface use baseline-v25)"
+            );
+            eprintln!("  list surfaces:  synthesist surface list");
+            eprintln!("  one-shot:       synthesist --manifest <name-or-path> {key} ...");
+            std::process::exit(2);
+        }
+    }
+
     // Commands that don't need a database
     match &cli.command {
         cli::Command::Init => return cmd_init::cmd_init(),
+        cli::Command::Surface { cmd } => {
+            return cmd_surface::run(cmd, cli.manifest.as_deref());
+        }
         cli::Command::Skill { manifest } => return skill::cmd_skill(manifest.as_deref()),
         cli::Command::Version { offline } => return cmd_version(*offline),
         // Landscape family (stakeholder/disposition/signal/stance) moved to
@@ -195,6 +234,7 @@ fn run(cli: cli::Cli) -> anyhow::Result<()> {
         cli::Command::Init
         | cli::Command::Skill { .. }
         | cli::Command::Version { .. }
+        | cli::Command::Surface { .. }
         | cli::Command::Stakeholder { .. }
         | cli::Command::Disposition { .. }
         | cli::Command::Signal { .. }

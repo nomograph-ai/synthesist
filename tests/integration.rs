@@ -1,4 +1,4 @@
-//! Integration tests for synthesist v2 -- CLI against real claim store.
+//! Integration tests for synthesist v3 -- CLI against real claim store.
 //!
 //! Each test writes to a tempdir. Every command runs the release binary
 //! as a subprocess so we exercise argument parsing, phase enforcement,
