@@ -6,28 +6,37 @@
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![built with GitLab](https://img.shields.io/badge/built_with-GitLab-FC6D26?logo=gitlab)](https://gitlab.com/nomograph/claim)
 
-Bi-temporal CRDT claim substrate with asserter attribution and E2EE.
+Bi-temporal claim substrate: per-asserter JSON-LD logs with a redb
+typed-query index.
 
 ## What it is
 
-`nomograph-claim` is the storage primitive shared by every nomograph tool
-that writes state: synthesist (workflow), lattice (observation), seer
-(propagation). It gives each tool a single append-only log of typed
-assertions that merge losslessly across peers, preserve who asserted
-what when, and stay encrypted at rest and in transit.
+`nomograph-claim` is the storage primitive shared by every nomograph
+tool that writes state: synthesist (workflow), lattice (observation),
+seer (propagation). It gives each tool a set of per-asserter
+append-only logs of typed assertions that merge losslessly by union,
+preserve who asserted what when, and serve typed reads through a
+disposable on-disk index.
 
-The substrate is deliberately small. A claim is a typed, signed, dated
-record of what someone asserts to be true. Storage is Automerge over
-content-addressed `.amc` files under a visible `claims/` directory.
-Projection to SQLite is a local, rebuildable cache.
+The substrate is deliberately small, and vocabulary-agnostic: it
+stores any well-formed claim and knows nothing about synthesist's
+claim types. A claim is a typed, dated record of what someone asserts
+to be true. Storage is a JSON-LD line log per asserter; the read path
+is a redb-backed "gamma" index rebuilt from the union of those logs.
+
+This is the v3 substrate. The v2 Automerge `.amc` store is gone; only
+a minimal v2-read shim remains, used solely so the synthesist
+v2-to-v3 migration can drain a legacy `.amc` estate.
 
 ## Install
 
-### Source
+This crate is a `[lib]`-only workspace member of the
+[synthesist](https://gitlab.com/nomograph/synthesist) monorepo. It
+ships no binary. Build it from the workspace root:
 
 ```bash
-git clone https://gitlab.com/nomograph/claim.git
-cd claim && cargo build --release
+git clone https://gitlab.com/nomograph/synthesist.git
+cd synthesist && cargo build --workspace
 ```
 
 Requires Rust 1.88+. No system dependencies beyond a C compiler.
@@ -36,57 +45,39 @@ Requires Rust 1.88+. No system dependencies beyond a C compiler.
 
 ```toml
 [dependencies]
-nomograph-claim = "0.2"
+nomograph-claim = "3.0.0-pre.1"
 ```
 
-## Quickstart
-
-```bash
-# Initialize a claims/ directory alongside your project
-claim init
-
-# Append a typed claim
-claim append --type spec --props '{"goal":"v1"}' --as user:gitlab:andunn
-
-# List current state
-claim list
-
-# Walk the supersession chain for a claim
-claim history <claim-id>
-
-# Surface unresolved conflicts
-claim conflicts
-
-# Rebuild the local SQLite projection
-claim view sync
-```
-
-Library use:
+## Library use
 
 ```rust
-use nomograph_claim::{Claim, ClaimType};
+use nomograph_claim::{Claim, /* ... */};
 
-let claim = Claim::new(
-    ClaimType::Spec,
-    serde_json::json!({ "goal": "v1" }),
-    "user:gitlab:andunn",
-);
+// Append a claim to the writing asserter's log, then read through the
+// gamma index. ClaimType and per-type validation live in the consuming
+// crate (e.g. synthesist); the substrate stores any well-formed claim.
 ```
+
+The public surface centers on the per-asserter log writer/reader, the
+gamma index, asserter/identity types, and the JSON-LD context. See the
+module map below and the rustdoc (`cargo doc --no-deps --open`).
 
 ## Storage Layout
 
 At project root, under `claims/`:
 
-| File | Tracked | Purpose |
+| Path | Tracked | Purpose |
 |------|---------|---------|
-| `genesis.amc` | yes | Bootstrap document |
-| `changes/<hash>.amc` | yes | Content-addressed append-only changes |
-| `config.toml` | yes | Schema version, project metadata |
-| `snapshot.amc` | no | Local compaction cache |
-| `view.sqlite` | no | Local SQL projection |
-| `view.heads` | no | Heads-stale check |
+| `<asserter>/log.jsonl` | yes | Per-asserter append-only JSON-LD log (the source of truth) |
+| `_schema.json` | yes | Store schema version |
+| `_view.gamma` | no | Disposable redb gamma index, rebuilt from the log union |
 
-Encryption keys live out-of-tree at `~/.config/nomograph/keys/<project>.key`.
+Each log line is a self-contained JSON-LD document: an inline
+`@context` binding the `synthesist`, `nomograph`, `prov`, and `xsd`
+prefixes, plus `@type`, `@id`, and lowerCamelCase predicate names. The
+multi-user merge is the union of every asserter's log; there is no
+merge step and no textual git conflict. `_view.gamma` is a local cache
+keyed on the logs' heads; deleting it costs only a one-time rebuild.
 
 ## Architecture
 
@@ -100,16 +91,23 @@ The locked design lives in the keaton repo under
 - [`BUILDING-pipeline-catalog.md`](https://gitlab.com/nomograph/keaton/-/blob/main/research/graph-primitive/BUILDING-pipeline-catalog.md)
   -- CI and container catalog.
 
+In-tree, [`SYNC.md`](SYNC.md) covers the per-asserter log union, heads,
+and the gamma rebuild boundary; [`IDENTITY.md`](IDENTITY.md) covers
+asserter attribution.
+
 ## Module Map
 
 | Module | Responsibility |
 |--------|----------------|
-| `claim` | Claim type, id computation, supersession |
-| `store` | `claims/` directory I/O, Automerge append + merge |
-| `view` | SQLite projection, heads-stale rebuild |
-| `crypto` | Argon2id KDF, ChaCha20-Poly1305 AEAD |
-| `session` | Session claim semantics (D14) |
-| `schema` | Per-claim-type JSON validation |
+| `claim` | Claim type, content-addressed id, supersession |
+| `asserter` | Asserter identity and attribution |
+| `log` | Per-asserter `log.jsonl` append + read |
+| `jsonld` | JSON-LD `@context` and document (de)serialization |
+| `gamma` | redb-backed POS/PSO typed-query index + canonical-doc table |
+| `heads` | Per-log heads tracking; drives gamma rebuild |
+| `ontology` | Embedded nomograph base ontology |
+| `prov` | PROV attribution predicates |
+| `store` | v2-read shim: drains legacy `.amc` for migration only |
 | `error` | `thiserror`-derived error surface |
 
 ## Building
@@ -120,16 +118,6 @@ cargo test
 cargo clippy -- -D warnings
 cargo doc --no-deps --open
 ```
-
-## Relationship to `nomograph-workflow`
-
-`nomograph-claim` is the storage substrate. `nomograph-workflow` is the
-thin shared logic layer that sits on top (Store adapter, phase state
-machine, helpers shared by `synthesist` and `lattice`). They are
-released independently because their consumers and cadences differ:
-substrate changes ripple through every tool that writes state, while
-workflow changes affect only the binaries that share workflow logic.
-Keep them as two crates.
 
 ## License
 

@@ -1,8 +1,8 @@
-Nt r# Contributing
+# Contributing
 
 Thanks for your interest. This crate ships under the nomograph estate and
-shares a common Rust contribution flow with `claim`, `workflow`, `synthesist`,
-and `lattice`.
+shares a common Rust contribution flow with `claim`, `synthesist`, and
+`lattice`.
 
 ## Local checks
 
@@ -14,43 +14,33 @@ cargo clippy --all-targets -- -D warnings       # lint (warnings are errors)
 
 CI runs the same four stages (check, fmt, clippy, test) on every push.
 
-## Estate-wide workspace (pre-3.0.0)
+## Monorepo workspace
 
-Synthesist depends on `nomograph-claim` and `nomograph-workflow` via
-path-deps during the 3.0.0-pre.x cycle. Building the three crates
-together against a single resolved compilation unit needs a Cargo
-workspace at the shared parent directory.
+This repository is the workspace. The `synthesist` crate lives at the
+repo root; the `claim` substrate is a workspace member under `claim/`
+(vendored with full git history via subtree merge). There is no
+separate `workflow` crate in v3 -- its leaf helpers and the `Phase`
+enum folded into synthesist, and the estate now publishes two crates
+(`claim`, `synthesist`) instead of three.
 
-The expected layout:
+The layout:
 
 ```
-~/gitlab.com/nomograph/
-  Cargo.toml          # workspace manifest (see below)
-  claim/              # checkout of nomograph/claim
-  workflow/           # checkout of nomograph/workflow
-  synthesist/         # checkout of nomograph/synthesist (this repo)
+synthesist/            # repo root + workspace manifest
+  Cargo.toml           # [workspace] members = ["claim"] + [package] synthesist
+  src/                 # synthesist crate
+  claim/               # nomograph-claim, the v3 substrate ([lib]-only)
+    Cargo.toml         # member manifest
 ```
 
-`Cargo.toml` should contain:
-
-```toml
-[workspace]
-resolver = "2"
-members = ["claim", "workflow", "synthesist"]
-```
-
-The workspace manifest lives outside any single repo because all
-three repos are members. After checking out all three crates as
-siblings and writing the manifest, `cargo build --workspace` from
-the parent directory resolves path-deps without symlinks and
-produces one shared `target/`.
-
-Existing per-crate `Cargo.lock` files are ignored by Cargo once the
-workspace is active; the canonical lock is `<workspace>/Cargo.lock`.
+`synthesist` depends on `nomograph-claim` via a path-dep
+(`path = "claim"`) pinned to the same version. `cargo build
+--workspace` from the repo root resolves both crates against one
+shared `target/` and a single canonical `Cargo.lock`. No sibling
+checkouts, no out-of-tree manifest, no symlinks.
 
 When 3.0.0 final lands and the crates publish to crates.io, the
-workspace becomes optional: consumers install via `cargo install`
-and the path-deps unwind into version-pinned registry deps.
+path-dep unwinds into a version-pinned registry dep.
 
 ## Licensing
 
@@ -59,12 +49,14 @@ a change you agree to license it under those terms.
 
 ## Architecture notes
 
-Synthesist is the spec-graph manager. It sits on the claim substrate via the
-workflow crate. Before touching the phase machine or store layer, read the
-architecture docs in the claim crate:
+Synthesist is the spec-graph manager. It sits directly on the
+`nomograph-claim` substrate (workspace member under `claim/`); the
+phase machine and store adapter live in synthesist, not a separate
+workflow crate. Before touching the phase machine or store layer,
+read the architecture docs in the claim crate:
 
-- `claim/SYNC.md` — sync protocol, heads, and the append/compact boundary
-- `claim/IDENTITY.md` — asserter attribution and E2EE
+- `claim/SYNC.md` — per-asserter log union, heads, and gamma rebuild
+- `claim/IDENTITY.md` — asserter attribution
 
 ## Backwards-compatibility policy
 
@@ -83,7 +75,7 @@ Three surfaces have different compat needs and follow distinct rules:
   and JSON output shapes do not change in incompatible ways inside a major
   version. Agents pattern-match on this surface; breaking it mid-version
   invalidates working agent prompts. New flags and commands are fine.
-- **Library API** (`nomograph_claim`, `nomograph_workflow`) — semver. Public
+- **Library API** (`nomograph_claim`) — semver. Public
   types and functions follow standard Rust semver: 0.x bumps the minor for
   breaking changes; 1.0+ bumps the major. Re-exports and internal
   refactors that don't change the public surface are patch-level.

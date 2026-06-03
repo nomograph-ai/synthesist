@@ -1,6 +1,7 @@
 # nomograph-claim
 
-Bi-temporal CRDT claim substrate. Rust library + `claim` binary.
+Bi-temporal claim substrate. Rust library (`[lib]`-only) shared across
+the nomograph estate: `claim`, `synthesist`, `lattice`.
 
 ## Source of Truth
 

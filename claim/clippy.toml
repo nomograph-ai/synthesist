@@ -1,3 +1,0 @@
-# Shared nomograph Rust lint config.
-# MSRV alignment with Cargo.toml rust-version.
-msrv = "1.88"
