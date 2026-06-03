@@ -466,3 +466,81 @@ fn import_legacy_asserters_export_is_lossless() {
         "synthesist check must report zero errors after lossless import: {cv}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Migration RUN path: legacy asserters normalize losslessly on-disk
+// ---------------------------------------------------------------------------
+
+/// The IMPORT path has `import_legacy_asserters_export_is_lossless`; this is
+/// the symmetric coverage for the MIGRATION RUN path (the primary production
+/// path for an on-disk v2 estate). A v2 estate carrying the two real legacy
+/// asserter shapes -- a 2-segment `user:migration-v1-v2` and a slash-session
+/// `user:local:alex:ops/ps-168-rollout` -- must migrate to v3 with BOTH the
+/// log directory AND the doc `prov:wasAttributedTo` normalized to the same
+/// strict-grammar value, and nothing dropped.
+#[test]
+fn migrate_run_normalizes_legacy_asserters_on_disk() {
+    use chrono::Utc;
+    use nomograph_claim::claim::{Claim, ClaimType};
+    use nomograph_claim::store::Store as V2Store;
+    use serde_json::json;
+
+    let dir = TempDir::new().unwrap();
+    let claims = dir.path().join("claims");
+    let mut store = V2Store::init(&claims).unwrap();
+    let now = Utc::now();
+
+    let mk = |id_seed: &str, asserter: &str| {
+        let props = json!({"tree": "t", "id": id_seed, "status": "pending", "summary": "s"});
+        Claim {
+            id: Claim::compute_id(&ClaimType::Task, &props, now, asserter, now),
+            claim_type: ClaimType::Task,
+            props,
+            valid_from: now,
+            valid_until: None,
+            supersedes: None,
+            parent_asserter: None,
+            asserted_by: asserter.to_string(),
+            asserted_at: now,
+        }
+    };
+    // 2-segment legacy asserter (v1->v2 migration artifact).
+    store.append(&mk("x1", "user:migration-v1-v2")).unwrap();
+    // slash in the session segment (path-unsafe under strict v3 grammar).
+    store
+        .append(&mk("x2", "user:local:alex:ops/ps-168-rollout"))
+        .unwrap();
+    drop(store);
+
+    let chain = runner::plan(dir.path(), None).unwrap();
+    let opts = MigrationOpts {
+        dry_run: false,
+        backup: false,
+    };
+    let reports = runner::apply_chain(dir.path(), &chain, &opts).unwrap();
+    let touched: usize = reports.iter().map(|r| r.artifacts_touched).sum();
+    assert_eq!(touched, 2, "both legacy-asserter claims must migrate, none skipped");
+
+    // 2-segment -> default scope `local`; dir and attribution agree.
+    let legacy_log = claims.join("user-local-migration-v1-v2").join("log.jsonl");
+    assert!(
+        legacy_log.exists(),
+        "2-segment asserter must normalize to user-local-migration-v1-v2"
+    );
+    let doc: Value =
+        serde_json::from_str(fs::read_to_string(&legacy_log).unwrap().lines().next().unwrap())
+            .unwrap();
+    assert_eq!(
+        doc["prov:wasAttributedTo"], "asserter:user:local:migration-v1-v2",
+        "doc attribution must match the normalized log dir"
+    );
+
+    // slash session -> hyphens.
+    let slash_log = claims
+        .join("user-local-alex-ops-ps-168-rollout")
+        .join("log.jsonl");
+    assert!(
+        slash_log.exists(),
+        "slash session must normalize to user-local-alex-ops-ps-168-rollout"
+    );
+}

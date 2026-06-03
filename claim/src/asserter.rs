@@ -63,6 +63,9 @@ pub enum ParseError {
 
     #[error("path-unsafe segment '{segment}' in '{full}'")]
     PathUnsafeSegment { segment: String, full: String },
+
+    #[error("too many segments in '{0}'; expected at most class:scope:id:session (4 segments)")]
+    TooManySegments(String),
 }
 
 /// Reject a single asserter segment (scope, id, or session) that would be
@@ -141,7 +144,16 @@ fn normalize_segment(seg: &str) -> String {
 pub fn normalize_legacy(raw: &str) -> String {
     // An empty string or a string with no recognized class is left
     // untouched -- it is real junk and must stay unparseable.
-    let parts: Vec<&str> = raw.splitn(5, ':').collect();
+    //
+    // Split on EVERY colon (not `splitn(5)`): a bare `..`/`.` token sitting
+    // past the 4th colon must still be normalized, not collapsed into one
+    // un-inspected field. A 5+-segment result stays over-length and is
+    // rejected by `parse` (TooManySegments) -- an honest skip, never a
+    // parse-accepted-but-append-rejected silent drop. This transform is
+    // also non-injective (e.g. `a/b` and `a-b` both map to `a-b`): it can
+    // merge two source asserters' attribution under one v3 identity, but it
+    // never drops a claim.
+    let parts: Vec<&str> = raw.split(':').collect();
     let class = match parts.first() {
         Some(&"user") | Some(&"agent") | Some(&"ingest") => parts[0],
         _ => return raw.to_string(),
@@ -254,7 +266,12 @@ impl Asserter {
 /// Parse an asserter string into a validated [`Asserter`].
 ///
 /// Accepts `user:<scope>:<id>[:<session>]`, `agent:<scope>:<id>[:<session>]`,
-/// and `ingest:<scope>:<id>` (no session for ingest).
+/// and `ingest:<scope>:<id>` (no session for ingest). At most four
+/// colon-separated segments; a fifth segment is rejected
+/// ([`ParseError::TooManySegments`]) rather than silently truncated, so
+/// `parse` and the downstream write guard (`log::dir_name_for_asserter`)
+/// agree on what is writable -- a 5+-segment asserter is honestly skipped
+/// by the import/migration caller, not parse-accepted then append-rejected.
 ///
 /// Returns [`ParseError`] with the specific segment at fault.
 pub fn parse(s: &str) -> Result<Asserter, ParseError> {
@@ -262,7 +279,13 @@ pub fn parse(s: &str) -> Result<Asserter, ParseError> {
         return Err(ParseError::Empty);
     }
 
-    let parts: Vec<&str> = s.splitn(5, ':').collect();
+    // Split on every colon (not `splitn(5)`): a 5th segment must be a hard
+    // error, not collapsed into the session field and ignored. Sessions may
+    // not contain a colon, so the grammar tops out at four segments.
+    let parts: Vec<&str> = s.split(':').collect();
+    if parts.len() > 4 {
+        return Err(ParseError::TooManySegments(s.to_string()));
+    }
 
     let class = match parts[0] {
         "user" => AsserterClass::User,
@@ -529,6 +552,30 @@ mod tests {
             parse("user:local:a\nb").unwrap_err(),
             ParseError::PathUnsafeSegment { .. }
         ));
+    }
+
+    // -- Over-length: a 5th segment is a hard error, not silent truncation --
+
+    #[test]
+    fn error_too_many_segments() {
+        // Four segments (with session) is the maximum and must still parse.
+        assert!(parse("user:local:agd:sess").is_ok());
+        // A fifth segment is rejected, not truncated to the session field.
+        assert!(matches!(
+            parse("user:local:agd:sess:extra").unwrap_err(),
+            ParseError::TooManySegments(_)
+        ));
+    }
+
+    #[test]
+    fn normalize_legacy_then_parse_agree_on_overlong_traversal() {
+        // A 6-segment asserter carrying a bare `..` past the 4th colon: the
+        // normalizer must sanitize EVERY segment (no bare `..` survives in a
+        // collapsed field), and parse must then reject the over-length string
+        // -- an honest skip, never parse-accept-then-append-reject.
+        let n = normalize_legacy("user:a:b:c:d:..");
+        assert!(!n.split(':').any(|seg| seg == ".."), "no bare `..` segment survives: {n}");
+        assert!(matches!(parse(&n).unwrap_err(), ParseError::TooManySegments(_)));
     }
 
     // -- dir_name tests: deterministic, colon-free, same on macOS and Linux --
