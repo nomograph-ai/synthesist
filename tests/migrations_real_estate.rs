@@ -120,6 +120,59 @@ fn detect_true_on_with_changes_estate() {
     );
 }
 
+#[test]
+fn detect_true_on_interrupted_migration_partial_log_no_schema() {
+    // Issue #11 follow-up: an INTERRUPTED migration leaves genesis.amc + a
+    // PARTIAL claims/<asserter>/log.jsonl + NO claims/_schema.json (the schema
+    // record is written only after the whole step completes). That estate
+    // still holds un-translated v2 claims and MUST be re-runnable -- detect()
+    // must return true (v2), not false. Gating "already-migrated" on first-log
+    // presence misclassified it as done.
+    let temp = temp_estate("compacted");
+    let claims = temp.path().join("claims");
+    // Simulate a half-written run: one asserter dir with a partial log, no
+    // _schema.json.
+    let asserter_dir = claims.join("user-local-agd");
+    fs::create_dir_all(&asserter_dir).unwrap();
+    fs::write(
+        asserter_dir.join("log.jsonl"),
+        "{\"@id\":\"synthesist:claim/deadbeef\"}\n",
+    )
+    .unwrap();
+    assert!(
+        !claims.join("_schema.json").exists(),
+        "precondition: interrupted estate has NO _schema.json"
+    );
+
+    let v2 = V2ToV3;
+    assert!(
+        v2.detect(temp.path()).unwrap(),
+        "interrupted migration (partial log, no _schema.json) must still detect as v2"
+    );
+    // And it must still PLAN (the chain is re-runnable), not error as fresh.
+    let chain = runner::plan(temp.path(), None).expect("interrupted estate must re-plan as v2");
+    assert_eq!(chain.len(), 1, "single v2->v3 step on re-run");
+    assert_eq!(
+        runner::current_version(temp.path()).unwrap(),
+        "2.x",
+        "interrupted estate reports 2.x, not fresh"
+    );
+}
+
+#[test]
+fn detect_false_once_schema_written() {
+    // The completion guard: once _schema.json exists (written post-run),
+    // detect() returns false so a COMPLETED estate is not re-run.
+    let temp = temp_estate("compacted");
+    let claims = temp.path().join("claims");
+    schema::write(&claims, "3.0.0", chrono::Utc::now()).unwrap();
+    let v2 = V2ToV3;
+    assert!(
+        !v2.detect(temp.path()).unwrap(),
+        "completed estate (_schema.json present) must NOT detect as v2"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // migrate status reports 2.x + pending on a compacted estate
 // ---------------------------------------------------------------------------
@@ -253,5 +306,40 @@ fn import_v2_export_imports_all_rows() {
         v["skipped"].as_u64().unwrap(),
         0,
         "no v2 row should be skipped: {v}"
+    );
+    // The fixture carries a supersession chain (row 2 'draft' superseded by
+    // row 6 'accepted'). A correct remap leaves zero dangling edges -- assert
+    // that explicitly so an un-remapped (broken) chain is not reported clean.
+    assert_eq!(
+        v["dangling_supersedes"].as_u64().unwrap(),
+        0,
+        "supersedes refs must remap; none should dangle: {v}"
+    );
+
+    // Cross-check via `synthesist check`: the chain must resolve to ZERO
+    // dangling_supersedes issues. This is the load-bearing id_remap invariant
+    // -- without it the export/import round-trip would multi-head the chain.
+    let check = synth(temp.path()).args(["check"]).output().unwrap();
+    let cv: Value = serde_json::from_str(std::str::from_utf8(&check.stdout).unwrap()).unwrap();
+    let dangling = cv["issues"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter(|i| i["kind"] == "dangling_supersedes")
+                .count()
+        })
+        .unwrap_or(0);
+    assert_eq!(
+        dangling, 0,
+        "synthesist check must report zero dangling_supersedes after import: {cv}"
+    );
+
+    // And the superseded spec must NOT be a live head: exactly one spec head
+    // (the 'accepted' one) survives, proving a single live head post-import.
+    let status = synth(temp.path()).args(["status"]).output().unwrap();
+    assert!(
+        status.status.success(),
+        "status should succeed; stderr: {}",
+        String::from_utf8_lossy(&status.stderr)
     );
 }

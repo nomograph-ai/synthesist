@@ -226,6 +226,104 @@ mod tests {
         vec![Box::new(V2ToV3), Box::new(FakeV3ToV31)]
     }
 
+    /// A step-2 migration that asserts, INSIDE run(), that `_schema.json`
+    /// already reads the step-1 version "3.0.0". This proves the runner
+    /// writes the intermediate schema record BEFORE invoking step 2 -- the
+    /// resumability property the doc comments promise. If apply_chain wrote
+    /// _schema.json only once at the end, run() here would observe `None` (or
+    /// the wrong version) and panic.
+    struct AssertsIntermediateSchema;
+
+    impl Migration for AssertsIntermediateSchema {
+        fn source_version(&self) -> &'static str {
+            V3_SCHEMA_VERSION // "3.0.0"
+        }
+        fn to_version(&self) -> &'static str {
+            "3.1.0"
+        }
+        fn description(&self) -> &'static str {
+            "synthetic step-2 that verifies the intermediate _schema.json write"
+        }
+        fn detect(&self, _root: &Path) -> Result<bool, MigrationError> {
+            Ok(false)
+        }
+        fn run(
+            &self,
+            root: &Path,
+            _opts: &MigrationOpts,
+        ) -> Result<MigrationReport, MigrationError> {
+            let claims = root.join("claims");
+            let record = schema::read(&claims)?
+                .expect("step 2 must see the intermediate _schema.json written by step 1");
+            assert_eq!(
+                record.schema_version, V3_SCHEMA_VERSION,
+                "intermediate _schema.json must read 3.0.0 when step 2 runs"
+            );
+            Ok(MigrationReport {
+                from: self.source_version().to_string(),
+                to: self.to_version().to_string(),
+                artifacts_touched: 0,
+                backup_path: None,
+                notes: vec!["verified intermediate schema".to_string()],
+            })
+        }
+    }
+
+    /// A step-2 migration that always fails, to exercise the mid-chain abort
+    /// path: the error must propagate, and `_schema.json` must remain at the
+    /// step-1 version so a re-plan resumes with exactly the remaining step.
+    struct FailingStep2;
+
+    impl Migration for FailingStep2 {
+        fn source_version(&self) -> &'static str {
+            V3_SCHEMA_VERSION
+        }
+        fn to_version(&self) -> &'static str {
+            "3.1.0"
+        }
+        fn description(&self) -> &'static str {
+            "synthetic step-2 that always fails"
+        }
+        fn detect(&self, _root: &Path) -> Result<bool, MigrationError> {
+            Ok(false)
+        }
+        fn run(
+            &self,
+            _root: &Path,
+            _opts: &MigrationOpts,
+        ) -> Result<MigrationReport, MigrationError> {
+            Err(MigrationError::Failed(
+                "synthetic step-2 failure".to_string(),
+            ))
+        }
+    }
+
+    /// A disconnected migration 3.5.0 -> 3.6.0 with no path from 3.0.0, used
+    /// to exercise the gap-rejection branch of `plan_with`.
+    struct DisconnectedV35ToV36;
+
+    impl Migration for DisconnectedV35ToV36 {
+        fn source_version(&self) -> &'static str {
+            "3.5.0"
+        }
+        fn to_version(&self) -> &'static str {
+            "3.6.0"
+        }
+        fn description(&self) -> &'static str {
+            "synthetic disconnected migration (gap)"
+        }
+        fn detect(&self, _root: &Path) -> Result<bool, MigrationError> {
+            Ok(false)
+        }
+        fn run(
+            &self,
+            _root: &Path,
+            _opts: &MigrationOpts,
+        ) -> Result<MigrationReport, MigrationError> {
+            unreachable!("disconnected migration must never run")
+        }
+    }
+
     fn make_v2_store(root: &Path) {
         let claims = root.join("claims");
         let mut store = V2Store::init(&claims).expect("init v2 store");
@@ -285,5 +383,111 @@ mod tests {
 
         let cur = current_version_with(dir.path(), &synthetic_registry()).unwrap();
         assert_eq!(cur, "3.1.0", "chain end-state read back as 3.1.0");
+    }
+
+    #[test]
+    fn apply_chain_writes_intermediate_schema_before_step_two() {
+        // Proves the INTERMEDIATE _schema.json write lands before step 2 runs
+        // (the resumability property), not merely that endpoints match. The
+        // step-2 migration asserts schema::read == "3.0.0" inside its run().
+        let dir = TempDir::new().unwrap();
+        make_v2_store(dir.path());
+
+        let registry: Vec<Box<dyn Migration>> =
+            vec![Box::new(V2ToV3), Box::new(AssertsIntermediateSchema)];
+        let chain = plan_with(dir.path(), None, registry).unwrap();
+        assert_eq!(chain.len(), 2);
+
+        let opts = MigrationOpts {
+            dry_run: false,
+            backup: false,
+        };
+        // If the intermediate write were missing, step 2's run() panics.
+        let reports = apply_chain(dir.path(), &chain, &opts).unwrap();
+        assert_eq!(reports.len(), 2);
+
+        let claims = dir.path().join("claims");
+        assert_eq!(
+            schema::read(&claims).unwrap().unwrap().schema_version,
+            "3.1.0"
+        );
+    }
+
+    #[test]
+    fn mid_chain_failure_leaves_step_one_schema_and_resumes() {
+        // Step 1 (v2->3.0.0) succeeds; step 2 fails. apply_chain must
+        // propagate the error AND leave _schema.json at "3.0.0", so a re-plan
+        // resumes with exactly the one remaining step.
+        let dir = TempDir::new().unwrap();
+        make_v2_store(dir.path());
+
+        let registry: Vec<Box<dyn Migration>> = vec![Box::new(V2ToV3), Box::new(FailingStep2)];
+        let chain = plan_with(dir.path(), None, registry).unwrap();
+        assert_eq!(chain.len(), 2);
+
+        let opts = MigrationOpts {
+            dry_run: false,
+            backup: false,
+        };
+        // `MigrationReport` is not Debug, so match rather than `.unwrap_err()`.
+        match apply_chain(dir.path(), &chain, &opts) {
+            Err(MigrationError::Failed(_)) => {}
+            Err(other) => panic!("expected MigrationError::Failed, got {other:?}"),
+            Ok(_) => panic!("mid-chain failure must propagate as an error"),
+        }
+
+        let claims = dir.path().join("claims");
+        assert_eq!(
+            schema::read(&claims).unwrap().unwrap().schema_version,
+            V3_SCHEMA_VERSION,
+            "step 1's schema must persist after step 2 fails (resume point)"
+        );
+
+        // Re-plan: current is now 3.0.0, so only the remaining step is planned.
+        let registry2: Vec<Box<dyn Migration>> = vec![Box::new(V2ToV3), Box::new(FailingStep2)];
+        let resume = plan_with(dir.path(), None, registry2).unwrap();
+        assert_eq!(resume.len(), 1, "resume plans exactly the 1 remaining step");
+        assert_eq!(resume[0].source_version(), V3_SCHEMA_VERSION);
+        assert_eq!(resume[0].to_version(), "3.1.0");
+    }
+
+    #[test]
+    fn plan_rejects_unreachable_target_gap() {
+        // A registry with v2->3.0.0 and a DISCONNECTED 3.5.0->3.6.0. Planning
+        // toward 3.6.0 from a v2 estate must reject: the chain reaches 3.0.0
+        // but cannot bridge the gap to 3.5.0. Exercises the
+        // `cursor != resolved_target` branch.
+        let dir = TempDir::new().unwrap();
+        make_v2_store(dir.path());
+
+        let registry: Vec<Box<dyn Migration>> =
+            vec![Box::new(V2ToV3), Box::new(DisconnectedV35ToV36)];
+        // `Box<dyn Migration>` is not Debug, so match the Result rather than
+        // calling `.unwrap_err()` (which would require the Ok side to be Debug).
+        match plan_with(dir.path(), Some("3.6.0"), registry) {
+            Err(MigrationError::NoApplicableMigration(_)) => {}
+            Err(other) => panic!("expected NoApplicableMigration, got {other:?}"),
+            Ok(_) => panic!("unreachable target across a version gap must be rejected"),
+        }
+    }
+
+    #[test]
+    fn plan_rejects_fresh_store_with_no_migration() {
+        // The chain-empty + fresh branch: an empty TempDir (no genesis, no
+        // _schema.json) is "fresh", and plan must reject with
+        // NoApplicableMigration rather than panicking or planning a bogus step.
+        let dir = TempDir::new().unwrap();
+        match plan_with(dir.path(), None, synthetic_registry()) {
+            Err(MigrationError::NoApplicableMigration(msg)) => {
+                assert!(
+                    msg.contains("fresh"),
+                    "expected a fresh-store message, got {msg:?}"
+                );
+            }
+            Err(other) => {
+                panic!("expected NoApplicableMigration for a fresh store, got {other:?}")
+            }
+            Ok(_) => panic!("a fresh store must not plan any migration"),
+        }
     }
 }

@@ -73,6 +73,12 @@ pub fn cmd_import(file: &Option<String>) -> Result<()> {
 
     let mut imported = 0usize;
     let mut skipped = 0usize;
+    // Supersedes refs that pointed at a claim ALSO present in this export but
+    // could not be resolved through the remap (i.e. a genuinely broken chain
+    // we wrote as a dangling edge). Distinct from a legitimate partial-export
+    // passthrough, where the superseded claim is simply absent. Surfaced in
+    // the result so a chain break is never reported as a clean import.
+    let mut dangling_supersedes = 0usize;
 
     // old exporter @id -> new re-minted id. Built incrementally as we
     // walk `claims_raw` in log order so a supersedes ref (which always
@@ -86,17 +92,42 @@ pub fn cmd_import(file: &Option<String>) -> Result<()> {
     // `"version":"2"` and FLAT SQL rows in `claims_raw` (keys: `id`,
     // `claim_type`, `props`, `asserted_by`, `supersedes`, ...) -- NOT v3
     // JSON-LD. The v3 extractor requires `@type` / `prov:wasAttributedTo`
-    // and would skip every flat row. We detect the shape once and route
-    // each row to the matching extractor; the remap + append loop is shared.
-    let is_v2_export = doc.get("version").and_then(|v| v.as_str()) == Some("2")
-        || claims_raw
-            .first()
-            .and_then(|e| e.as_object())
-            .map(|o| o.contains_key("claim_type") && !o.contains_key("@type"))
-            .unwrap_or(false);
+    // and would skip every flat row.
+    //
+    // A top-level `"version":"2"` forces the whole payload to the v2
+    // extractor. ABSENT that marker we discriminate PER ROW (not once off
+    // the first row): a row is v2-flat when it has `claim_type` and lacks
+    // `@type`, else it routes to the v3 extractor. Per-row routing removes a
+    // first-row dependency that would otherwise misroute an entire
+    // version-less payload whose leading row happens to be a non-claim object.
+    let force_v2 = doc.get("version").and_then(|v| v.as_str()) == Some("2");
+    let row_is_v2 = |entry: &Value| -> bool {
+        force_v2
+            || entry
+                .as_object()
+                .map(|o| o.contains_key("claim_type") && !o.contains_key("@type"))
+                .unwrap_or(false)
+    };
 
-    for entry in claims_raw {
-        let extracted = if is_v2_export {
+    // Set of bare old-ids PRESENT in this export, so a supersedes ref can be
+    // classified as "target present but unresolved" (a real dangling edge) vs
+    // "target simply absent" (a legitimate partial-export passthrough).
+    let present_ids: std::collections::HashSet<String> = claims_raw
+        .iter()
+        .filter_map(|e| extract_old_id(e, row_is_v2(e)))
+        .collect();
+
+    // Reorder so a superseded row is written BEFORE the row that supersedes
+    // it, making the remap order-independent: the incremental remap invariant
+    // (docstring) requires the target's new id to exist by the time we reach
+    // its superseder, but a v2 exporter does not guarantee topological order.
+    // Stable topological sort over the in-export supersedes edges; rows whose
+    // target is absent keep their relative order. Cyclic/unresolved rows fall
+    // through to the tail and surface as dangling.
+    let ordered = topo_order_rows(claims_raw, &present_ids, &row_is_v2);
+
+    for entry in ordered {
+        let extracted = if row_is_v2(entry) {
             extract_v2_row(entry)
         } else {
             extract_replay_args(entry)
@@ -109,9 +140,21 @@ pub fn cmd_import(file: &Option<String>) -> Result<()> {
                 // original ref through (surfaces as a dangling edge --
                 // the honest signal of an incomplete export) rather than
                 // silently dropping the link.
-                let supersedes = args
-                    .supersedes
-                    .map(|old| id_remap.get(&old).cloned().unwrap_or(old));
+                let supersedes = args.supersedes.map(|old| {
+                    match id_remap.get(&old).cloned() {
+                        Some(new_id) => new_id,
+                        None => {
+                            // Unresolved. If the target was present in this
+                            // export, the chain is genuinely broken (a real
+                            // integrity defect), so count it. If absent, it
+                            // is an expected partial-export passthrough.
+                            if present_ids.contains(&old) {
+                                dangling_supersedes += 1;
+                            }
+                            old
+                        }
+                    }
+                });
                 store = store.with_asserter(args.asserter);
                 match store.append_replay(args.claim_type, args.props, supersedes) {
                     Ok(new_id) => {
@@ -129,7 +172,88 @@ pub fn cmd_import(file: &Option<String>) -> Result<()> {
         }
     }
 
-    json_out(&json!({ "imported": imported, "skipped": skipped }))
+    json_out(&json!({
+        "imported": imported,
+        "skipped": skipped,
+        "dangling_supersedes": dangling_supersedes,
+    }))
+}
+
+/// Extract a row's bare exporter id (the `id` field for v2-flat rows, the
+/// `@id` for v3 JSON-LD docs), normalized via `bare_claim_hash` so it shares
+/// the remap/supersedes key space.
+fn extract_old_id(entry: &Value, is_v2: bool) -> Option<String> {
+    let obj = entry.as_object()?;
+    let key = if is_v2 { "id" } else { "@id" };
+    obj.get(key).and_then(|v| v.as_str()).map(bare_claim_hash)
+}
+
+/// Extract a row's bare supersedes target, if present and non-null.
+fn extract_supersedes(entry: &Value, is_v2: bool) -> Option<String> {
+    let obj = entry.as_object()?;
+    let key = if is_v2 {
+        "supersedes"
+    } else {
+        wire_format::SUPERSEDES_PRED
+    };
+    obj.get(key).and_then(|v| v.as_str()).map(bare_claim_hash)
+}
+
+/// Stable topological reorder of `claims_raw` so a row is emitted AFTER any
+/// IN-EXPORT row it supersedes. Edges to ids not in `present_ids` are ignored
+/// (partial-export passthroughs). The order is otherwise the input order; a
+/// row whose dependency is unsatisfiable (cycle / dangling within the export)
+/// is emitted in input order once no further progress is possible, so it still
+/// surfaces as a dangling edge rather than being dropped.
+fn topo_order_rows<'a>(
+    rows: &'a [Value],
+    present_ids: &std::collections::HashSet<String>,
+    row_is_v2: &dyn Fn(&Value) -> bool,
+) -> Vec<&'a Value> {
+    let n = rows.len();
+    // Per-row: its own id, and the in-export id it depends on (supersedes).
+    let dep: Vec<Option<String>> = rows
+        .iter()
+        .map(|r| extract_supersedes(r, row_is_v2(r)).filter(|t| present_ids.contains(t)))
+        .collect();
+
+    let mut emitted = vec![false; n];
+    let mut done: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut out: Vec<&Value> = Vec::with_capacity(n);
+
+    // Kahn-style passes preserving input order. Repeat until a full pass
+    // emits nothing, then flush any remaining rows (unsatisfiable deps) in
+    // input order.
+    loop {
+        let mut progressed = false;
+        for i in 0..n {
+            if emitted[i] {
+                continue;
+            }
+            let ready = match &dep[i] {
+                None => true,
+                Some(target) => done.contains(target),
+            };
+            if ready {
+                emitted[i] = true;
+                progressed = true;
+                if let Some(id) = extract_old_id(&rows[i], row_is_v2(&rows[i])) {
+                    done.insert(id);
+                }
+                out.push(&rows[i]);
+            }
+        }
+        if !progressed {
+            break;
+        }
+    }
+    // Flush stragglers (cycle / unresolved) in input order.
+    for i in 0..n {
+        if !emitted[i] {
+            out.push(&rows[i]);
+        }
+    }
+    out
 }
 
 fn read_input(file: Option<&str>) -> Result<String> {

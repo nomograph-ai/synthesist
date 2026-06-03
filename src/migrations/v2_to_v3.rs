@@ -53,8 +53,22 @@ impl Migration for V2ToV3 {
     /// `claims/config.toml` with `schema_version = "0.1"` corroborates, but
     /// `genesis.amc` is primary and sufficient. We do NOT require `changes/`.
     ///
-    /// Returns false when `genesis.amc` is absent, or when any
-    /// `claims/<asserter>/log.jsonl` already exists (migration already ran).
+    /// Returns false when `genesis.amc` is absent, or when the migration has
+    /// COMPLETED -- which is signalled authoritatively by `claims/_schema.json`
+    /// reporting a v3+ version, NOT by the mere presence of a `log.jsonl`.
+    ///
+    /// Issue #11 follow-up: the migration writes per-asserter logs
+    /// incrementally inside `run()`, but `_schema.json` is written only AFTER
+    /// `run()` returns in full (see `runner::apply_chain`). An interrupted run
+    /// (process killed mid-loop, or an abort partway) therefore leaves
+    /// genesis.amc + a PARTIAL log.jsonl + NO `_schema.json`, with the bulk of
+    /// the v2 claims still un-translated in genesis/snapshot. Gating
+    /// "already-migrated" on first-log presence would misclassify that
+    /// half-migrated estate as done and refuse to re-run -- a silent stuck
+    /// state with claim loss on the un-translated remainder. So we treat a
+    /// log-without-`_schema.json` estate as still-v2 and re-runnable (the v2
+    /// claim set re-translates idempotently; `LogWriter::append` is
+    /// content-addressed per claim id so a resumed run does not double-write).
     fn detect(&self, root: &Path) -> Result<bool, MigrationError> {
         let claims = root.join("claims");
 
@@ -64,19 +78,17 @@ impl Migration for V2ToV3 {
             return Ok(false);
         }
 
-        // Check whether any per-asserter log.jsonl files already exist.
-        if let Ok(entries) = std::fs::read_dir(&claims) {
-            for entry in entries.flatten() {
-                let ft = entry.file_type().map_err(MigrationError::Io)?;
-                if !ft.is_dir() {
-                    continue;
-                }
-                let log_path = entry.path().join("log.jsonl");
-                if log_path.exists() {
-                    // v3 logs already present -- migration already ran.
-                    return Ok(false);
-                }
-            }
+        // Authoritative completion signal: `_schema.json` exists. It is
+        // written ONLY by `runner::apply_chain` AFTER a migration step's
+        // `run()` returns in full, so its presence means the v2->v3 step (or a
+        // later one) completed. A partial log.jsonl WITHOUT this file is an
+        // interrupted migration, not a finished one, so we must still report
+        // v2 (true) in that case. (Note: once `_schema.json` exists,
+        // `runner::current_version` short-circuits on it at Rule 1 and never
+        // consults detect for the displayed version -- this guard's sole job
+        // is to keep a COMPLETED estate from being re-run.)
+        if super::schema::read(&claims)?.is_some() {
+            return Ok(false);
         }
 
         Ok(true)

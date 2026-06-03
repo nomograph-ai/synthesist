@@ -179,8 +179,13 @@ cat claims/_schema.json
 You should see:
 
 ```json
-{"schema_version": "3.0.0-pre.1", ...}
+{"schema_version": "3.0.0", ...}
 ```
+
+Note: this on-disk schema id (`3.0.0`) identifies the v3 *format* and is
+intentionally distinct from the binary release tag you see in
+`synthesist --version` (e.g. `3.0.0-rc.1`). Do not conflate the two when
+comparing versions.
 
 If the file is missing or shows a different version, the migration
 did not complete. Restore from the tarball (see "Rollback" below)
@@ -193,7 +198,7 @@ synthesist migrate status
 ```
 
 The command reports the current store schema version. A fully
-migrated store reads "store is at 3.0.0-pre.1" (or equivalent
+migrated store reads "store is at 3.0.0" (or equivalent
 wording from the binary).
 
 ### Optional: inspect a v3 log directly

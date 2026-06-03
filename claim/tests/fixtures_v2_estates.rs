@@ -19,9 +19,21 @@
 //! returns the FULL claim count. If it returns fewer, the shim drops
 //! snapshot.amc content -- the suspected 4th failure.
 //!
-//! Determinism: all timestamps are FIXED (chrono `with_ymd_and_hms`), so
-//! the content-hashed claim ids and on-disk bytes are reproducible. Run
-//! `cargo test -p nomograph-claim --test fixtures_v2_estates` to refresh.
+//! Determinism: all timestamps are FIXED (chrono `with_ymd_and_hms`), so the
+//! content-hashed claim IDS are reproducible. The on-disk Automerge BYTES are
+//! NOT byte-reproducible: `Store::init` mints a random Automerge actor id per
+//! call, so `genesis.amc`, the `changes/<hash>.amc` filenames, and
+//! `snapshot.amc` vary run to run. The committed fixtures are therefore the
+//! source of truth and must NOT be rewritten by a routine `cargo test` --
+//! doing so dirties the working tree with a non-deterministic diff and breaks
+//! git-clean CI gates. Accordingly:
+//!
+//!   - The default tests are READ-ONLY: they open the COMMITTED fixtures
+//!     through the production read path and assert shape + claim count. They
+//!     never write into `fixtures_root()`.
+//!   - To regenerate the committed fixtures (after an intentional fixture
+//!     change), run with `REGEN_V2_FIXTURES=1`; the regenerator writes the
+//!     fixtures in place. Commit the result deliberately.
 
 #![allow(deprecated)]
 
@@ -129,10 +141,23 @@ fn build_with_changes(root: &Path) -> Store {
     store
 }
 
+/// True when the regenerator should run (env opt-in only).
+fn regen_requested() -> bool {
+    std::env::var_os("REGEN_V2_FIXTURES").is_some()
+}
+
+/// READ-ONLY validation of the committed `with_changes` fixture. Opens it
+/// through the production read path and asserts shape + claim count. Does NOT
+/// write into the source tree (see module docs: bytes are not reproducible).
+///
+/// When `REGEN_V2_FIXTURES=1` it FIRST regenerates the committed fixture in
+/// place, then validates -- the deliberate refresh path.
 #[test]
-fn generate_with_changes_fixture() {
+fn with_changes_fixture_shape_and_roundtrip() {
     let root = fixtures_root().join("with_changes").join("claims");
-    build_with_changes(&root);
+    if regen_requested() {
+        build_with_changes(&root);
+    }
 
     // Shape assertions: genesis + changes/ + config.toml, no snapshot.
     assert!(root.join("genesis.amc").exists(), "genesis.amc present");
@@ -151,21 +176,25 @@ fn generate_with_changes_fixture() {
     assert_eq!(claims.len(), 6, "with_changes estate yields 6 claims");
 }
 
-/// Build the committed `compacted/claims/` fixture: init+append the fixed
-/// data, then compact. Returns the estate root. Factored out so the
-/// generator and the read-path probe share ONE build and do not race over
-/// the same on-disk directory under parallel test execution.
-fn build_compacted() -> PathBuf {
-    let root = fixtures_root().join("compacted").join("claims");
-    build_with_changes(&root);
-    let mut store = Store::open(&root).unwrap();
+/// Build a compacted estate at `root` (init+append the fixed data, then
+/// compact). Used by the regenerator and by the read-path probe (which builds
+/// into a tempdir). NEVER call this against `fixtures_root()` outside the
+/// regen path -- it rewrites non-reproducible bytes.
+fn build_compacted_at(root: &Path) {
+    build_with_changes(root);
+    let mut store = Store::open(root).unwrap();
     store.compact().unwrap();
-    root
 }
 
+/// READ-ONLY validation of the committed `compacted` fixture (the issue #11
+/// shape: genesis + snapshot, NO changes/). Regenerates in place only under
+/// `REGEN_V2_FIXTURES=1`.
 #[test]
-fn generate_compacted_fixture() {
-    let root = build_compacted();
+fn compacted_fixture_shape() {
+    let root = fixtures_root().join("compacted").join("claims");
+    if regen_requested() {
+        build_compacted_at(&root);
+    }
 
     // Shape assertions: genesis + snapshot + config.toml, NO changes/.
     assert!(root.join("genesis.amc").exists(), "genesis.amc present");
@@ -174,6 +203,15 @@ fn generate_compacted_fixture() {
     assert!(
         !root.join("changes").exists(),
         "compacted estate has NO changes/ dir (the issue #11 shape)"
+    );
+
+    // Round-trip the COMMITTED snapshot bytes through the read path.
+    let mut store = Store::open(&root).unwrap();
+    let claims = store.load_claims().unwrap();
+    assert_eq!(
+        claims.len(),
+        6,
+        "committed compacted fixture must yield all 6 claims through Store::open"
     );
 }
 
@@ -194,11 +232,7 @@ fn compacted_estate_read_path_yields_all_claims() {
     // parallel test execution (both would otherwise rewrite the same dir).
     let tmp = tempfile::TempDir::new().unwrap();
     let root = tmp.path().join("claims");
-    build_with_changes(&root);
-    {
-        let mut store = Store::open(&root).unwrap();
-        store.compact().unwrap();
-    }
+    build_compacted_at(&root);
     assert!(!root.join("changes").exists());
     assert!(root.join("snapshot.amc").exists());
 

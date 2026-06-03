@@ -7,7 +7,9 @@
 //!
 //! Missing file is valid: it means either a fresh v3 store (no migration
 //! ever run) or a v2 store that has not yet been migrated. Callers
-//! distinguish those two cases by checking for `claims/changes/`.
+//! distinguish those two cases via the registry detect walk
+//! (`runner::current_version` Rule 2 -> `V2ToV3::detect`, which keys on
+//! `claims/genesis.amc`), NOT a `claims/changes/` heuristic.
 
 use std::path::Path;
 
