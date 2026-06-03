@@ -1,6 +1,8 @@
 # Synthesist
 
-Specification graph manager. Rust + claim-core (Automerge) + SQLite view cache.
+Specification graph manager. Rust on the claim substrate: per-asserter
+JSON-LD logs (`claims/<asserter>/log.jsonl`, the source of truth) indexed by
+a disposable redb gamma typed-query cache. No Automerge, no SQLite.
 
 ## Build
 
@@ -18,11 +20,12 @@ cargo test          # unit + integration tests only
 
 State lives in `claims/` at the repo root (created by `synthesist init`).
 
-- `claims/genesis.amc`, `claims/changes/<hash>.amc`, `claims/config.toml`
-  are git-tracked. They are the source of truth.
-- `claims/snapshot.amc`, `claims/view.sqlite`, `claims/view.heads` are
-  gitignored local caches. Deleting them is safe; they rebuild from
-  the log.
+- `claims/<asserter>/log.jsonl` (one append-only JSON-LD log per writer)
+  and `claims/config.toml` are git-tracked. The union of the per-asserter
+  logs is the source of truth.
+- `claims/_view.gamma` is a gitignored local cache: a redb-backed typed
+  query index built from the log union. Deleting it is safe; it rebuilds
+  from the logs whenever a heads signal shows they changed.
 
 Never read or write these files directly. All access goes through
 `synthesist` subcommands, which call into the
@@ -53,9 +56,11 @@ Session lifecycle:
    the session
 4. `synthesist session list` -- see active sessions
 
-There is no `session merge` or `session discard`. Multi-user writes
-merge automatically via CRDT. Conflicts are resolved by supersession;
-surface unresolved ones with `synthesist conflicts`.
+There is no `session merge` or `session discard`. Each writer appends to
+its own log, so multi-user writes never collide; peers exchange logs over
+plain git and the gamma index rebuilds from the union. Conflicts are
+resolved by supersession; surface unresolved ones with
+`synthesist conflicts`.
 
 Commit after every task completion, not in batches.
 
@@ -78,8 +83,9 @@ Key rules:
 ## Conventions
 
 - **Output**: all commands emit JSON; pipe through `jq` for human reading
-- **SQL**: never query `view.sqlite` directly; use `synthesist sql` for
-  ad-hoc read-only queries against the current view
+- **Queries**: never read `claims/_view.gamma` directly; reads go through
+  the read subcommands, which query the redb gamma index (rebuilt from the
+  logs on demand)
 - **File size**: keep source files focused, one concern per file
 - **Tests**: integration tests in `tests/integration.rs`
 - **Linting**: zero warnings from `make lint`. Fix warnings before committing.

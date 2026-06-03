@@ -4,12 +4,12 @@ version = "3.0.0-rc.1"
 edition = "2024"
 rust-version = "1.88"
 license = "MIT"
-description = "Bi-temporal CRDT claim substrate with asserter attribution. Backbone of nomograph multi-user, multi-agent tooling."
+description = "Per-asserter JSON-LD claim substrate with asserter attribution and a typed query index. Backbone of nomograph multi-user, multi-agent tooling."
 authors = ["Andrew Dunn <andunn@gitlab.com>"]
 repository = "https://gitlab.com/nomograph/claim"
 homepage = "https://gitlab.com/nomograph/claim"
 readme = "README.md"
-keywords = ["crdt", "bi-temporal", "claim", "substrate", "multi-agent"]
+keywords = ["bi-temporal", "claim", "substrate", "multi-agent"]
 categories = ["data-structures", "database-implementations"]
 exclude = [
     "target/*",

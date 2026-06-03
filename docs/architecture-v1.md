@@ -1,7 +1,12 @@
 # Synthesist v1.0.0 Architecture
 
+> **Historical:** v1 (Go+Dolt -> Rust+SQLite) design, superseded by v3.
+> Kept for provenance. The current architecture is the claim substrate of
+> per-asserter JSON-LD logs plus a redb gamma index; see the repo and
+> claim CLAUDE.md files.
+
 **Date**: 2026-04-07
-**Status**: Accepted
+**Status**: Accepted (historical)
 
 ## Motivation
 

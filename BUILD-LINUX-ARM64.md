@@ -6,7 +6,7 @@
 
 ## Objective
 Enable Linux ARM64 (aarch64-unknown-linux-gnu) builds for synthesist
-(nomograph-synthesist v3.0.0-pre.1), a member of the nomograph 2-crate
+(nomograph-synthesist v3.0.0-rc.1), a member of the nomograph 2-crate
 workspace (claim + synthesist) over gamma/redb.
 
 ## v3 Substrate Note
@@ -43,7 +43,7 @@ invoked from the synthesist crate dir or the workspace root.
 ## Available Build Options
 
 ### Option 1: GitLab CI Pipeline (CANONICAL)
-The `tool-rust@v4.2.3` pipeline component already ships a `build:linux-arm64`
+The `tool-rust@v4.3.0` pipeline component already ships a `build:linux-arm64`
 job that runs `cargo zigbuild --release --target aarch64-unknown-linux-gnu`
 on a Linux runner and uploads `synthesist-linux-arm64`. It is part of the
 standard build matrix alongside `build:darwin-arm64`; no extra CI config is

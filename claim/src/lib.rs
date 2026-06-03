@@ -1,4 +1,4 @@
-//! nomograph-claim -- bi-temporal CRDT claim substrate.
+//! nomograph-claim -- per-asserter JSON-LD claim substrate with asserter attribution.
 //!
 //! v3 stores claims as JSON-LD documents in per-asserter append-only
 //! logs (`log::LogWriter` / `log::LogReader`), indexed by the gamma

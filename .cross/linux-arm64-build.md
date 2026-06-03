@@ -3,7 +3,7 @@
 ## Current Environment
 - **Host OS**: macOS (ARM64)
 - **Target**: Linux ARM64 (aarch64-unknown-linux-gnu)
-- **Project**: nomograph-synthesist (v3.0.0-pre.1), member of the nomograph
+- **Project**: nomograph-synthesist (v3.0.0-rc.1), member of the nomograph
   2-crate workspace (claim + synthesist) over gamma/redb
 
 ## v3 Substrate Note
@@ -25,7 +25,7 @@ Container Runtime, so the canonical Linux ARM64 build runs in CI.
 ## Recommended Solutions
 
 ### Option 1: GitLab CI Pipeline (CANONICAL)
-The `tool-rust@v4.2.3` pipeline component already provides a
+The `tool-rust@v4.3.0` pipeline component already provides a
 `build:linux-arm64` job that runs `cargo zigbuild --release --target
 aarch64-unknown-linux-gnu` on a Linux runner and uploads the
 `synthesist-linux-arm64` artifact. No extra config is needed beyond the

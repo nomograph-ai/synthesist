@@ -28,40 +28,52 @@ cargo clippy -- -D warnings # lint; zero warnings tolerated
 cargo doc --no-deps         # local docs; no broken intradoc links
 ```
 
-The `claim` binary is produced at `target/release/claim`.
+`nomograph-claim` is a `[lib]`-only crate; it ships no binary. The
+consuming modules (synthesist, lattice) own the CLI surface.
 
 ## Storage Contract
 
 The substrate owns a visible `claims/` directory at project root (D3).
+Each writer appends JSON-LD documents to its own log; the union of those
+logs is the source of truth. The gamma typed-query index is a disposable
+local cache rebuilt from the union.
 
 | File | Tracked | Purpose |
 |------|---------|---------|
-| `claims/genesis.amc` | yes | Bootstrap Automerge doc |
-| `claims/changes/<hash>.amc` | yes | Content-addressed append-only |
+| `claims/<asserter>/log.jsonl` | yes | Per-asserter append-only JSON-LD log |
 | `claims/config.toml` | yes | Schema version |
-| `claims/snapshot.amc` | no | Local compaction cache |
-| `claims/view.sqlite` | no | Local SQL projection |
-| `claims/view.heads` | no | Heads-stale check |
+| `claims/_view.gamma` | no | redb gamma index (disposable cache) |
 
-Never read or write these files outside the `store` and `view` modules.
-CLI subcommands route through the public API.
+Never read or write these files outside the `log` and `gamma` modules.
+Consumers route through the public API.
 
 ## Module Responsibilities
 
-- `claim` -- claim struct, id hash, supersession helpers. Already scaffolded.
-- `store` -- `Store` type owning the `claims/` directory. Append, load,
-  save-incremental. Automerge-backed. Wave 2.
-- `view` -- `View` type projecting the Automerge doc into SQLite. Rebuild
-  on heads mismatch. Wave 2.
-- `crypto` -- Argon2id passphrase KDF + ChaCha20-Poly1305 AEAD envelope
-  for changes going over the wire. Wave 2.
-- `session` -- Session claim writer; subsequent writes inherit the
-  session tag (D14, no file-copy). Wave 2.
-- `schema` -- per-claim-type JSON schema validation at the `Store::append`
-  boundary. Wave 2.
-- `error` -- `thiserror`-derived `Error` + `Result`. Already scaffolded.
-- `bin/claim.rs` -- clap-derive CLI; maps subcommands to public API
-  calls. Wave 2 fills in subcommand bodies.
+- `claim` -- claim struct, id hash, supersession helpers.
+- `log` -- `LogWriter` / `LogReader` over `claims/<asserter>/log.jsonl`.
+  Appends one JSON-LD doc per line via the temp-file-plus-rename atomic
+  write strategy. The v3 write/read surface.
+- `gamma` -- `Gamma`, the redb-backed POS/PSO typed-query index. A
+  derived projection of the log union; rebuilt when `heads` shows the
+  logs changed. Replaces the v2 SQLite view and the v3-alpha Oxigraph
+  engine.
+- `heads` -- staleness signal: hashes the asserter directory names and
+  per-file line counts so `Gamma::sync` skips a rebuild when the logs
+  are unchanged.
+- `jsonld` -- the compact JSON-LD on-disk form: base @context body,
+  envelope helpers, asserter-IRI handling.
+- `asserter` -- asserter id parsing and the per-asserter directory name
+  derivation.
+- `prov` -- PROV envelope predicates (generatedAtTime, wasAttributedTo,
+  wasRevisionOf, parentAsserter).
+- `ontology` -- substrate vocabulary constants (prefixes, predicate
+  IRIs).
+- `store` -- v2-READ shim only. The legacy Automerge `Store` survives so
+  `synthesist migrate v2-to-v3` can drain old `claims/changes/*.amc`
+  trees; `open` + `load_claims` is the primary surface, with
+  `init`/`append` retained to build migration fixtures. Not part of the
+  v3 runtime path.
+- `error` -- `thiserror`-derived `Error` + `Result`.
 
 ## Conventions
 
@@ -82,17 +94,17 @@ CLI subcommands route through the public API.
 
 ## CLI Shape
 
-The binary is `claim`. Subcommands currently stubbed:
+`nomograph-claim` exposes no binary; it is a library. The substrate
+verbs are public API on the `log`, `gamma`, and `claim` modules:
 
-- `claim init` -- scaffold `claims/` in the cwd project root
-- `claim append` -- append a typed claim
-- `claim list` -- list current state
-- `claim history <id>` -- walk supersession chain
-- `claim conflicts` -- surface unresolved conflicts
-- `claim view sync` -- rebuild SQLite projection
+- append a typed claim -- `log::LogWriter`
+- read current state / walk a supersession chain -- `log::LogReader`
+  plus the `gamma` index
+- rebuild the typed-query projection -- `gamma::Gamma::sync` (driven by
+  the `heads` staleness signal)
 
-Wave 2 agents fill in the bodies. Do not add new subcommands without
-updating BUILDING.md first.
+Consuming modules (synthesist) map their own subcommands onto this API.
+Do not add public surface without updating BUILDING.md first.
 
 ## Release Checklist
 

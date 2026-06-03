@@ -123,7 +123,7 @@ volumes synthesist handles.
 ## Asserter IRI form
 
 Asserter IRIs in JSON-LD use the `asserter:` IRI prefix. The full
-asserter string follows the v2.5 convention:
+asserter string follows the asserter convention:
 
 ```
 <class>:<scope>:<id>[:<session>]

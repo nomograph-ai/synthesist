@@ -3,8 +3,8 @@
 
   <!-- Title bar -->
   <rect x="0" y="0" width="1200" height="36" fill="#2c2417"/>
-  <text x="16" y="24" font-family="'IBM Plex Mono', monospace" font-size="14" fill="#faf6ed" font-weight="bold">synthesist -- specification graph manager (v2)</text>
-  <text x="1184" y="24" font-family="'IBM Plex Mono', monospace" font-size="11" fill="#c4b99a" text-anchor="end">claim substrate · rust + sqlite</text>
+  <text x="16" y="24" font-family="'IBM Plex Mono', monospace" font-size="14" fill="#faf6ed" font-weight="bold">synthesist -- specification graph manager (v3)</text>
+  <text x="1184" y="24" font-family="'IBM Plex Mono', monospace" font-size="11" fill="#c4b99a" text-anchor="end">claim substrate · rust + redb gamma index</text>
 
   <!-- Phase machine ribbon -->
   <rect x="40" y="52" width="1120" height="30" fill="none" stroke="#c4b99a" stroke-width="1"/>
@@ -40,16 +40,16 @@
   <rect x="360" y="100" width="260" height="28" fill="#2c2417"/>
   <text x="490" y="118" font-family="'IBM Plex Mono', monospace" font-size="11" fill="#faf6ed" text-anchor="middle" font-weight="bold">PROCESS</text>
 
-  <text x="376" y="148" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#2c2417" font-weight="bold">claim graph (CRDT)</text>
-  <text x="376" y="164" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">  append-only .amc log</text>
-  <text x="376" y="180" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">  supersession per field</text>
-  <text x="376" y="196" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">  multi-writer auto-merge</text>
+  <text x="376" y="148" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#2c2417" font-weight="bold">claim graph (JSON-LD logs)</text>
+  <text x="376" y="164" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">  append-only log.jsonl per asserter</text>
+  <text x="376" y="180" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">  supersession per claim</text>
+  <text x="376" y="196" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">  multi-writer union over git</text>
 
   <line x1="376" y1="210" x2="604" y2="210" stroke="#c4b99a" stroke-width="1"/>
 
-  <text x="376" y="230" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#2c2417" font-weight="bold">materialized view</text>
-  <text x="376" y="246" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">  SQLite cache (rebuildable)</text>
-  <text x="376" y="262" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">  read-only SQL queries</text>
+  <text x="376" y="230" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#2c2417" font-weight="bold">redb gamma index</text>
+  <text x="376" y="246" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">  disposable cache (rebuildable)</text>
+  <text x="376" y="262" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">  typed read-only queries</text>
   <text x="376" y="278" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">  diamond-conflict surfacing</text>
 
   <line x1="376" y1="292" x2="604" y2="292" stroke="#c4b99a" stroke-width="1"/>
@@ -82,8 +82,8 @@
   <text x="900" y="246" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">institutional memory</text>
   <text x="696" y="262" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#2c2417">synthesist conflicts</text>
   <text x="900" y="262" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">diamond-conflict report</text>
-  <text x="696" y="278" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#2c2417">synthesist sql "SELECT ..."</text>
-  <text x="900" y="278" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">read-only view queries</text>
+  <text x="696" y="278" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#2c2417">synthesist overlay run name</text>
+  <text x="900" y="278" font-family="'IBM Plex Mono', monospace" font-size="9" fill="#6b5d4f">typed gamma-index queries</text>
 
   <line x1="696" y1="292" x2="1144" y2="292" stroke="#c4b99a" stroke-width="1"/>
 
