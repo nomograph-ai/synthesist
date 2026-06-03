@@ -1,6 +1,6 @@
 # Changelog
 
-## [3.0.0-pre.1] - 2026-05-29
+## [3.0.0-pre.1] - 2026-06-02
 
 v3-native release. Synthesist drops the v2 `.amc` substrate entirely
 and runs directly on the v3 JSON-LD log plus the redb-backed "gamma"

@@ -48,11 +48,8 @@
 //! hyphens in directory names; the resulting paths are identical on
 //! both platforms.
 //!
-//! TODO: move `dir_name_for_asserter` to the asserter module
-//! (`src/asserter.rs`, T1.4) once that module lands. The function
-//! belongs there as `Asserter::dir_name(&self) -> String`. For now it
-//! lives here as a private helper with a public wrapper so T1.4 can
-//! absorb it without breaking the `LogWriter` call site.
+//! `dir_name_for_asserter` lives here as a private helper with a public
+//! wrapper, kept next to its sole `LogWriter` call site.
 
 use anyhow::{bail, Context, Result};
 use std::fs::{self, File, OpenOptions};
@@ -285,7 +282,7 @@ pub struct Claim {
 ///
 /// Order across asserters is NOT time-sorted; callers that need
 /// `prov:generatedAtTime` ordering must sort the yielded claims after
-/// the fact (cheap on Oxigraph; less so when iterating raw).
+/// the fact.
 pub struct LogReader {
     claims_dir: PathBuf,
 }

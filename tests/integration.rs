@@ -315,8 +315,8 @@ fn test_legacy_v1_db_blocks_init() {
         .assert()
         .failure()
         .stderr(predicate::str::contains("v1 database"))
-        .stderr(predicate::str::contains("synthesist migrate v1-to-v2"))
-        .stderr(predicate::str::contains("MIGRATION.md"));
+        .stderr(predicate::str::contains("synthesist migrate v2-to-v3"))
+        .stderr(predicate::str::contains("MIGRATION-v2-to-v3.md"));
     // Refused init means no claims/ should have been materialized.
     assert!(!tmp.path().join("claims").exists());
 }

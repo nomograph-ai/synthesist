@@ -1,8 +1,10 @@
 //! Telemetry writer for alpha query-surface instrumentation.
 //!
-//! Every query that passes through the `query`, `overlay run`, `/sparql`,
-//! or MCP surfaces calls [`TelemetryWriter::record_query`]. Each call
-//! appends one JSON line to `claims/_telemetry/queries.jsonl`.
+//! In v3 the only live caller is `overlay run` (via [`Surface::Cli`]),
+//! which calls [`TelemetryWriter::record_query`]. Each call appends one
+//! JSON line to `claims/_telemetry/queries.jsonl`. (The `Http`/`Mcp`
+//! `Surface` variants are retained for record compatibility but have no
+//! live surface behind them.)
 //!
 //! ## Design choice: struct vs free function
 //!

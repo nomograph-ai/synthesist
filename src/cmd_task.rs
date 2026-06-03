@@ -1,7 +1,7 @@
-//! Task DAG commands -- ported to the v3 SPARQL substrate.
+//! Task DAG commands -- ported to the v3 redb-gamma substrate.
 //!
 //! Reference port (Stage 1). `cmd_task_ready` is the load-bearing one
-//! and the SPARQL pattern subsequent task ports will mimic.
+//! and the gamma-index pattern subsequent task ports will mimic.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::process::Command as ShellCommand;

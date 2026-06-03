@@ -159,9 +159,9 @@ pub enum Command {
         #[command(subcommand)]
         cmd: OutcomeCmd,
     },
-    /// Named analysis passes over the graph view. Each overlay runs a
-    /// SPARQL query and returns structured hits. Read-only; no session
-    /// or phase gate applies.
+    /// Named analysis passes over the redb gamma index. Each overlay
+    /// runs a typed pass and returns structured hits. Read-only; no
+    /// session or phase gate applies.
     Overlay {
         #[command(subcommand)]
         cmd: OverlayCmd,
@@ -276,10 +276,13 @@ pub enum SpecCmd {
     Update {
         /// Path in tree/spec format.
         tree_spec: String,
+        /// What this spec aims to achieve.
         #[arg(long)]
         goal: Option<String>,
+        /// Boundaries and invariants.
         #[arg(long)]
         constraints: Option<String>,
+        /// Key decisions already made.
         #[arg(long)]
         decisions: Option<String>,
         /// Spec status. Allowed values come from the same constant
@@ -296,7 +299,9 @@ pub enum SpecCmd {
         /// IDs of the Task claims that constitute the agreed plan.
         /// Drives the `plan-at-risk` overlay: when any of these
         /// claims is later superseded, the spec is flagged. Pass an
-        /// empty string to clear.
+        /// empty string to clear. Pin this while still in PLAN, before
+        /// running `phase set agree`: AGREE forbids writes, so the
+        /// snapshot cannot be pinned once the phase has transitioned.
         #[arg(long, value_delimiter = ',')]
         agree_snapshot: Option<Vec<String>>,
     },

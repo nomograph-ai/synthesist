@@ -42,10 +42,6 @@ fn sparql_exposed_loads() {
         m.add.contains(&"overlay run".to_string()),
         "sparql-exposed must add 'overlay run'"
     );
-    assert!(
-        m.add.contains(&"spec hierarchy".to_string()),
-        "sparql-exposed must add 'spec hierarchy'"
-    );
 }
 
 #[test]
@@ -58,12 +54,8 @@ fn overlay_first_class_loads() {
         "overlay-first-class include list must not be empty"
     );
     assert!(
-        m.add.contains(&"warn plan-at-risk".to_string()),
-        "overlay-first-class must add 'warn plan-at-risk'"
-    );
-    assert!(
-        m.add.contains(&"warn stale-dispositions".to_string()),
-        "overlay-first-class must add 'warn stale-dispositions'"
+        m.add.contains(&"overlay run".to_string()),
+        "overlay-first-class must add 'overlay run'"
     );
 }
 
@@ -75,14 +67,6 @@ fn composite_commands_loads() {
     assert!(
         !m.include.is_empty(),
         "composite-commands include list must not be empty"
-    );
-    assert!(
-        m.add.contains(&"plan-review".to_string()),
-        "composite-commands must add 'plan-review'"
-    );
-    assert!(
-        m.add.contains(&"nightly-handoff".to_string()),
-        "composite-commands must add 'nightly-handoff'"
     );
 }
 

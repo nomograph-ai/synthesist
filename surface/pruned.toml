@@ -22,6 +22,5 @@ exclude = [
     "task block", "task wait",
     "phase show",
     "import", "export",
-    "conflicts",
 ]
 add = []

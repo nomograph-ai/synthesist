@@ -2,7 +2,7 @@
 //!
 //! `session start` writes one v3 Session claim with session-scoped
 //! asserter. `session close` writes a superseding Session claim.
-//! Reads (`list`, `status`) walk the SPARQL view.
+//! Reads (`list`, `status`) walk the redb gamma index.
 
 use anyhow::{Result, anyhow, bail};
 use crate::claim_type::ClaimType;
@@ -286,12 +286,12 @@ fn cmd_session_close(id: &str, start_id: Option<&str>, session: &Option<String>)
             }
         }
         _ => {
-            // No prefix supplied. With multiple live openers the v2
-            // contract takes the most recently asserted one (already at
-            // the head of the ORDER BY DESC list); that keeps the
-            // single-session happy path stable while still terminating
-            // cleanly on name collisions without forcing the caller to
-            // pick.
+            // No prefix supplied. With multiple live openers we take the
+            // most recently asserted one (candidates are already ordered
+            // newest-first by generation time when read off the gamma
+            // index); that keeps the single-session happy path stable
+            // while still terminating cleanly on name collisions without
+            // forcing the caller to pick.
             candidates.first().unwrap()
         }
     };

@@ -11,7 +11,7 @@
 //! mental model.
 //!
 //! Path B Stage 2: the read side now projects live Outcome heads via
-//! SPARQL against the cached graph view. Writes were already routed
+//! typed passes over the redb gamma index. Writes were already routed
 //! through `SynthStore::append` in Stage 1.
 
 use anyhow::{Context, Result};

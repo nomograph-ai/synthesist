@@ -3,8 +3,9 @@
 //! v3 stores claims as JSON-LD documents in per-asserter append-only
 //! logs (`log::LogWriter` / `log::LogReader`), indexed by the gamma
 //! typed-query index (`gamma`). The legacy v2 Automerge store survives
-//! only as a read-only shim (`store::Store::open` + `load_claims`) used
-//! by the v2-to-v3 migration to drain old `claims/changes/*.amc` trees.
+//! as a shim (`store::Store`) used by the v2-to-v3 migration to drain old
+//! `claims/changes/*.amc` trees; its read path (`open` + `load_claims`)
+//! is primary, with `init`/`append` retained to build migration fixtures.
 
 pub mod claim;
 pub mod error;

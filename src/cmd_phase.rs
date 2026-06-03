@@ -169,7 +169,13 @@ pub fn check_phase(
                 None
             }
         }
-        "agree" => Some("no operations in AGREE phase -- present plan and wait for human approval"),
+        "agree" => Some(
+            "no writes allowed in AGREE phase -- present plan and wait for human approval. \
+             The agree-time plan snapshot must be pinned while still in PLAN \
+             (`synthesist spec update --agree-snapshot ...`) before running `phase set agree`; \
+             AGREE forbids writes, so it cannot be pinned afterward. Use `--force` to override \
+             this gate.",
+        ),
         "execute" => {
             if top_cmd == "task" && matches!(sub_cmd, "add" | "cancel") {
                 Some("cannot add/cancel tasks in EXECUTE phase -- transition to REPLAN")

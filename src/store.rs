@@ -111,8 +111,8 @@ pub fn find_legacy_v1_db(start: &Path) -> Option<PathBuf> {
 
 /// Build the standardized migration error. Centralized so every caller
 /// emits an identical prescriptive message naming the exact
-/// `synthesist migrate v1-to-v2` subcommand to run and pointing at
-/// `MIGRATION.md` for rollback + verification steps.
+/// `synthesist migrate v2-to-v3` subcommand to run and pointing at
+/// `MIGRATION-v2-to-v3.md` for rollback + verification steps.
 pub fn legacy_migration_error(legacy_db: &Path) -> anyhow::Error {
     // legacy_db = <repo>/.synth/main.db. Compute <repo>/claims as the
     // suggested migration target.
@@ -122,17 +122,19 @@ pub fn legacy_migration_error(legacy_db: &Path) -> anyhow::Error {
         .map(|p| p.join("claims"))
         .unwrap_or_else(|| PathBuf::from("claims"));
     anyhow::anyhow!(
-        "found v1 database at `{legacy}` but no v2 `claims/` directory in scope.\n\
+        "found legacy v1 database at `{legacy}` but no v3 `claims/` directory in scope.\n\
          \n\
-         synthesist v2 stores data in `claims/` (Automerge claim log + SQLite view).\n\
-         Port your v1 data before using v2 commands here:\n\
+         synthesist v3 stores data in `claims/` (per-asserter JSON-LD logs + redb gamma index).\n\
+         The in-place `migrate v1-to-v2` path was removed; bring data forward through the\n\
+         v2-to-v3 migration surface instead. Inspect what is available, then run it:\n\
          \n\
-         \u{20}\u{20}# dry-run first, then migrate\n\
-         \u{20}\u{20}synthesist migrate v1-to-v2 --from {legacy} --to {target} --dry-run\n\
-         \u{20}\u{20}synthesist migrate v1-to-v2 --from {legacy} --to {target}\n\
+         \u{20}\u{20}synthesist migrate list\n\
+         \u{20}\u{20}synthesist migrate status\n\
+         \u{20}\u{20}synthesist migrate v2-to-v3 --from {legacy} --to {target}\n\
+         \u{20}\u{20}synthesist migrate run\n\
          \n\
-         See MIGRATION.md in the synthesist repo for rollback + verification.\n\
-         If the v1 db is obsolete and you want a fresh v2 estate here,\n\
+         See MIGRATION-v2-to-v3.md in the synthesist repo for rollback + verification.\n\
+         If the legacy db is obsolete and you want a fresh v3 estate here,\n\
          remove `.synth/` first.",
         legacy = legacy_db.display(),
         target = target.display(),
@@ -891,8 +893,8 @@ mod tests {
         let db = tmp.path().join(".synth/main.db");
         let err = legacy_migration_error(&db).to_string();
         assert!(err.contains("v1 database"));
-        assert!(err.contains("synthesist migrate v1-to-v2"));
-        assert!(err.contains("MIGRATION.md"));
+        assert!(err.contains("synthesist migrate v2-to-v3"));
+        assert!(err.contains("MIGRATION-v2-to-v3.md"));
         // Target path = tmp/claims.
         assert!(err.contains(&tmp.path().join("claims").display().to_string()));
     }

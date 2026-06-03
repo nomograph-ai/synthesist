@@ -20,7 +20,4 @@ include = [
     "outcome add", "outcome list",
 ]
 exclude = []
-add     = [
-    "overlay list", "overlay run", "spec hierarchy",
-    "warn plan-at-risk", "warn stale-dispositions",
-]
+add     = ["overlay list", "overlay run"]

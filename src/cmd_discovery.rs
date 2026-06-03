@@ -1,9 +1,9 @@
-//! Discovery commands -- ported to the v3 SPARQL substrate.
+//! Discovery commands -- ported to the v3 redb-gamma substrate.
 //!
 //! Writes and reads `Discovery` claims via the synthesist claim store.
 //! Every `discovery add` appends one [`crate::claim_type::ClaimType::Discovery`]
 //! claim through `SynthStore::append`; `discovery list` projects the live
-//! Discovery heads scoped to `(tree, spec)` via SPARQL.
+//! Discovery heads scoped to `(tree, spec)` via the gamma index.
 //!
 //! The CLI surface is unchanged from v1.2.x: same subcommands, same flags,
 //! same JSON output shape. Path B Stage 2 finishes the port to v3:

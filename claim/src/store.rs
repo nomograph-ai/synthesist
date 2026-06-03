@@ -1,10 +1,13 @@
-//! v2-read shim over a legacy `claims/` directory.
+//! v2 shim over a legacy `claims/` directory.
 //!
 //! Deprecated: v3 uses `log::LogWriter` and `log::LogReader`. This module
-//! survives ONLY as a read-only shim so the v2-to-v3 migration can drain
-//! an existing v2 Automerge log into the v3 per-asserter JSON-LD logs.
-//! The write path (init/append/merge/compact) and its directory lock were
-//! removed when the v2 substrate was retired.
+//! survives so the v2-to-v3 migration can drain an existing v2 Automerge
+//! log into the v3 per-asserter JSON-LD logs. The read path
+//! (`Store::open` + `load_claims`) is the primary surface, but
+//! `Store::init` and `Store::append` remain public as the write surface
+//! used to build v2 migration fixtures; the broader v2 write path (merge,
+//! compaction) and its directory lock were removed when the substrate was
+//! retired.
 //!
 //! The on-disk v2 layout it reads:
 //!

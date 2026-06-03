@@ -1,6 +1,6 @@
-//! Spec commands -- ported to the v3 SPARQL substrate.
+//! Spec commands -- ported to the v3 redb-gamma substrate.
 //!
-//! Reads (list/show) run SPARQL queries against the cached graph view.
+//! Reads (list/show) run typed passes over the redb gamma index.
 //! Writes (add/update) call `SynthStore::append`, which writes one v3
 //! JSON-LD doc per call.
 

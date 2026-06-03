@@ -20,4 +20,4 @@ include = [
     "outcome add", "outcome list",
 ]
 exclude = []
-add     = ["overlay list", "overlay run", "spec hierarchy"]
+add     = ["overlay list", "overlay run"]

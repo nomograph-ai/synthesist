@@ -1,7 +1,7 @@
-//! Overlay framework: named SPARQL-backed analysis passes over the graph view.
+//! Overlay framework: named typed analysis passes over the redb gamma index.
 //!
-//! An overlay is a named analysis that runs a SPARQL query (or a sequence of
-//! queries) against the current graph view and returns structured hits.
+//! An overlay is a named analysis that runs a typed pass (or a sequence of
+//! passes) over the current gamma index and returns structured hits.
 //! Overlays are composable, independently testable, and registered centrally
 //! so CLI commands (`overlay list`, `overlay run`) can discover them without
 //! hard-coding names.
@@ -65,7 +65,7 @@ impl OverlayResult {
 // Trait
 // ---------------------------------------------------------------------------
 
-/// An analysis pass that runs against the graph view.
+/// An analysis pass that runs against the gamma index.
 ///
 /// Implementors are registered in `registry()` and dispatched by the
 /// `overlay run` CLI subcommand. The trait is object-safe so overlays can

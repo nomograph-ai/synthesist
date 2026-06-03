@@ -1,8 +1,8 @@
-//! Tree commands -- ported to the v3 SPARQL substrate.
+//! Tree commands -- ported to the v3 redb-gamma substrate.
 //!
 //! Reference port (Stage 1). The supersession chain walk is now a
-//! SPARQL `FILTER NOT EXISTS` instead of a SQL `supersedes IS NULL`
-//! + client-side dedup.
+//! typed gamma-index pass over live heads instead of a SQL
+//! `supersedes IS NULL` + client-side dedup.
 
 use anyhow::{Result, anyhow, bail};
 use crate::claim_type::ClaimType;
