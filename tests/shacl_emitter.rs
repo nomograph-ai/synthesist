@@ -27,7 +27,8 @@ fn emitter_produces_valid_turtle() {
     let ttl = run_emitter();
     let bytes = ttl.as_bytes();
     let parser = TurtleParser::new().for_slice(bytes);
-    let triples: Vec<_> = parser.collect::<Result<Vec<_>, _>>()
+    let triples: Vec<_> = parser
+        .collect::<Result<Vec<_>, _>>()
         .expect("Turtle emitted by emit-shacl failed to parse");
     // Should have many triples; a rough lower bound to catch empty output.
     assert!(
@@ -68,7 +69,9 @@ fn spec_shape_has_topics_with_min_count() {
     );
     // The topics block must contain sh:minCount 1.
     // We find the topics block by locating its content between delimiters.
-    let idx = ttl.find("sh:path synthesist:topics").expect("topics not found");
+    let idx = ttl
+        .find("sh:path synthesist:topics")
+        .expect("topics not found");
     let block = &ttl[idx..idx + 200];
     assert!(
         block.contains("sh:minCount 1"),
@@ -85,7 +88,9 @@ fn spec_shape_has_topics_with_min_count() {
 #[test]
 fn spec_shape_has_agree_snapshot_as_iri() {
     let ttl = run_emitter();
-    let idx = ttl.find("sh:path synthesist:agree_snapshot").expect("agree_snapshot not found");
+    let idx = ttl
+        .find("sh:path synthesist:agree_snapshot")
+        .expect("agree_snapshot not found");
     let block = &ttl[idx..idx + 200];
     assert!(
         block.contains("sh:nodeKind sh:IRI"),

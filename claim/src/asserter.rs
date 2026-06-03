@@ -574,8 +574,14 @@ mod tests {
         // collapsed field), and parse must then reject the over-length string
         // -- an honest skip, never parse-accept-then-append-reject.
         let n = normalize_legacy("user:a:b:c:d:..");
-        assert!(!n.split(':').any(|seg| seg == ".."), "no bare `..` segment survives: {n}");
-        assert!(matches!(parse(&n).unwrap_err(), ParseError::TooManySegments(_)));
+        assert!(
+            !n.split(':').any(|seg| seg == ".."),
+            "no bare `..` segment survives: {n}"
+        );
+        assert!(matches!(
+            parse(&n).unwrap_err(),
+            ParseError::TooManySegments(_)
+        ));
     }
 
     // -- dir_name tests: deterministic, colon-free, same on macOS and Linux --

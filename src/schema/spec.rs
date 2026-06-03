@@ -5,8 +5,8 @@
 //! below and the clap `PossibleValuesParser` on `spec update --status`
 //! in `cli.rs`.
 
-use crate::validation::{check_enum, obj, opt_str, opt_str_array, req_str, req_str_array};
 use crate::validation::{SchemaError, SchemaResult};
+use crate::validation::{check_enum, obj, opt_str, opt_str_array, req_str, req_str_array};
 use serde_json::Value;
 
 /// Claim type name as it appears on disk and in error messages.

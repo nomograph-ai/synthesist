@@ -519,7 +519,10 @@ fn migrate_run_normalizes_legacy_asserters_on_disk() {
     };
     let reports = runner::apply_chain(dir.path(), &chain, &opts).unwrap();
     let touched: usize = reports.iter().map(|r| r.artifacts_touched).sum();
-    assert_eq!(touched, 2, "both legacy-asserter claims must migrate, none skipped");
+    assert_eq!(
+        touched, 2,
+        "both legacy-asserter claims must migrate, none skipped"
+    );
 
     // 2-segment -> default scope `local`; dir and attribution agree.
     let legacy_log = claims.join("user-local-migration-v1-v2").join("log.jsonl");
@@ -527,9 +530,14 @@ fn migrate_run_normalizes_legacy_asserters_on_disk() {
         legacy_log.exists(),
         "2-segment asserter must normalize to user-local-migration-v1-v2"
     );
-    let doc: Value =
-        serde_json::from_str(fs::read_to_string(&legacy_log).unwrap().lines().next().unwrap())
-            .unwrap();
+    let doc: Value = serde_json::from_str(
+        fs::read_to_string(&legacy_log)
+            .unwrap()
+            .lines()
+            .next()
+            .unwrap(),
+    )
+    .unwrap();
     assert_eq!(
         doc["prov:wasAttributedTo"], "asserter:user:local:migration-v1-v2",
         "doc attribution must match the normalized log dir"

@@ -45,12 +45,10 @@ pub const BASE_SHACL_FILENAME: &str = "base.shacl.ttl";
 /// Used by synthesist's release pipeline to emit the `_schema/`
 /// documentation artifacts alongside every binary build.
 pub fn serialize_ontology(target_dir: &Path) -> Result<()> {
-    fs::create_dir_all(target_dir)
-        .with_context(|| format!("create {}", target_dir.display()))?;
+    fs::create_dir_all(target_dir).with_context(|| format!("create {}", target_dir.display()))?;
 
     let ttl_path = target_dir.join(BASE_TTL_FILENAME);
-    fs::write(&ttl_path, BASE_TTL)
-        .with_context(|| format!("write {}", ttl_path.display()))?;
+    fs::write(&ttl_path, BASE_TTL).with_context(|| format!("write {}", ttl_path.display()))?;
 
     let shacl_path = target_dir.join(BASE_SHACL_FILENAME);
     fs::write(&shacl_path, BASE_SHACL_TTL)

@@ -1,13 +1,12 @@
 mod claim_type;
 mod cli;
 mod cmd_campaign;
-mod cmd_jig;
-mod migrations;
 mod cmd_conflicts;
 mod cmd_discovery;
 mod cmd_export;
 mod cmd_import;
 mod cmd_init;
+mod cmd_jig;
 mod cmd_migrate;
 mod cmd_outcome;
 mod cmd_overlay;
@@ -18,12 +17,13 @@ mod cmd_surface;
 mod cmd_task;
 mod cmd_tree;
 mod integrity;
+mod migrations;
 mod output;
 mod overlay;
 mod schema;
-mod surface;
 mod skill;
 mod store;
+mod surface;
 mod validation;
 mod wire_format;
 
@@ -95,7 +95,9 @@ fn run(cli: cli::Cli) -> anyhow::Result<()> {
         // which simply skips the sticky layer). `active_manifest` returns
         // `None` when no surface is configured -- in that case we filter
         // nothing.
-        let claims_dir = store::SynthStore::discover().ok().map(|s| s.root().to_path_buf());
+        let claims_dir = store::SynthStore::discover()
+            .ok()
+            .map(|s| s.root().to_path_buf());
         if let Some((reference, manifest)) =
             surface::resolve::active_manifest(cli.manifest.as_deref(), claims_dir.as_deref())?
             && !cli::key_permitted(key, &manifest)

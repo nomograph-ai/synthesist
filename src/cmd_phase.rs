@@ -4,8 +4,8 @@
 //! phase claims for the same session. Queries go through the typed
 //! gamma index helpers (no SPARQL).
 
-use anyhow::{Result, anyhow, bail};
 use crate::claim_type::ClaimType;
+use anyhow::{Result, anyhow, bail};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -81,12 +81,14 @@ fn resolve_session(explicit: Option<&str>) -> Result<String> {
     explicit
         .filter(|s| !s.is_empty())
         .map(String::from)
-        .ok_or_else(|| anyhow!(
-            "phase is per-session in v2; pass --session=<id> or set SYNTHESIST_SESSION.\n\
+        .ok_or_else(|| {
+            anyhow!(
+                "phase is per-session in v2; pass --session=<id> or set SYNTHESIST_SESSION.\n\
              \n  start one:    synthesist session start <id>\
              \n  show all:     synthesist status   (lists phase per live session)\
              \n  show one:     synthesist phase show --session=<id>"
-        ))
+            )
+        })
 }
 
 fn cmd_phase_set(name: &str, session: &Option<String>, force: bool) -> Result<()> {
@@ -132,8 +134,7 @@ fn cmd_phase_set(name: &str, session: &Option<String>, force: bool) -> Result<()
 fn cmd_phase_show(session: Option<&str>) -> Result<()> {
     let session_id = resolve_session(session)?;
     let store = SynthStore::discover()?;
-    let phase = current_phase_name(&store, &session_id)?
-        .unwrap_or_else(|| "orient".to_string());
+    let phase = current_phase_name(&store, &session_id)?.unwrap_or_else(|| "orient".to_string());
     json_out(&json!({"phase": phase, "session_id": session_id}))
 }
 
@@ -151,11 +152,9 @@ pub fn check_phase(
         return Ok(());
     }
 
-    let session_id = session
-        .filter(|s| !s.is_empty())
-        .ok_or_else(|| anyhow!(
-            "phase enforcement requires a session id; phase is per-session in v2"
-        ))?;
+    let session_id = session.filter(|s| !s.is_empty()).ok_or_else(|| {
+        anyhow!("phase enforcement requires a session id; phase is per-session in v2")
+    })?;
 
     let phase = current_phase_name(store, session_id)?
         .unwrap_or_else(|| Phase::Orient.as_str().to_string());

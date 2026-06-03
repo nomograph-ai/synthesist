@@ -149,9 +149,7 @@ pub fn doc_id(doc: &Value) -> String {
         .map(|s| {
             // Strip the `synthesist:claim/` compact form so the issue's
             // `claim_id` field carries the raw hash, matching v2.
-            s.strip_prefix("synthesist:claim/")
-                .unwrap_or(s)
-                .to_string()
+            s.strip_prefix("synthesist:claim/").unwrap_or(s).to_string()
         })
         .unwrap_or_default()
 }

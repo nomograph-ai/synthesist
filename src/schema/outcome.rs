@@ -11,8 +11,8 @@
 //! surfaces Outcome as a first-class CLI surface so the workflow is
 //! discoverable.
 
-use crate::validation::{check_enum, obj, opt_str, req_str};
 use crate::validation::SchemaResult;
+use crate::validation::{check_enum, obj, opt_str, req_str};
 use serde_json::Value;
 
 pub const TYPE_NAME: &str = "outcome";

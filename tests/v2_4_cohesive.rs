@@ -40,15 +40,7 @@ fn bootstrap(tmp: &TempDir) {
         .assert()
         .success();
     synth(tmp)
-        .args([
-            "--session",
-            "s1",
-            "spec",
-            "add",
-            "k/sample",
-            "--goal",
-            "g",
-        ])
+        .args(["--session", "s1", "spec", "add", "k/sample", "--goal", "g"])
         .assert()
         .success();
 }
@@ -99,10 +91,7 @@ fn spec_update_status_lists_valid_values() {
     // The clap PossibleValuesParser surfaces each schema-permitted
     // value in its error; verifying all four reach the user.
     for s in ["draft", "active", "done", "superseded"] {
-        assert!(
-            stderr.contains(s),
-            "stderr should list {s}; got: {stderr}"
-        );
+        assert!(stderr.contains(s), "stderr should list {s}; got: {stderr}");
     }
 }
 
@@ -134,7 +123,15 @@ fn spec_update_each_schema_value_accepted_at_cli() {
     bootstrap(&tmp);
     for s in ["draft", "active", "done", "superseded"] {
         synth(&tmp)
-            .args(["--session", "s1", "spec", "update", "k/sample", "--status", s])
+            .args([
+                "--session",
+                "s1",
+                "spec",
+                "update",
+                "k/sample",
+                "--status",
+                s,
+            ])
             .assert()
             .success();
     }
@@ -416,7 +413,15 @@ fn tree_show_spec_count_counts_all_versions_not_live_heads() {
     let tmp = tempfile::tempdir().unwrap();
     bootstrap(&tmp);
     synth(&tmp)
-        .args(["--session", "s1", "spec", "update", "k/sample", "--status", "done"])
+        .args([
+            "--session",
+            "s1",
+            "spec",
+            "update",
+            "k/sample",
+            "--status",
+            "done",
+        ])
         .assert()
         .success();
     synth(&tmp)

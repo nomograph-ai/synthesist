@@ -1,7 +1,7 @@
 //! Task claim schema.
 
-use crate::validation::{check_enum, obj, opt_str, opt_str_array, req_str};
 use crate::validation::{SchemaError, SchemaResult};
+use crate::validation::{check_enum, obj, opt_str, opt_str_array, req_str};
 use serde_json::Value;
 
 pub const TYPE_NAME: &str = "task";

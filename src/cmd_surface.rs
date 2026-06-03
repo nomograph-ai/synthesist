@@ -38,12 +38,11 @@ fn claims_dir() -> Option<std::path::PathBuf> {
 fn cmd_use(name: &str) -> Result<()> {
     // Validate the reference resolves before persisting, so a typo fails
     // loudly instead of being silently written and biting later.
-    let manifest = resolve::resolve_reference(name)
-        .with_context(|| format!("cannot use surface '{name}'"))?;
+    let manifest =
+        resolve::resolve_reference(name).with_context(|| format!("cannot use surface '{name}'"))?;
 
-    let dir = claims_dir().context(
-        "no synthesist estate found here; run `synthesist init` before `surface use`",
-    )?;
+    let dir = claims_dir()
+        .context("no synthesist estate found here; run `synthesist init` before `surface use`")?;
     resolve::write_sticky(&dir, name)?;
 
     store::json_out(&json!({

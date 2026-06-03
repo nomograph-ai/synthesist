@@ -10,7 +10,9 @@ use nomograph_synthesist::surface::manifest;
 
 fn surface_path(filename: &str) -> PathBuf {
     // Integration tests run with cwd = repo root, which is where `surface/` lives.
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("surface").join(filename)
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("surface")
+        .join(filename)
 }
 
 #[test]
@@ -28,7 +30,8 @@ fn baseline_v25_loads() {
 
 #[test]
 fn sparql_exposed_loads() {
-    let m = manifest::load(&surface_path("sparql-exposed.toml")).expect("sparql-exposed must parse");
+    let m =
+        manifest::load(&surface_path("sparql-exposed.toml")).expect("sparql-exposed must parse");
     assert_eq!(m.name, "sparql-exposed");
     assert!(
         !m.include.is_empty(),

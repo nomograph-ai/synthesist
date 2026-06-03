@@ -153,12 +153,10 @@ fn cmd_run(scenario_name: &str, manifest_name: &str) -> Result<()> {
     let manifest_path = resolve_manifest(manifest_name)?;
 
     // Parse scenario TOML.
-    let scenario_text = fs::read_to_string(&scenario_path).with_context(|| {
-        format!("reading scenario file {}", scenario_path.display())
-    })?;
-    let scenario_file: ScenarioFile = toml::from_str(&scenario_text).with_context(|| {
-        format!("parsing scenario TOML at {}", scenario_path.display())
-    })?;
+    let scenario_text = fs::read_to_string(&scenario_path)
+        .with_context(|| format!("reading scenario file {}", scenario_path.display()))?;
+    let scenario_file: ScenarioFile = toml::from_str(&scenario_text)
+        .with_context(|| format!("parsing scenario TOML at {}", scenario_path.display()))?;
 
     // Parse manifest TOML.
     let manifest = manifest::load(&manifest_path)?;
@@ -304,8 +302,8 @@ fn build_aggregate_rows() -> Result<Vec<AggRow>> {
     // Key: (scenario_name, manifest_name) -> (runs, latest_started_at)
     let mut groups: BTreeMap<(String, String), (u64, String)> = BTreeMap::new();
 
-    let read_dir = fs::read_dir(&jig_dir)
-        .with_context(|| format!("reading jig dir {}", jig_dir.display()))?;
+    let read_dir =
+        fs::read_dir(&jig_dir).with_context(|| format!("reading jig dir {}", jig_dir.display()))?;
 
     for entry_result in read_dir {
         let entry = match entry_result {
@@ -337,10 +335,7 @@ fn build_aggregate_rows() -> Result<Vec<AggRow>> {
         let v: Value = match serde_json::from_str(&text) {
             Ok(v) => v,
             Err(e) => {
-                eprintln!(
-                    "warning: skipping {}: malformed JSON: {e}",
-                    path.display()
-                );
+                eprintln!("warning: skipping {}: malformed JSON: {e}", path.display());
                 continue;
             }
         };
@@ -566,7 +561,10 @@ mod tests {
         assert!(!s.scenario.version.is_empty());
         assert!(!s.goal.prompt.is_empty());
         assert!(!s.goal.success_criterion.is_empty());
-        assert!(!s.rubric.is_empty(), "rubric should have at least one entry");
+        assert!(
+            !s.rubric.is_empty(),
+            "rubric should have at least one entry"
+        );
         // All rubric entries must have non-empty ids and descriptions.
         for entry in &s.rubric {
             assert!(!entry.id.is_empty(), "rubric entry id must not be empty");
@@ -658,7 +656,11 @@ mod tests {
         assert_eq!(v["manifest_name"].as_str().unwrap(), "baseline-v25");
         // manifest summary must not expose include/exclude/add.
         let manifest_obj = v["manifest"].as_object().unwrap();
-        assert_eq!(manifest_obj.len(), 2, "manifest summary must have exactly name and description");
+        assert_eq!(
+            manifest_obj.len(),
+            2,
+            "manifest summary must have exactly name and description"
+        );
         assert!(manifest_obj.contains_key("name"));
         assert!(manifest_obj.contains_key("description"));
     }

@@ -132,7 +132,10 @@ fn assert_graph_view_rebuild(dir: &TempDir, expected_claims: usize) {
         "gamma rebuild: expected {expected_claims} claims_loaded, got {}",
         stats.claims_loaded
     );
-    assert_eq!(stats.parse_failures, 0, "gamma rebuild must have 0 parse failures");
+    assert_eq!(
+        stats.parse_failures, 0,
+        "gamma rebuild must have 0 parse failures"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -184,12 +187,26 @@ fn v3_happy_path_dual_write() {
 
     // 6. task add (two tasks so we can verify the ready list)
     synth_s(&tmp, session)
-        .args(["task", "add", "alpha/graphs", "write the reader", "--id", "t1"])
+        .args([
+            "task",
+            "add",
+            "alpha/graphs",
+            "write the reader",
+            "--id",
+            "t1",
+        ])
         .assert()
         .success();
 
     synth_s(&tmp, session)
-        .args(["task", "add", "alpha/graphs", "write the writer", "--id", "t2"])
+        .args([
+            "task",
+            "add",
+            "alpha/graphs",
+            "write the writer",
+            "--id",
+            "t2",
+        ])
         .assert()
         .success();
 
@@ -242,8 +259,11 @@ fn v3_happy_path_dual_write() {
     // 12. discovery add
     synth_s(&tmp, session)
         .args([
-            "discovery", "add", "alpha/graphs",
-            "--finding", "json-ld encoding works end to end",
+            "discovery",
+            "add",
+            "alpha/graphs",
+            "--finding",
+            "json-ld encoding works end to end",
         ])
         .assert()
         .success()
@@ -326,10 +346,22 @@ fn v3_phase_transition_invalid_exit_nonzero() {
     let tmp = tempfile::tempdir().unwrap();
     let session = "t36-phase";
     synth(&tmp).args(["init"]).assert().success();
-    synth(&tmp).args(["session", "start", session]).assert().success();
-    synth_s(&tmp, session).args(["phase", "set", "plan"]).assert().success();
-    synth_s(&tmp, session).args(["phase", "set", "agree"]).assert().success();
-    synth_s(&tmp, session).args(["phase", "set", "execute"]).assert().success();
+    synth(&tmp)
+        .args(["session", "start", session])
+        .assert()
+        .success();
+    synth_s(&tmp, session)
+        .args(["phase", "set", "plan"])
+        .assert()
+        .success();
+    synth_s(&tmp, session)
+        .args(["phase", "set", "agree"])
+        .assert()
+        .success();
+    synth_s(&tmp, session)
+        .args(["phase", "set", "execute"])
+        .assert()
+        .success();
     // execute -> plan is invalid without --force.
     synth_s(&tmp, session)
         .args(["phase", "set", "plan"])
@@ -343,7 +375,10 @@ fn v3_session_close_hides_from_list() {
     let tmp = tempfile::tempdir().unwrap();
     let session = "t36-close";
     synth(&tmp).args(["init"]).assert().success();
-    synth(&tmp).args(["session", "start", session]).assert().success();
+    synth(&tmp)
+        .args(["session", "start", session])
+        .assert()
+        .success();
     synth(&tmp)
         .args(["session", "close", session])
         .assert()
@@ -369,8 +404,14 @@ fn v3_log_line_contains_correct_type_for_tree() {
     let tmp = tempfile::tempdir().unwrap();
     let session = "t36-tree-type";
     synth(&tmp).args(["init"]).assert().success();
-    synth(&tmp).args(["session", "start", session]).assert().success();
-    synth_s(&tmp, session).args(["phase", "set", "plan"]).assert().success();
+    synth(&tmp)
+        .args(["session", "start", session])
+        .assert()
+        .success();
+    synth_s(&tmp, session)
+        .args(["phase", "set", "plan"])
+        .assert()
+        .success();
     synth_s(&tmp, session)
         .args(["tree", "add", "gamma", "--description", "test"])
         .assert()
@@ -383,11 +424,11 @@ fn v3_log_line_contains_correct_type_for_tree() {
         .join("claims")
         .join(asserter_dir(session))
         .join("log.jsonl");
-    let text = fs::read_to_string(&log_path)
-        .expect("v3 log must exist after tree add");
+    let text = fs::read_to_string(&log_path).expect("v3 log must exist after tree add");
     let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
     assert_eq!(
-        lines.len(), 3,
+        lines.len(),
+        3,
         "expected 3 v3 log lines (session start + phase set plan + tree add)"
     );
 

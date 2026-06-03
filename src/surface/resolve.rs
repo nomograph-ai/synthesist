@@ -61,7 +61,10 @@ const STICKY_FILE: &str = "active-surface";
 /// `surface use <name>` and the default resolution both work from a shipped
 /// binary with no `surface/` directory present on disk.
 const BUILTINS: &[(&str, &str)] = &[
-    ("baseline-v25", include_str!("../../surface/baseline-v25.toml")),
+    (
+        "baseline-v25",
+        include_str!("../../surface/baseline-v25.toml"),
+    ),
     (
         "composite-commands",
         include_str!("../../surface/composite-commands.toml"),
@@ -101,8 +104,9 @@ pub fn resolve_reference(reference: &str) -> Result<Manifest> {
         return manifest::parse_str(toml, &format!("<builtin:{reference}>"));
     }
     let path = Path::new(reference);
-    manifest::load(path)
-        .with_context(|| format!("'{reference}' is not a builtin manifest name and could not be loaded as a path"))
+    manifest::load(path).with_context(|| {
+        format!("'{reference}' is not a builtin manifest name and could not be loaded as a path")
+    })
 }
 
 /// Path to the sticky setting file for the estate rooted at `claims_dir`.
@@ -280,7 +284,10 @@ mod tests {
             let r = active_reference(None, Some(&claims)).unwrap();
             assert_eq!(r, None);
             let m = active_manifest(None, Some(&claims)).unwrap();
-            assert!(m.is_none(), "unconfigured estate must have no active manifest");
+            assert!(
+                m.is_none(),
+                "unconfigured estate must have no active manifest"
+            );
         }
     }
 }

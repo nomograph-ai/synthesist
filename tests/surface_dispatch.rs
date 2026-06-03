@@ -79,17 +79,12 @@ fn pruned_surface_rejects_excluded_command_with_exit_2() {
     // `task block` would normally need a session; the rejection layer fires
     // first, before session enforcement, so we assert on exit 2 and message.
     synth(&tmp)
-        .args([
-            "--manifest",
-            "pruned",
-            "task",
-            "block",
-            "tree/spec",
-            "t1",
-        ])
+        .args(["--manifest", "pruned", "task", "block", "tree/spec", "t1"])
         .assert()
         .code(2)
-        .stderr(predicate::str::contains("not permitted by the active surface"))
+        .stderr(predicate::str::contains(
+            "not permitted by the active surface",
+        ))
         .stderr(predicate::str::contains("pruned"))
         .stderr(predicate::str::contains("synthesist surface use"));
 }
@@ -107,7 +102,11 @@ fn default_does_not_block_excluded_pruned_command() {
         .get_output()
         .clone();
     // Not the surface rejection (which is exit 2 + the surface message).
-    assert_ne!(out.status.code(), Some(2), "should not be a surface rejection");
+    assert_ne!(
+        out.status.code(),
+        Some(2),
+        "should not be a surface rejection"
+    );
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(
         !stderr.contains("not permitted by the active surface"),
@@ -190,7 +189,10 @@ fn surface_use_unknown_name_fails() {
 fn env_overrides_sticky_setting() {
     let tmp = init_estate();
     // Sticky = pruned.
-    synth(&tmp).args(["surface", "use", "pruned"]).assert().success();
+    synth(&tmp)
+        .args(["surface", "use", "pruned"])
+        .assert()
+        .success();
 
     // SYNTHESIST_MANIFEST=baseline-v25 overrides the sticky pruned, so
     // `surface show` reports baseline-v25.
@@ -205,7 +207,10 @@ fn env_overrides_sticky_setting() {
 #[test]
 fn cli_manifest_overrides_sticky_and_env() {
     let tmp = init_estate();
-    synth(&tmp).args(["surface", "use", "pruned"]).assert().success();
+    synth(&tmp)
+        .args(["surface", "use", "pruned"])
+        .assert()
+        .success();
 
     // --manifest beats both env (pruned) and sticky (pruned).
     synth(&tmp)
