@@ -10,7 +10,7 @@
 //! document that lists only the commands present in that tree.
 //!
 //! `cmd_skill(None)` (default) prints `SKILL_CONTENT` unchanged.  The output
-//! is byte-equivalent to the v3-alpha baseline.
+//! is byte-equivalent to the v3 baseline.
 
 use std::path::Path;
 
@@ -19,7 +19,7 @@ use anyhow::Result;
 pub fn cmd_skill(manifest_path: Option<&Path>) -> Result<()> {
     match manifest_path {
         None => {
-            // Default: baseline behavior, byte-equivalent to the v3-alpha
+            // Default: baseline behavior, byte-equivalent to the v3
             // baseline. Do not filter or transform.
             print!("{SKILL_CONTENT}");
         }
@@ -290,7 +290,7 @@ Multi-user writes merge automatically via CRDT. Run
 `synthesist conflicts` to surface unresolved supersessions."#;
 
 const PHASE_SECTION: &str = r#"### Phase
-Phase is per-session in v2. Both `phase show` and `phase set`
+Phase is per-session in v3. Both `phase show` and `phase set`
 require `--session=<id>` or `SYNTHESIST_SESSION`. To see every
 live session's phase at once, use `synthesist status`.
 ```
@@ -336,7 +336,7 @@ synthesist jig list-scenarios                      # list scenarios in jig/scena
 synthesist jig list-manifests                      # list manifests in surface/
 ```";
 
-const SKILL_CONTENT: &str = r#"# Synthesist -- Specification Graph Manager (v2)
+const SKILL_CONTENT: &str = r#"# Synthesist -- Specification Graph Manager (v3)
 
 ## Data Model
 
@@ -378,7 +378,8 @@ synthesist task add upstream/auth "Research API versioning strategy"
 synthesist task add upstream/auth "Implement token refresh migration" --depends-on t1
 synthesist task add upstream/auth "Write integration tests" --depends-on t2 --gate human
 
-# 3. Present plan to human (AGREE phase)
+# 3. Pin the agree snapshot, then present plan to human (AGREE phase)
+synthesist spec update upstream/auth --agree-snapshot <claim-iris>
 synthesist phase set agree
 # Present: 3 tasks, t3 has human gate.
 # Human approves. Human says: "proceed"
@@ -420,7 +421,7 @@ operations that violate the current phase. Transitions are validated.
 | Phase | Allowed | Transitions to |
 |-------|---------|---------------|
 | ORIENT | Read status, read discoveries. No writes. | plan |
-| PLAN | Add tasks/specs, add dependencies. No task claims. | agree |
+| PLAN | Add tasks/specs, add dependencies. Pin the agree snapshot with `spec update --agree-snapshot <claim-iris>` before leaving PLAN. No task claims. | agree |
 | AGREE | Present plan. No writes. Block until human approves. | execute |
 | EXECUTE | Claim tasks, complete tasks. No task creation/cancellation. | reflect, report |
 | REFLECT | Assess plan validity, record discoveries. No claims. | execute, replan, report |
@@ -475,6 +476,24 @@ The AGREE phase is a hard gate. The agent presents:
 4. What "done" looks like
 
 The agent halts and waits for explicit human approval.
+
+**Pin the agree snapshot before `phase set agree`.** While still in
+PLAN, record the exact claims the human is agreeing to:
+
+```bash
+synthesist spec update <tree/spec> --agree-snapshot <claim-iris>
+```
+
+This pins the snapshot in PLAN so the AGREE gate is anchored to a
+concrete set of claim IRIs rather than whatever the live view happens
+to be at approval time. Run it before `synthesist phase set agree`.
+
+The **plan-at-risk** overlay flags any spec whose pinned agree
+snapshot was later superseded: if a claim referenced by the snapshot
+has since been replaced by a live successor, the spec was agreed
+against state that no longer holds, and the plan should be revisited
+(REPLAN) and re-agreed. Surface this with the overlay before trusting
+a pinned snapshot during EXECUTE.
 
 ## Command Reference
 
@@ -574,7 +593,7 @@ Multi-user writes merge automatically via CRDT. Run
 `synthesist conflicts` to surface unresolved supersessions.
 
 ### Phase
-Phase is per-session in v2. Both `phase show` and `phase set`
+Phase is per-session in v3. Both `phase show` and `phase set`
 require `--session=<id>` or `SYNTHESIST_SESSION`. To see every
 live session's phase at once, use `synthesist status`.
 ```
@@ -676,7 +695,7 @@ disagree produce competing supersession chains, and resolution means
 appending a new claim that supersedes the contested chain. See the
 `nomograph-claim` documentation for the substrate contract.
 
-## Schema (v3-alpha)
+## Schema (v3)
 
 Synthesist's claim types are described declaratively in a SHACL Turtle
 document shipped alongside the binary:
@@ -750,8 +769,8 @@ mod tests {
         "## Display Conventions",
         "## Error Handling",
         "## Storage",
-        // v3-alpha T3.4: SHACL schema reference section
-        "## Schema (v3-alpha)",
+        // v3 T3.4: SHACL schema reference section
+        "## Schema (v3)",
     ];
 
     #[test]
@@ -857,7 +876,7 @@ mod tests {
         // verify the content contract directly.
         assert!(!SKILL_CONTENT.is_empty());
         assert!(SKILL_CONTENT.contains("## Command Reference"));
-        assert!(SKILL_CONTENT.contains("## Schema (v3-alpha)"));
+        assert!(SKILL_CONTENT.contains("## Schema (v3)"));
     }
 
     #[test]
@@ -894,7 +913,7 @@ add     = []
             "## Display Conventions",
             "## Error Handling",
             "## Storage",
-            "## Schema (v3-alpha)",
+            "## Schema (v3)",
         ] {
             assert!(
                 skill.contains(section),
