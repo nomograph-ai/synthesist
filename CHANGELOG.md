@@ -1,5 +1,52 @@
 # Changelog
 
+## [3.0.0-rc.2] - 2026-06-03
+
+Migration infrastructure. rc.1 shipped a v2-to-v3 migration that did not
+work on real production estates (issue #11). rc.2 rebuilds it as proper
+infrastructure and validates it end to end against a real 9530-claim
+estate: imported 9530, skipped 0, zero dangling supersedes.
+
+### Fixed
+
+- Detection (#11): rc.1 gated v2 detection on `claims/changes/` existing,
+  so a compacted production estate (`genesis.amc` + `snapshot.amc` +
+  `config.toml` `schema_version = "0.1"`, no `changes/`) was misreported
+  as "fresh" and refused migration. Detection now keys on
+  `claims/genesis.amc`, which is universal across compacted and
+  with-changes shapes.
+- Interrupted-migration recoverability: completion is signalled by
+  `claims/_schema.json` (written only after a full run), not by the mere
+  presence of a per-asserter log, so a migration killed mid-run is
+  re-runnable instead of wedged at "fresh".
+- Import of v2.5.x exports: `synthesist import` accepts the v2.5.x export
+  shape (top-level `version: "2"`, flat rows) in addition to v3 JSON-LD,
+  and re-mints ids with a supersedes remap so supersession chains keep a
+  single live head.
+- Lossless legacy-asserter normalization (migration/import only; the
+  strict live-write parser is unchanged): a 2-segment legacy asserter
+  (`user:migration-v1-v2`, an artifact of an earlier v1-to-v2 migration)
+  defaults its missing scope to `local`; a path-unsafe segment (a `/` in
+  a session) is neutralized in-tree rather than dropped. Without this a
+  real estate lost 631 of 9530 claims and broke 148 supersession chains.
+
+### Added
+
+- Canonical on-disk schema id `3.0.0`, tracking the storage format rather
+  than the binary release tag.
+- Forward-extensible migration chain: the runner plans and applies a
+  multi-step chain, advancing `claims/_schema.json` through each
+  intermediate version, resumable after an interrupted step.
+- Real-shape migration test corpus: compacted, with-changes, and v2.5.x
+  export fixtures plus a legacy-asserter export, covering both the import
+  and migration RUN paths.
+
+### Schema version
+
+The on-disk schema id is `3.0.0`. This intentionally differs from the
+binary release tag (`3.0.0-rc.2`): the schema id tracks the storage
+format and does not carry a `-rc`/`-pre` suffix.
+
 ## [3.0.0-rc.1] - 2026-06-02
 
 v3-native release. Synthesist drops the v2 `.amc` substrate entirely

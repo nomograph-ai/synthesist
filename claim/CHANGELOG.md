@@ -3,6 +3,27 @@
 All notable changes to `nomograph-claim` follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.0-rc.2] - 2026-06-03
+
+Migration support for the synthesist v2-to-v3 rebuild (issue #11).
+
+### Added
+
+- `asserter::normalize_legacy` (migration/import only): maps legacy v2
+  asserter shapes into the strict v3 grammar so historical claims are not
+  dropped -- a 2-segment `class:name` defaults its scope to `local`, and
+  path-unsafe characters in a segment are neutralized to `-`. The strict
+  live-write grammar (`asserter::parse`) is unchanged.
+- Fixture-only `Store::compact`: writes a snapshot and removes `changes/`,
+  producing the compacted estate shape the synthesist migration tests
+  exercise.
+
+### Changed
+
+- `asserter::parse` rejects asserters with more than four segments
+  (`ParseError::TooManySegments`) instead of silently truncating, so
+  `normalize_legacy -> parse -> append` agree on what is writable.
+
 ## [3.0.0-rc.1] - 2026-06-02
 
 v3 substrate. The crate keeps the JSON-LD per-asserter log as the

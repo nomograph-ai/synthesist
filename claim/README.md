@@ -45,7 +45,7 @@ Requires Rust 1.88+. No system dependencies beyond a C compiler.
 
 ```toml
 [dependencies]
-nomograph-claim = "3.0.0-rc.1"
+nomograph-claim = "3.0.0-rc.2"
 ```
 
 ## Library use

@@ -20,7 +20,7 @@ change so rollback is always available.
 
 Related reading:
 
-- `CHANGELOG.md` for a full list of what changed in 3.0.0-rc.1.
+- `CHANGELOG.md` for a full list of what changed in 3.0.0-rc.2.
 - `MIGRATION.md` for the earlier v1-to-v2 playbook if you need it.
 
 ## Pre-flight
@@ -74,10 +74,10 @@ git commit -m "wip: clean up before v3 migration"
 
 ## Install v3
 
-Install synthesist 3.0.0-rc.1:
+Install synthesist 3.0.0-rc.2:
 
 ```sh
-cargo install --git https://gitlab.com/nomograph/synthesist --tag v3.0.0-rc.1
+cargo install --git https://gitlab.com/nomograph/synthesist --tag v3.0.0-rc.2
 ```
 
 macOS ARM and Linux ARM64 are supported. (2.5.2 shipped Linux ARM64
@@ -87,7 +87,7 @@ After installation, confirm the version:
 
 ```sh
 synthesist --version
-# synthesist 3.0.0-rc.1
+# synthesist 3.0.0-rc.2
 ```
 
 ## Dry run
@@ -184,7 +184,7 @@ You should see:
 
 Note: this on-disk schema id (`3.0.0`) identifies the v3 *format* and is
 intentionally distinct from the binary release tag you see in
-`synthesist --version` (e.g. `3.0.0-rc.1`). Do not conflate the two when
+`synthesist --version` (e.g. `3.0.0-rc.2`). Do not conflate the two when
 comparing versions.
 
 If the file is missing or shows a different version, the migration
