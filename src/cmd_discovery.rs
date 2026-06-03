@@ -172,7 +172,7 @@ fn cmd_list(tree: &str, spec: &str) -> Result<()> {
 /// Format: `d-<12-hex-chars>`. Short enough to type, stable for the same
 /// (finding, date) pair, and unlikely to collide within a single spec.
 /// Uses `std::hash::DefaultHasher` (not cryptographic) because the id is a
-/// convenience key, not a security boundary — the Claim `id` already
+/// convenience key, not a security boundary -- the Claim `id` already
 /// provides content-addressed integrity at the substrate layer.
 fn discovery_id(finding: &str, date: &str) -> String {
     use std::hash::{Hash, Hasher};

@@ -1,4 +1,4 @@
-//! Wave 4 M3 — Landscape family moved to `lattice`.
+//! Wave 4 M3 -- Landscape family moved to `lattice`.
 //!
 //! The stakeholder/disposition/signal/stance commands used to write to the
 //! v1 landscape tables. In v2 they moved to the `lattice` binary. The CLI

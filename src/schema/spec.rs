@@ -23,7 +23,7 @@ pub const TYPE_NAME: &str = "spec";
 /// To add a status, add the variant here and update consumers in the
 /// same commit. CHANGELOG entry under `### Added`.
 ///
-/// Distinct from the `Outcome` claim's status enum — see
+/// Distinct from the `Outcome` claim's status enum -- see
 /// [`crate::schema::outcome::STATUSES`]. "Completed" / "abandoned" /
 /// "deferred" express *what happened* and live on Outcome, not on
 /// Spec status. Spec status expresses *what state the spec is in*.

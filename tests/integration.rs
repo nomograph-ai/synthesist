@@ -1,4 +1,4 @@
-//! Integration tests for synthesist v2 — CLI against real claim store.
+//! Integration tests for synthesist v2 -- CLI against real claim store.
 //!
 //! Each test writes to a tempdir. Every command runs the release binary
 //! as a subprocess so we exercise argument parsing, phase enforcement,
@@ -213,7 +213,7 @@ fn test_phase_is_per_session() {
 }
 
 // -----------------------------------------------------------------------------
-// Landscape commands moved to `lattice` — verify migration message fires.
+// Landscape commands moved to `lattice` -- verify migration message fires.
 // -----------------------------------------------------------------------------
 
 #[test]
@@ -296,7 +296,7 @@ fn test_synthesist_dir_env_resolves_remote() {
 }
 
 // -----------------------------------------------------------------------------
-// Session close — non-destructive supersession
+// Session close -- non-destructive supersession
 // -----------------------------------------------------------------------------
 
 // -----------------------------------------------------------------------------
@@ -338,7 +338,7 @@ fn test_legacy_v1_db_blocks_writes() {
 
 #[test]
 fn test_legacy_detection_skipped_when_claims_already_present() {
-    // If claims/ exists, legacy detection must not trigger — the user
+    // If claims/ exists, legacy detection must not trigger -- the user
     // has already migrated and left .synth/main.db around as a backup.
     let tmp = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(tmp.path().join(".synth")).unwrap();
@@ -348,7 +348,7 @@ fn test_legacy_detection_skipped_when_claims_already_present() {
     // Remove the legacy db to unblock, then initialize.
     std::fs::remove_dir_all(tmp.path().join(".synth")).unwrap();
     synth(&tmp).args(["init"]).assert().success();
-    // Put the backup back — now init should succeed (it's idempotent-
+    // Put the backup back -- now init should succeed (it's idempotent-
     // no-op on an already-initialized estate).
     std::fs::create_dir_all(tmp.path().join(".synth")).unwrap();
     std::fs::write(tmp.path().join(".synth/main.db"), b"old backup").unwrap();

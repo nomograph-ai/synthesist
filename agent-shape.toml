@@ -138,7 +138,7 @@ sealed_against_tag = "synthesist-v5.1.0"
 [[tasks.tuning]]
 id = "tree-overview-01"
 summary = "Describe a single tree"
-prompt = "Give me a summary of the tree named 'keaton' — its description, how many specs it has, and which sessions are active under it."
+prompt = "Give me a summary of the tree named 'keaton' -- its description, how many specs it has, and which sessions are active under it."
 success_criteria = [
   "Agent does not invoke raw sqlite",
   "Agent uses synthesist read commands to assemble the answer",

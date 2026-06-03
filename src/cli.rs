@@ -499,7 +499,7 @@ pub enum DiscoveryCmd {
 }
 
 // Stakeholder / Disposition / Signal / Stance subcommand enums were
-// removed in v2.1 — the families moved to `lattice` entirely. The
+// removed in v2.1 -- the families moved to `lattice` entirely. The
 // top-level commands now swallow any args via `trailing_var_arg` so
 // clap parse succeeds and `moved_to_lattice` in main.rs can print the
 // pointer message instead of a cryptic clap error.

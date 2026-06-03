@@ -15,7 +15,7 @@
 //!   - props (typed per claim_type; JSON)
 //!   - valid_from, valid_until
 //!   - supersedes (prior claim id this replaces)
-//!   - parent_asserter (for agent hierarchy audit — D8)
+//!   - parent_asserter (for agent hierarchy audit -- D8)
 //!   - asserted_by, asserted_at
 
 use chrono::{DateTime, Utc};
@@ -100,7 +100,7 @@ pub struct Claim {
     pub valid_from: DateTime<Utc>,
     pub valid_until: Option<DateTime<Utc>>,
     pub supersedes: Option<ClaimId>,
-    /// Agent hierarchy audit — who authorized the asserter (D8).
+    /// Agent hierarchy audit -- who authorized the asserter (D8).
     pub parent_asserter: Option<AsserterId>,
     pub asserted_by: AsserterId,
     pub asserted_at: DateTime<Utc>,

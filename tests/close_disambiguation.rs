@@ -241,7 +241,7 @@ fn session_close_start_id_ambiguous_prefix_errors_with_candidates() {
     }
     let shared = match shared_char {
         Some(c) => c.to_string(),
-        // No shared first char — test is degenerate for this run, so
+        // No shared first char -- test is degenerate for this run, so
         // skip rather than flake. Two 64-char hex strings sharing zero
         // first chars is exceedingly rare but possible.
         None => return,

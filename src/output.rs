@@ -1,6 +1,6 @@
 //! Synthesist's JSON output contract.
 //!
-//! Every command's stdout is JSON. Some commands carry warnings —
+//! Every command's stdout is JSON. Some commands carry warnings --
 //! conditions worth surfacing but not severe enough to fail the
 //! command. The `Output` wrapper attaches an optional `warnings`
 //! array to any payload so consumers (agents, dashboards) can

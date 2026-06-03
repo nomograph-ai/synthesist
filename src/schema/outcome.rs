@@ -19,11 +19,11 @@ pub const TYPE_NAME: &str = "outcome";
 
 /// Allowed values for the Outcome `status` field.
 ///
-/// - `completed` — the spec's intent was achieved. Most common case.
-/// - `abandoned` — work was stopped without delivery; usually a
+/// - `completed` -- the spec's intent was achieved. Most common case.
+/// - `abandoned` -- work was stopped without delivery; usually a
 ///   strategic call (no longer relevant, scope folded elsewhere).
-/// - `deferred` — postponed; intent stands but timeline is not now.
-/// - `superseded_by` — intent absorbed by a different spec; pair with
+/// - `deferred` -- postponed; intent stands but timeline is not now.
+/// - `superseded_by` -- intent absorbed by a different spec; pair with
 ///   the new spec id in the optional `linked_spec` field.
 pub const STATUSES: &[&str] = &["completed", "abandoned", "deferred", "superseded_by"];
 

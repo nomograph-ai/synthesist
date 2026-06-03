@@ -87,7 +87,7 @@ fn run(cli: cli::Cli) -> anyhow::Result<()> {
         // `session merge` and `session discard` are v1-only concepts
         // (file-copy session model). Intercept here so muscle-memory
         // calls get the "removed in v2" message instead of bouncing off
-        // the generic "session required for write operations" error —
+        // the generic "session required for write operations" error --
         // which used to happen because Session is a write-family command
         // and hit session enforcement first.
         cli::Command::Session {
@@ -204,7 +204,7 @@ fn run(cli: cli::Cli) -> anyhow::Result<()> {
 
 /// Tell the user the landscape-family command moved to the `lattice` binary
 /// and exit non-zero. `lattice` reads/writes the same `claims/` directory
-/// synthesist does, so data is shared — only the binary changes.
+/// synthesist does, so data is shared -- only the binary changes.
 fn moved_to_lattice(subcommand_name: &str) -> ! {
     eprintln!(
         "synthesist: the `{name}` command moved to `lattice` in v2.\n\
@@ -229,8 +229,8 @@ fn moved_to_lattice(subcommand_name: &str) -> ! {
 
 /// `session merge` and `session discard` were v1-only. v2 uses CRDT
 /// semantics: merges happen automatically on `git pull`, discards are
-/// supersession (see `session close`). Intercepting here — before
-/// session-required enforcement — gives users a specific message
+/// supersession (see `session close`). Intercepting here -- before
+/// session-required enforcement -- gives users a specific message
 /// instead of a generic "session required" bounce.
 fn session_removed_in_v2(subcommand_name: &str) -> ! {
     eprintln!(

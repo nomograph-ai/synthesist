@@ -1,4 +1,4 @@
-//! Wave 4 M3 — Campaign claim roundtrip.
+//! Wave 4 M3 -- Campaign claim roundtrip.
 //!
 //! Exercise both kinds (`active` and `backlog`), then list, and verify the
 //! output partitions them into their respective buckets.

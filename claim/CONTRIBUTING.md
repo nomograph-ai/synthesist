@@ -25,5 +25,5 @@ The claim crate is the bi-temporal substrate the rest of nomograph sits
 on. If your change touches sync, identity, or conflict resolution, please
 read:
 
-- [SYNC.md](SYNC.md) — sync protocol, heads, and the per-asserter log union / gamma rebuild boundary
-- [IDENTITY.md](IDENTITY.md) — asserter attribution
+- [SYNC.md](SYNC.md) -- sync protocol, heads, and the per-asserter log union / gamma rebuild boundary
+- [IDENTITY.md](IDENTITY.md) -- asserter attribution

@@ -58,7 +58,7 @@ shacl-check: ## Verify emitter output matches committed ontology/synthesist.shac
 	@echo "OK: emitter output matches committed ontology/synthesist.shacl.ttl"
 
 # CI gate: fail if any committed symlink resolves to an absolute path.
-# Backstop against the .agent/skills recurrence class — even if a
+# Backstop against the .agent/skills recurrence class -- even if a
 # tool rewrites a symlink locally, a commit that includes an
 # absolute target fails this check before reaching expensive CI
 # jobs. Run via `make check-symlinks` locally or in pipeline.

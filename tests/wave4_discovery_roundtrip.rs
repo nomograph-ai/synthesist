@@ -1,4 +1,4 @@
-//! Wave 4 M3 — Discovery claim roundtrip.
+//! Wave 4 M3 -- Discovery claim roundtrip.
 //!
 //! Add a Discovery via the CLI, list it, and verify the output carries the
 //! same finding/date/author back. This is the smoke test for the v2

@@ -22,7 +22,7 @@ fn synth() -> Command {
 fn data_dir_opens_initialized_store_from_elsewhere() {
     // Initialize a store in `init_dir` and add a Tree claim so there
     // is something observable in the view that is NOT at the elsewhere
-    // cwd — proves discover honored the override.
+    // cwd -- proves discover honored the override.
     let init_dir = TempDir::new().unwrap();
     synth()
         .current_dir(init_dir.path())

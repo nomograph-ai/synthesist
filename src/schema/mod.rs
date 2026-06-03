@@ -6,7 +6,7 @@
 //! 1. Declaring enum value sets as `pub const` slices, so the same
 //!    constant is referenced by the validator AND by clap's
 //!    `PossibleValuesParser` in the CLI. CLI accepts iff schema
-//!    accepts is structural — there is nothing to keep in sync
+//!    accepts is structural -- there is nothing to keep in sync
 //!    because there is only one definition.
 //! 2. Exposing a `validate(props: &Value)` function that uses the
 //!    `nomograph_claim::validation` helpers to check field presence,
