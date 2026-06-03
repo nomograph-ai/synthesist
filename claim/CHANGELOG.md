@@ -3,7 +3,7 @@
 All notable changes to `nomograph-claim` follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [3.0.0-pre.1] - 2026-06-02
+## [3.0.0-rc.1] - 2026-06-02
 
 v3 substrate. The crate keeps the JSON-LD per-asserter log as the
 source of truth and replaces the query engine: a redb-backed "gamma"
@@ -14,7 +14,7 @@ tree shrinks accordingly. A minimal v2-read shim is retained so an
 existing `.amc` estate can still be drained by migration. The
 standalone migrate binary that shipped with v2.5 is removed;
 migration is now a subcommand under `synthesist migrate` (see
-`synthesist` 3.0.0-pre.1 changelog).
+`synthesist` 3.0.0-rc.1 changelog).
 
 ### Added
 
@@ -63,7 +63,7 @@ migration is now a subcommand under `synthesist migrate` (see
   `synthesist migrate v2-to-v3` subcommand, which lives in the
   engineered migrations module in synthesist. Operators who have
   the standalone binary on `$PATH` should uninstall it before
-  installing synthesist 3.0.0-pre.1 to avoid confusion.
+  installing synthesist 3.0.0-rc.1 to avoid confusion.
 
 ### Notes
 

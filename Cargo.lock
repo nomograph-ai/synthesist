@@ -673,7 +673,7 @@ dependencies = [
 
 [[package]]
 name = "nomograph-claim"
-version = "3.0.0-pre.1"
+version = "3.0.0-rc.1"
 dependencies = [
  "anyhow",
  "automerge",
@@ -689,7 +689,7 @@ dependencies = [
 
 [[package]]
 name = "nomograph-synthesist"
-version = "3.0.0-pre.1"
+version = "3.0.0-rc.1"
 dependencies = [
  "anyhow",
  "assert_cmd",

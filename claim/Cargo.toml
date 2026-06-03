@@ -1,6 +1,6 @@
 [package]
 name = "nomograph-claim"
-version = "3.0.0-pre.1"
+version = "3.0.0-rc.1"
 edition = "2024"
 rust-version = "1.88"
 license = "MIT"
