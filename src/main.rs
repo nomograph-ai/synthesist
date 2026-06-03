@@ -408,6 +408,12 @@ fn command_path(cmd: &cli::Command) -> (&str, &str) {
         ),
         cli::Command::Session { .. } => ("session", ""),
         cli::Command::Phase { .. } => ("phase", ""),
+        // `import` replays an existing claim log into a fresh estate and
+        // is exempt from phase enforcement (it carries no live session).
+        // It must report its own `top` here so the exemption at the
+        // call site matches; otherwise it falls through to `("", "")`
+        // and check_phase rejects it for lacking a session.
+        cli::Command::Import { .. } => ("import", ""),
         _ => ("", ""),
     }
 }

@@ -409,3 +409,163 @@ fn v3_log_line_contains_correct_type_for_tree() {
         "synthesist:name prop must propagate to v3 log"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Supersession chain survives export -> import round-trip.
+//
+// Regression test for the import @id-remap fix. Before the fix, import
+// re-minted every @id from a fresh clock but wrote each
+// `synthesist:supersedes` ref verbatim (the exporter-side id). In the
+// fresh estate those ids do not exist, so a multi-step supersession
+// chain broke: every version went live (instead of one head) and `check`
+// reported `dangling_supersedes`.
+//
+// This builds a 4-step Task chain (add -> claim -> block -> done),
+// exports, imports into a fresh estate, then asserts the imported estate
+// has exactly ONE live Task head and `check` reports 0 dangling.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn supersession_chain_survives_export_import_roundtrip() {
+    // ---- Source estate: build a 4-step Task supersession chain. ----
+    let src = tempfile::tempdir().unwrap();
+    let session = "rt-chain";
+
+    synth(&src).args(["init"]).assert().success();
+    synth(&src)
+        .args(["session", "start", session])
+        .assert()
+        .success();
+    synth_s(&src, session)
+        .args(["phase", "set", "plan"])
+        .assert()
+        .success();
+    synth_s(&src, session)
+        .args(["tree", "add", "alpha", "--description", "alpha tree"])
+        .assert()
+        .success();
+    synth_s(&src, session)
+        .args(["spec", "add", "alpha/graphs", "--goal", "build graph"])
+        .assert()
+        .success();
+
+    // Step 1 of the chain: task add -> status pending.
+    synth_s(&src, session)
+        .args(["task", "add", "alpha/graphs", "the one task", "--id", "t1"])
+        .assert()
+        .success();
+
+    synth_s(&src, session)
+        .args(["phase", "set", "agree"])
+        .assert()
+        .success();
+    synth_s(&src, session)
+        .args(["phase", "set", "execute"])
+        .assert()
+        .success();
+
+    // Steps 2-4: each transition supersedes the prior Task head.
+    synth_s(&src, session)
+        .args(["task", "claim", "alpha/graphs", "t1"]) // -> in_progress
+        .assert()
+        .success();
+    synth_s(&src, session)
+        .args(["task", "block", "alpha/graphs", "t1"]) // -> blocked
+        .assert()
+        .success();
+    synth_s(&src, session)
+        .args(["task", "done", "alpha/graphs", "t1", "--skip-verify"]) // -> done
+        .assert()
+        .success();
+
+    // Sanity: the source export already has exactly one live Task head
+    // and a 4-line Task supersession chain in claims_raw.
+    let src_export = export_json(&src);
+    let src_tasks = src_export["tasks"].as_array().expect("tasks array");
+    assert_eq!(
+        src_tasks.len(),
+        1,
+        "source estate must have exactly one live Task head, got {}: {src_tasks:?}",
+        src_tasks.len()
+    );
+    let src_task_claims = src_export["claims_raw"]
+        .as_array()
+        .expect("claims_raw array")
+        .iter()
+        .filter(|c| c["@type"].as_str() == Some("synthesist:Task"))
+        .count();
+    assert_eq!(
+        src_task_claims, 4,
+        "source estate must have a 4-step Task chain in claims_raw, got {src_task_claims}"
+    );
+
+    // ---- Write the export to a file the importer will read. ----
+    let export_path = src.path().join("export.json");
+    fs::write(&export_path, serde_json::to_vec(&src_export).unwrap()).unwrap();
+
+    // ---- Fresh destination estate: import the export. ----
+    let dst = tempfile::tempdir().unwrap();
+    synth(&dst).args(["init"]).assert().success();
+    synth(&dst)
+        .args(["import", export_path.to_str().unwrap()])
+        .assert()
+        .success();
+
+    // Assertion 1: the imported estate has exactly ONE live Task head
+    // (not 4). This is the load-bearing property: the remap re-linked
+    // the chain so only the final `done` claim is a head.
+    let dst_export = export_json(&dst);
+    let dst_tasks = dst_export["tasks"].as_array().expect("tasks array");
+    assert_eq!(
+        dst_tasks.len(),
+        1,
+        "imported estate must have exactly ONE live Task head, got {}: {dst_tasks:?}",
+        dst_tasks.len()
+    );
+    assert_eq!(
+        dst_tasks[0]["status"].as_str(),
+        Some("done"),
+        "the single live head must be the final 'done' claim, got {:?}",
+        dst_tasks[0]
+    );
+
+    // Assertion 2: `check` reports 0 dangling_supersedes.
+    let check_out = synth(&dst)
+        .args(["check"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let check: serde_json::Value = serde_json::from_slice(&check_out).unwrap();
+    let dangling = check["issues"]
+        .as_array()
+        .map(|issues| {
+            issues
+                .iter()
+                .filter(|i| i["kind"].as_str() == Some("dangling_supersedes"))
+                .count()
+        })
+        .unwrap_or(0);
+    assert_eq!(
+        dangling, 0,
+        "check must report 0 dangling_supersedes after import, got {dangling}: {check}"
+    );
+    assert_eq!(
+        check["passed"].as_bool(),
+        Some(true),
+        "check must pass after a clean round-trip import: {check}"
+    );
+}
+
+/// Run `synthesist export` in `dir` and parse its stdout as JSON.
+fn export_json(dir: &TempDir) -> serde_json::Value {
+    let out = synth(dir)
+        .args(["export"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    serde_json::from_slice(&out).expect("export stdout must be valid JSON")
+}
