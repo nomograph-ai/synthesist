@@ -149,8 +149,21 @@ impl LogWriter {
             .to_owned();
 
         // -- Resolve the asserter directory --
-        let dir_name = dir_name_for_asserter(asserter);
+        //
+        // `dir_name_for_asserter` rejects path-unsafe segments (`/`,
+        // `\`, `..`, NUL, control chars) before we ever build a path, so
+        // the join below cannot escape `claims_dir`. We additionally
+        // assert containment of the joined path as defense in depth.
+        let dir_name = dir_name_for_asserter(asserter)
+            .with_context(|| format!("refusing to write claim for asserter {asserter:?}"))?;
         let asserter_dir = self.claims_dir.join(&dir_name);
+        if asserter_dir.parent() != Some(self.claims_dir.as_path()) {
+            bail!(
+                "asserter directory {} escapes claims root {}",
+                asserter_dir.display(),
+                self.claims_dir.display()
+            );
+        }
         if !asserter_dir.exists() {
             fs::create_dir_all(&asserter_dir).with_context(|| {
                 format!(
@@ -239,10 +252,64 @@ impl LogWriter {
     }
 }
 
+/// Reject any asserter string that would escape the per-asserter claims
+/// directory once mapped to a directory name.
+///
+/// This is the central choke point for the path-traversal class of bugs.
+/// The asserter value can arrive from untrusted sources (a raw
+/// `--session` / `SYNTHESIST_SESSION` value, `$USER`, or a
+/// `prov:wasAttributedTo` IRI pulled from an import file), and the
+/// directory name is joined onto `claims/` before a write. A value
+/// containing `/`, `\`, `..`, a NUL, or any other path-separator or
+/// control character could redirect that write outside the claims tree.
+///
+/// Colons are the one expected separator (mapped to hyphens by
+/// [`dir_name_for_asserter`]); everything else that could change the
+/// joined path's meaning is rejected here with a clean error rather than
+/// a panic.
+fn reject_unsafe_asserter(asserter: &str) -> Result<()> {
+    if asserter.is_empty() {
+        bail!("asserter is empty; refusing to derive a claims directory name");
+    }
+    // Whole-string traversal token.
+    if asserter == ".." || asserter == "." {
+        bail!("path-unsafe asserter segment: {asserter:?}");
+    }
+    for ch in asserter.chars() {
+        match ch {
+            '/' | '\\' => bail!(
+                "path-unsafe asserter contains a path separator: {asserter:?}"
+            ),
+            '\0' => bail!("path-unsafe asserter contains a NUL byte: {asserter:?}"),
+            c if c.is_control() => bail!(
+                "path-unsafe asserter contains a control character: {asserter:?}"
+            ),
+            _ => {}
+        }
+    }
+    // A `..` token can hide between colons (e.g. `user:..:agd`) or be the
+    // raw value. Colons become hyphens in the dir name, so a literal `..`
+    // segment survives only if it appears un-split; guard the colon-split
+    // segments too for defense in depth.
+    for seg in asserter.split(':') {
+        if seg == ".." || seg == "." {
+            bail!("path-unsafe asserter segment: {asserter:?}");
+        }
+    }
+    Ok(())
+}
+
 /// Convert an asserter string to a filesystem-safe directory name.
 ///
 /// Colons (`:`) are replaced with hyphens (`-`). The mapping is
 /// deterministic and identical on macOS and Linux.
+///
+/// Path-unsafe asserters (containing `/`, `\`, `..`, a NUL, or other
+/// path-separator / control characters) are **rejected** with a clean
+/// error rather than silently producing a name that could escape the
+/// claims directory. This is the single choke point that closes the
+/// path-traversal vectors for every write path that routes through
+/// [`LogWriter::append`].
 ///
 /// Examples:
 /// - `user:local:agd` -> `user-local-agd`
@@ -253,8 +320,9 @@ impl LogWriter {
 /// raw asserter string. Parsed asserters should prefer
 /// [`crate::asserter::Asserter::dir_name`] which validates the format
 /// before returning the directory name.
-pub fn dir_name_for_asserter(asserter: &str) -> String {
-    asserter.replace(':', "-")
+pub fn dir_name_for_asserter(asserter: &str) -> Result<String> {
+    reject_unsafe_asserter(asserter)?;
+    Ok(asserter.replace(':', "-"))
 }
 
 //
@@ -641,17 +709,83 @@ mod tests {
     // -- Supplementary: dir_name_for_asserter mapping --
     #[test]
     fn dir_name_colon_to_hyphen() {
-        assert_eq!(dir_name_for_asserter("user:local:agd"), "user-local-agd");
         assert_eq!(
-            dir_name_for_asserter("user:local:agd:edc-bootstrap"),
+            dir_name_for_asserter("user:local:agd").unwrap(),
+            "user-local-agd"
+        );
+        assert_eq!(
+            dir_name_for_asserter("user:local:agd:edc-bootstrap").unwrap(),
             "user-local-agd-edc-bootstrap"
         );
         assert_eq!(
-            dir_name_for_asserter("agent:claude-opus-4-7:sess-abc"),
+            dir_name_for_asserter("agent:claude-opus-4-7:sess-abc").unwrap(),
             "agent-claude-opus-4-7-sess-abc"
         );
         // No colons in input: unchanged.
-        assert_eq!(dir_name_for_asserter("bootstrap"), "bootstrap");
+        assert_eq!(dir_name_for_asserter("bootstrap").unwrap(), "bootstrap");
+    }
+
+    // -- Security: path-unsafe asserters are rejected, not mapped --
+    #[test]
+    fn dir_name_rejects_path_traversal() {
+        // A raw `..` token.
+        assert!(dir_name_for_asserter("..").is_err());
+        // Forward / backslash separators anywhere in the string.
+        assert!(dir_name_for_asserter("user:local:../../etc").is_err());
+        assert!(dir_name_for_asserter("user:local:a/b").is_err());
+        assert!(dir_name_for_asserter("user:local:a\\b").is_err());
+        // A `..` segment hiding between colons.
+        assert!(dir_name_for_asserter("user:..:agd").is_err());
+        // NUL and control characters.
+        assert!(dir_name_for_asserter("user:local:a\0b").is_err());
+        assert!(dir_name_for_asserter("user:local:a\nb").is_err());
+        // Empty string.
+        assert!(dir_name_for_asserter("").is_err());
+        // Sanity: a safe value still maps.
+        assert_eq!(
+            dir_name_for_asserter("user:local:agd").unwrap(),
+            "user-local-agd"
+        );
+    }
+
+    // -- Security: append refuses a path-unsafe asserter and writes
+    //    nothing outside the claims directory. --
+    #[test]
+    fn append_rejects_path_unsafe_asserter_and_writes_nothing_outside() {
+        let tmp = TempDir::new().unwrap();
+        let claims = tmp.path().join("claims");
+        fs::create_dir_all(&claims).unwrap();
+        let outside = tmp.path().join("outside-marker");
+
+        let writer = LogWriter::new(&claims).unwrap();
+        let doc = make_claim("synthesist:claim/deadbeef", "asserter:user:local:agd");
+
+        // `user:local:../../outside-marker` would, under the old
+        // colon-only mapping, join to a path escaping `claims/`.
+        let malicious = "user:local:../../outside-marker";
+        let err = writer.append(malicious, &doc).unwrap_err();
+        assert!(
+            err.to_string().contains("path-unsafe")
+                || err.to_string().contains("refusing"),
+            "expected a path-unsafe rejection, got: {err}"
+        );
+
+        // Nothing was written anywhere outside claims/.
+        assert!(
+            !outside.exists(),
+            "a file was created outside the claims dir: {}",
+            outside.display()
+        );
+        // And the claims dir holds no stray asserter directories.
+        let entries: Vec<_> = fs::read_dir(&claims)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .collect();
+        assert!(
+            entries.is_empty(),
+            "claims dir should be empty after a rejected append, found {} entries",
+            entries.len()
+        );
     }
 
     // -- Supplementary: trailing newline on every line --

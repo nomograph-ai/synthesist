@@ -121,6 +121,14 @@ fn extract_replay_args(
         .strip_prefix("asserter:")
         .unwrap_or(asserter_iri)
         .to_string();
+    // Validate the imported attribution before it is ever used to route a
+    // write. An import file is untrusted input; a malicious
+    // `prov:wasAttributedTo` (e.g. `user:..:..:x` or one carrying a path
+    // separator) could otherwise drive `LogWriter::append` to write
+    // outside the claims tree. Mirror the migration path, which rejects
+    // unparseable asserters. The caller treats this `Err` as "skip".
+    nomograph_claim::asserter::parse(&asserter)
+        .map_err(|e| anyhow!("invalid prov:wasAttributedTo {asserter:?}: {e}"))?;
 
     let supersedes = obj
         .get(wire_format::SUPERSEDES_PRED)

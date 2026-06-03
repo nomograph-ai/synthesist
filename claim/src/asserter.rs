@@ -60,6 +60,28 @@ pub enum ParseError {
 
     #[error("session segment is empty in '{0}'")]
     EmptySession(String),
+
+    #[error("path-unsafe segment '{segment}' in '{full}'")]
+    PathUnsafeSegment { segment: String, full: String },
+}
+
+/// Reject a single asserter segment (scope, id, or session) that would be
+/// unsafe once mapped to a filesystem directory name.
+///
+/// A parsed asserter is converted to a directory name via
+/// [`Asserter::dir_name`] (colons -> hyphens) and joined onto `claims/`.
+/// A segment containing a path separator, a `..` traversal token, a NUL,
+/// or a control character could redirect a write outside the claims tree,
+/// so it is rejected at parse time. This keeps the parsed path (migration,
+/// any future caller) as safe as the raw path guarded in
+/// [`crate::log::dir_name_for_asserter`].
+fn segment_is_path_safe(seg: &str) -> bool {
+    if seg == ".." || seg == "." {
+        return false;
+    }
+    !seg
+        .chars()
+        .any(|c| c == '/' || c == '\\' || c == '\0' || c.is_control())
 }
 
 /// The class of an asserter, indicating what kind of entity wrote the claim.
@@ -171,12 +193,24 @@ pub fn parse(s: &str) -> Result<Asserter, ParseError> {
     let scope = match parts.get(1) {
         None => return Err(ParseError::MissingScope(s.to_string())),
         Some(&"") => return Err(ParseError::EmptyScope(s.to_string())),
+        Some(seg) if !segment_is_path_safe(seg) => {
+            return Err(ParseError::PathUnsafeSegment {
+                segment: seg.to_string(),
+                full: s.to_string(),
+            });
+        }
         Some(seg) => seg.to_string(),
     };
 
     let id = match parts.get(2) {
         None => return Err(ParseError::MissingId(s.to_string())),
         Some(&"") => return Err(ParseError::EmptyId(s.to_string())),
+        Some(seg) if !segment_is_path_safe(seg) => {
+            return Err(ParseError::PathUnsafeSegment {
+                segment: seg.to_string(),
+                full: s.to_string(),
+            });
+        }
         Some(seg) => seg.to_string(),
     };
 
@@ -189,6 +223,12 @@ pub fn parse(s: &str) -> Result<Asserter, ParseError> {
             }
             if seg.is_empty() {
                 return Err(ParseError::EmptySession(s.to_string()));
+            }
+            if !segment_is_path_safe(seg) {
+                return Err(ParseError::PathUnsafeSegment {
+                    segment: seg.to_string(),
+                    full: s.to_string(),
+                });
             }
             Some(seg.to_string())
         }
@@ -365,6 +405,44 @@ mod tests {
     fn error_empty_session_agent() {
         let err = parse("agent:claude-opus-4-7:worker:").unwrap_err();
         assert!(matches!(err, ParseError::EmptySession(_)));
+    }
+
+    // -- Security: parse rejects path-unsafe segments --
+
+    #[test]
+    fn error_path_unsafe_scope_traversal() {
+        let err = parse("user:..:agd").unwrap_err();
+        assert!(matches!(err, ParseError::PathUnsafeSegment { .. }));
+    }
+
+    #[test]
+    fn error_path_unsafe_id_separator() {
+        let err = parse("user:local:a/b").unwrap_err();
+        assert!(matches!(err, ParseError::PathUnsafeSegment { .. }));
+    }
+
+    #[test]
+    fn error_path_unsafe_id_backslash() {
+        let err = parse("user:local:a\\b").unwrap_err();
+        assert!(matches!(err, ParseError::PathUnsafeSegment { .. }));
+    }
+
+    #[test]
+    fn error_path_unsafe_session_traversal() {
+        let err = parse("user:local:agd:..").unwrap_err();
+        assert!(matches!(err, ParseError::PathUnsafeSegment { .. }));
+    }
+
+    #[test]
+    fn error_path_unsafe_id_nul_and_control() {
+        assert!(matches!(
+            parse("user:local:a\0b").unwrap_err(),
+            ParseError::PathUnsafeSegment { .. }
+        ));
+        assert!(matches!(
+            parse("user:local:a\nb").unwrap_err(),
+            ParseError::PathUnsafeSegment { .. }
+        ));
     }
 
     // -- dir_name tests: deterministic, colon-free, same on macOS and Linux --
