@@ -16,10 +16,17 @@
 //! 1. `--manifest <name-or-path>` one-shot override (global CLI flag).
 //! 2. `SYNTHESIST_MANIFEST` env var (name or path).
 //! 3. The persisted sticky setting written by `synthesist surface use`.
-//! 4. The default builtin, [`DEFAULT_MANIFEST`] (`baseline-v25`).
+//! 4. **Nothing.** When no layer is configured the active manifest is
+//!    `None`: there is NO active surface and NO filtering. The full v3
+//!    surface (every command, including overlay/jig) is available.
 //!
-//! At each layer the value is interpreted as a builtin manifest NAME first;
-//! if no builtin matches, it is treated as a filesystem PATH.
+//! Restriction is opt-in: a surface filters the runtime only when one is
+//! explicitly selected. `baseline-v25` remains a named builtin you can
+//! `surface use baseline-v25` into; it is simply no longer the implicit
+//! default.
+//!
+//! At each configured layer the value is interpreted as a builtin manifest
+//! NAME first; if no builtin matches, it is treated as a filesystem PATH.
 //!
 //! # Sticky storage location
 //!
@@ -40,9 +47,6 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 
 use super::manifest::{self, Manifest};
-
-/// The default builtin manifest: the full v2.5 surface.
-pub const DEFAULT_MANIFEST: &str = "baseline-v25";
 
 /// Subdirectory (under `claims/`) holding per-estate runtime config.
 const CONFIG_DIR: &str = "_config";
@@ -150,35 +154,43 @@ pub fn write_sticky(claims_dir: &Path, value: &str) -> Result<()> {
 /// which case the sticky layer is skipped.
 ///
 /// Precedence: `--manifest` (`cli_override`) > `SYNTHESIST_MANIFEST` env >
-/// sticky setting > [`DEFAULT_MANIFEST`].
-pub fn active_reference(cli_override: Option<&str>, claims_dir: Option<&Path>) -> Result<String> {
+/// sticky setting > **`None`** (nothing configured: no active surface,
+/// unfiltered).
+pub fn active_reference(
+    cli_override: Option<&str>,
+    claims_dir: Option<&Path>,
+) -> Result<Option<String>> {
     if let Some(r) = cli_override {
-        return Ok(r.to_string());
+        return Ok(Some(r.to_string()));
     }
     if let Ok(env) = std::env::var("SYNTHESIST_MANIFEST")
         && !env.trim().is_empty()
     {
-        return Ok(env.trim().to_string());
+        return Ok(Some(env.trim().to_string()));
     }
     if let Some(dir) = claims_dir
         && let Some(sticky) = read_sticky(dir)?
     {
-        return Ok(sticky);
+        return Ok(Some(sticky));
     }
-    Ok(DEFAULT_MANIFEST.to_string())
+    Ok(None)
 }
 
 /// Resolve and parse the active manifest, applying the precedence chain.
 ///
-/// Returns the resolved reference string alongside the parsed manifest so
-/// callers can report which surface is active (e.g. in error messages).
+/// Returns `Ok(None)` when nothing is configured (no active surface; the full
+/// v3 surface is available and the rejection layer filters nothing). When a
+/// surface IS configured, returns `Ok(Some((reference, manifest)))` so callers
+/// can report which surface is active (e.g. in error messages).
 pub fn active_manifest(
     cli_override: Option<&str>,
     claims_dir: Option<&Path>,
-) -> Result<(String, Manifest)> {
-    let reference = active_reference(cli_override, claims_dir)?;
+) -> Result<Option<(String, Manifest)>> {
+    let Some(reference) = active_reference(cli_override, claims_dir)? else {
+        return Ok(None);
+    };
     let manifest = resolve_reference(&reference)?;
-    Ok((reference, manifest))
+    Ok(Some((reference, manifest)))
 }
 
 #[cfg(test)]
@@ -198,9 +210,10 @@ mod tests {
     }
 
     #[test]
-    fn default_is_baseline_v25() {
-        assert_eq!(DEFAULT_MANIFEST, "baseline-v25");
-        assert!(builtin_toml(DEFAULT_MANIFEST).is_some());
+    fn baseline_v25_is_a_selectable_builtin() {
+        // baseline-v25 stays a named builtin you can `surface use` into; it is
+        // just no longer the implicit default.
+        assert!(builtin_toml("baseline-v25").is_some());
     }
 
     #[test]
@@ -236,7 +249,7 @@ mod tests {
 
         // CLI override wins over sticky.
         let r = active_reference(Some("composite-commands"), Some(&claims)).unwrap();
-        assert_eq!(r, "composite-commands");
+        assert_eq!(r.as_deref(), Some("composite-commands"));
     }
 
     #[test]
@@ -251,18 +264,23 @@ mod tests {
         // here to keep the test hermetic.)
         if std::env::var("SYNTHESIST_MANIFEST").is_err() {
             let r = active_reference(None, Some(&claims)).unwrap();
-            assert_eq!(r, "pruned");
+            assert_eq!(r.as_deref(), Some("pruned"));
         }
     }
 
     #[test]
-    fn precedence_default_when_nothing_set() {
+    fn nothing_configured_yields_none_unfiltered() {
+        // No --manifest, no env, no sticky file -> None (no active surface).
+        // The full v3 surface is available; the rejection layer filters
+        // nothing.
         let tmp = tempfile::tempdir().unwrap();
         let claims = tmp.path().join("claims");
         std::fs::create_dir_all(&claims).unwrap();
         if std::env::var("SYNTHESIST_MANIFEST").is_err() {
             let r = active_reference(None, Some(&claims)).unwrap();
-            assert_eq!(r, DEFAULT_MANIFEST);
+            assert_eq!(r, None);
+            let m = active_manifest(None, Some(&claims)).unwrap();
+            assert!(m.is_none(), "unconfigured estate must have no active manifest");
         }
     }
 }

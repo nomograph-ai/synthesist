@@ -34,11 +34,10 @@ fn synth(dir: &TempDir) -> Command {
     cmd.env("SYNTHESIST_OFFLINE", "1");
     cmd.env_remove("SYNTHESIST_DIR");
     cmd.env_remove("SYNTHESIST_SESSION");
+    // No surface is configured, so the default is the full v3 surface: every
+    // command, including `overlay run`, is available without opting in.
+    cmd.env_remove("SYNTHESIST_MANIFEST");
     cmd.env("USER", "b1test");
-    // Overlay commands are non-baseline: the default `baseline-v25` surface
-    // does not expose `overlay run`. Opt into a surface that adds the overlay
-    // commands so the rejection layer permits the end-to-end run below.
-    cmd.env("SYNTHESIST_MANIFEST", "sparql-exposed");
     cmd
 }
 

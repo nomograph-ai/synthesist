@@ -74,9 +74,14 @@ fn run(cli: cli::Cli) -> anyhow::Result<()> {
     // Rejection layer (manifest RUNTIME dispatch, Phase D).
     //
     // Parse-then-filter: `Cli::parse()` and the typed enum dispatch below
-    // are untouched. After parse, if the invoked command carries a registry
-    // key that the ACTIVE surface manifest does not permit, reject with a
-    // prescriptive error and exit 2 (usage) BEFORE dispatch.
+    // are untouched. Filtering is OPT-IN: it applies ONLY when a surface is
+    // explicitly selected (--manifest, SYNTHESIST_MANIFEST, or a sticky
+    // `surface use` setting). When nothing is configured the active manifest
+    // is `None` -- the full v3 surface is available and nothing is rejected.
+    //
+    // When a surface IS active and the invoked command carries a registry key
+    // that surface does not permit, reject with a prescriptive error and exit
+    // 2 (usage) BEFORE dispatch.
     //
     // `surface`/`version` (and `init`/`skill`) are always allowed so an
     // operator can never lock themselves out of recovery. Commands with no
@@ -87,11 +92,14 @@ fn run(cli: cli::Cli) -> anyhow::Result<()> {
     {
         // Resolve the active manifest. The sticky lookup needs the estate's
         // claims dir; best-effort discover (None when no estate exists yet,
-        // which simply skips the sticky layer).
+        // which simply skips the sticky layer). `active_manifest` returns
+        // `None` when no surface is configured -- in that case we filter
+        // nothing.
         let claims_dir = store::SynthStore::discover().ok().map(|s| s.root().to_path_buf());
-        let (reference, manifest) =
-            surface::resolve::active_manifest(cli.manifest.as_deref(), claims_dir.as_deref())?;
-        if !cli::key_permitted(key, &manifest) {
+        if let Some((reference, manifest)) =
+            surface::resolve::active_manifest(cli.manifest.as_deref(), claims_dir.as_deref())?
+            && !cli::key_permitted(key, &manifest)
+        {
             eprintln!(
                 "error: command `{key}` is not permitted by the active surface `{name}` (resolved from `{reference}`).",
                 name = manifest.name,

@@ -52,24 +52,29 @@ estate. See `MIGRATION-v2-to-v3.md` for the step-by-step playbook
   not guaranteed.
 - **Manifest runtime dispatch is now wired (`surface` command +
   active-manifest filtering).** Surface manifests no longer govern
-  only skill emission: they gate the runtime. After parse, a command
-  the active surface does not permit is rejected before dispatch with
-  a prescriptive message and exit code 2 (the typed enum dispatch is
+  only skill emission: they gate the runtime. Filtering is OPT-IN.
+  When nothing is configured, the DEFAULT is the full v3 surface:
+  every command, including overlay/jig, is available and nothing is
+  rejected. A surface restricts the runtime only when one is
+  explicitly selected; `surface use <name>` opts into a curated or
+  restricted surface (`baseline-v25`, `pruned`, `overlay-first-class`,
+  `sparql-exposed`, `composite-commands`). When a surface IS active, a
+  command it does not permit is rejected before dispatch with a
+  prescriptive message and exit code 2 (the typed enum dispatch is
   untouched -- this is a parse-then-filter rejection layer, not a
   dispatch rewrite). The active surface resolves by precedence:
   `--manifest <name-or-path>` one-shot override > `SYNTHESIST_MANIFEST`
   env > a sticky per-estate setting (`claims/_config/active-surface`,
-  written by `surface use`) > the default `baseline-v25`. Builtin
-  manifests (`surface/*.toml`) are embedded in the binary, so
+  written by `surface use`) > nothing (unfiltered, full surface).
+  Builtin manifests (`surface/*.toml`) are embedded in the binary, so
   `surface use <name>` works from a shipped binary with no source
   tree. New `surface` command: `surface use <name>` persists the
   active manifest, `surface list` lists the builtins and marks which
-  is active, `surface show` reports the active manifest and its
-  enabled command keys. `surface` and `version` (and `init`/`skill`)
-  are always permitted, so a restrictive surface can never lock an
-  operator out. Note: overlay/jig commands are non-baseline, so the
-  default `baseline-v25` surface does not expose them; select
-  `sparql-exposed` (or another overlay-enabled surface) to use them.
+  is active (or none, with `filtering: false`), `surface show` reports
+  the active manifest and its enabled command keys (or the full
+  surface with `filtering: false` when unconfigured). `surface` and
+  `version` (and `init`/`skill`) are always permitted, so a
+  restrictive surface can never lock an operator out.
 
 ### Removed
 

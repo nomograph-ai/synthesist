@@ -1,9 +1,11 @@
 //! End-to-end tests for manifest RUNTIME dispatch (Phase D).
 //!
 //! Drives the real binary via `assert_cmd`. Covers:
-//!   - a restrictive surface (`pruned`) rejects an excluded command with the
-//!     prescriptive message and exit code 2;
-//!   - the default surface (`baseline-v25`) allows baseline commands;
+//!   - filtering is OPT-IN: with NO surface configured, the full v3 surface is
+//!     available -- even a non-baseline command like `overlay run` / `jig run`
+//!     is allowed (no surface rejection);
+//!   - a restrictive surface (`pruned`), selected explicitly, rejects an
+//!     excluded command with the prescriptive message and exit code 2;
 //!   - `surface use <name>` persists and switches the active surface;
 //!   - `surface`/`version` are never blocked, even under a restrictive
 //!     surface (no lock-out);
@@ -35,14 +37,39 @@ fn init_estate() -> TempDir {
 }
 
 // -----------------------------------------------------------------------------
-// Baseline allows; pruned rejects
+// Unconfigured default is unfiltered (full v3 surface); pruned rejects
 // -----------------------------------------------------------------------------
 
 #[test]
-fn baseline_allows_a_baseline_command() {
+fn default_allows_a_baseline_command() {
     let tmp = init_estate();
-    // `status` is a baseline command; the default surface permits it.
+    // No surface configured: the full surface is available, so `status` runs.
     synth(&tmp).arg("status").assert().success();
+}
+
+#[test]
+fn default_allows_a_non_baseline_command() {
+    // With NO surface configured, filtering is off: a non-baseline command
+    // (`overlay run` / `jig run`) must NOT be surface-rejected. It may still
+    // fail later for its own reasons, but never with the exit-2 surface
+    // rejection.
+    let tmp = init_estate();
+    // `jig run` takes its own `--manifest` flag, which collides with the
+    // global `--manifest` surface override; use `jig list-scenarios` (also a
+    // non-baseline command) to exercise the jig family without that ambiguity.
+    for args in [
+        vec!["overlay", "run", "plan-at-risk"],
+        vec!["jig", "list-scenarios"],
+    ] {
+        let out = synth(&tmp).args(&args).assert().get_output().clone();
+        // The command may fail for its own reasons (missing scenario, empty
+        // graph), but never with the surface rejection.
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(
+            !stderr.contains("not permitted by the active surface"),
+            "default must not surface-reject {args:?}, got: {stderr}"
+        );
+    }
 }
 
 #[test]
@@ -68,9 +95,10 @@ fn pruned_surface_rejects_excluded_command_with_exit_2() {
 }
 
 #[test]
-fn baseline_does_not_block_excluded_pruned_command() {
-    // Under the default baseline surface, `task block` is permitted (it only
-    // fails later on the missing session, NOT exit 2 from the surface layer).
+fn default_does_not_block_excluded_pruned_command() {
+    // Under the unconfigured (unfiltered) default, `task block` is permitted
+    // (it only fails later on the missing session, NOT exit 2 from the surface
+    // layer).
     let tmp = init_estate();
     let out = synth(&tmp)
         .args(["task", "block", "tree/spec", "t1"])
@@ -83,7 +111,7 @@ fn baseline_does_not_block_excluded_pruned_command() {
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(
         !stderr.contains("not permitted by the active surface"),
-        "baseline must not surface-reject task block, got: {stderr}"
+        "unfiltered default must not surface-reject task block, got: {stderr}"
     );
 }
 

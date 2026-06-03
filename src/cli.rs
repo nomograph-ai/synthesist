@@ -925,6 +925,14 @@ pub fn permitted_keys(manifest: &crate::surface::manifest::Manifest) -> Vec<&'st
         .collect()
 }
 
+/// Every registry key, in registry order.
+///
+/// Used by `surface show` when no surface is configured (unfiltered): the full
+/// v3 surface is the entire registry.
+pub fn all_command_keys() -> Vec<&'static str> {
+    REGISTRY.iter().map(|(key, _)| *key).collect()
+}
+
 /// Determine whether a command key is permitted by the manifest.
 ///
 /// Logic (applied in order):

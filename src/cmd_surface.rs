@@ -54,20 +54,26 @@ fn cmd_use(name: &str) -> Result<()> {
 }
 
 /// `surface list` -- builtin manifest names plus which surface is active.
+///
+/// When no surface is configured the estate is unfiltered: `active` is
+/// `null`, `filtering` is `false`, and no builtin is marked active.
 fn cmd_list(cli_manifest: Option<&str>) -> Result<()> {
     let dir = claims_dir();
     let active_ref = resolve::active_reference(cli_manifest, dir.as_deref())?;
-    // Resolve the active reference to its manifest name for display.
-    let active_name = resolve::resolve_reference(&active_ref)
-        .map(|m| m.name)
-        .unwrap_or_else(|_| active_ref.clone());
+    // Resolve the active reference to its manifest name for display. `None`
+    // when nothing is configured (unfiltered, full surface).
+    let active_name = active_ref.as_deref().map(|r| {
+        resolve::resolve_reference(r)
+            .map(|m| m.name)
+            .unwrap_or_else(|_| r.to_string())
+    });
 
     let builtins: Vec<_> = resolve::builtin_names()
         .into_iter()
         .map(|name| {
             json!({
                 "name": name,
-                "active": name == active_name,
+                "active": Some(name) == active_name.as_deref(),
             })
         })
         .collect();
@@ -75,20 +81,39 @@ fn cmd_list(cli_manifest: Option<&str>) -> Result<()> {
     store::json_out(&json!({
         "active": active_name,
         "active_reference": active_ref,
+        "filtering": active_name.is_some(),
         "builtins": builtins,
     }))
 }
 
 /// `surface show` -- active manifest name and its enabled command keys.
+///
+/// When no surface is configured there is no restriction: report the full
+/// surface (every registry command) with `active: null` and
+/// `filtering: false`.
 fn cmd_show(cli_manifest: Option<&str>) -> Result<()> {
     let dir = claims_dir();
-    let (reference, manifest) = resolve::active_manifest(cli_manifest, dir.as_deref())?;
-    let keys = crate::cli::permitted_keys(&manifest);
-
-    store::json_out(&json!({
-        "active": manifest.name,
-        "reference": reference,
-        "description": manifest.description,
-        "commands": keys,
-    }))
+    match resolve::active_manifest(cli_manifest, dir.as_deref())? {
+        Some((reference, manifest)) => {
+            let keys = crate::cli::permitted_keys(&manifest);
+            store::json_out(&json!({
+                "active": manifest.name,
+                "reference": reference,
+                "description": manifest.description,
+                "filtering": true,
+                "commands": keys,
+            }))
+        }
+        None => {
+            // No active surface: nothing is filtered. Report the full surface.
+            let keys = crate::cli::all_command_keys();
+            store::json_out(&json!({
+                "active": serde_json::Value::Null,
+                "reference": serde_json::Value::Null,
+                "description": "no active surface; the full v3 surface is available (no restriction)",
+                "filtering": false,
+                "commands": keys,
+            }))
+        }
+    }
 }
