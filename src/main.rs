@@ -215,8 +215,40 @@ fn run(cli: cli::Cli) -> anyhow::Result<()> {
     if !no_attribution && !cli.force {
         let (top, sub) = command_path(&cli.command);
         if !matches!(top, "session" | "phase" | "import" | "outcome") {
-            let store = store::SynthStore::discover()?;
-            cmd_phase::check_phase(&store, cli.session.as_deref(), top, sub, cli.force)?;
+            // The operational model (phase/process) is an opt-in policy
+            // EXTENSION, not core behavior. If one is configured it gates
+            // writes; otherwise the core is bare -- claims as data, no phase
+            // enforcement. Locate it: SYNTHESIST_POLICY_EXTENSION env, else a
+            // conventional claims/_config/policy.wasm.
+            fn discover_policy_extension() -> Option<std::path::PathBuf> {
+                if let Some(p) = std::env::var_os("SYNTHESIST_POLICY_EXTENSION") {
+                    let p = std::path::PathBuf::from(p);
+                    return p.exists().then_some(p);
+                }
+                let p = std::path::PathBuf::from("claims/_config/policy.wasm");
+                p.exists().then_some(p)
+            }
+
+            if let Some(ext_path) = discover_policy_extension() {
+                use nomograph_extension_host::{Decision, Op, PolicyExtension};
+                let store = store::SynthStore::discover()?;
+                let mut phases = std::collections::HashMap::new();
+                if let Some(s) = cli.session.as_deref().filter(|s| !s.is_empty()) {
+                    if let Some(p) = cmd_phase::current_phase_name(&store, s)? {
+                        phases.insert(s.to_string(), p);
+                    }
+                }
+                let op = Op {
+                    top: top.to_string(),
+                    sub: sub.to_string(),
+                    session: cli.session.clone(),
+                    force: cli.force,
+                };
+                let ext = PolicyExtension::load(&ext_path)?;
+                if let Decision::Block(msg) = ext.before_write(op, phases)? {
+                    anyhow::bail!("{msg}");
+                }
+            }
         }
     }
 

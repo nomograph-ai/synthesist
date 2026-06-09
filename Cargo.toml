@@ -66,6 +66,11 @@ time = { version = "0.3", features = ["local-offset", "formatting", "macros"] }
 chrono = { version = "0.4", features = ["serde"] }
 thiserror = "1"
 nomograph-claim = { path = "claim", version = "3.0.0-rc.2" }
+# The operational model (phase/process) is an opt-in policy extension
+# loaded at runtime. Adds wasmtime to the core -- the accepted cost of a
+# basic, extension-driven released tool. path dep on a sibling repo while
+# pre-1.0; becomes a git-tag/crates.io dep at stable.
+nomograph-extension-host = { path = "../extension/crates/extension-host" }
 # spargebra parses SPARQL into an AST; telemetry.rs uses it to derive a
 # stable query_hash from overlay query strings. Retained after the
 # Oxigraph removal because it is a standalone parser crate.
