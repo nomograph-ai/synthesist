@@ -1434,6 +1434,7 @@ dependencies = [
 [[package]]
 name = "nomograph-extension-host"
 version = "0.0.1"
+source = "git+https://gitlab.com/nomograph/extension.git?branch=main#1e01703ddb98ff6852bb8833c9103b78b818b3bb"
 dependencies = [
  "anyhow",
  "wasmtime",
