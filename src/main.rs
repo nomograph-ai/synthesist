@@ -233,10 +233,10 @@ fn run(cli: cli::Cli) -> anyhow::Result<()> {
                 use nomograph_extension_host::{Decision, Op, PolicyExtension};
                 let store = store::SynthStore::discover()?;
                 let mut phases = std::collections::HashMap::new();
-                if let Some(s) = cli.session.as_deref().filter(|s| !s.is_empty()) {
-                    if let Some(p) = cmd_phase::current_phase_name(&store, s)? {
-                        phases.insert(s.to_string(), p);
-                    }
+                if let Some(s) = cli.session.as_deref().filter(|s| !s.is_empty())
+                    && let Some(p) = cmd_phase::current_phase_name(&store, s)?
+                {
+                    phases.insert(s.to_string(), p);
                 }
                 let op = Op {
                     top: top.to_string(),
