@@ -9,6 +9,9 @@ db-urls = ["https://github.com/rustsec/advisory-db"]
 allow = [
     "MIT",
     "Apache-2.0",
+    # wasmtime/cranelift (pulled in by nomograph-extension-host) carry this
+    # permissive LLVM license; some crates declare it standalone, not in an OR.
+    "Apache-2.0 WITH LLVM-exception",
     "BSD-2-Clause",
     "BSD-3-Clause",
     "CC0-1.0",
