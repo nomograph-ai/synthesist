@@ -446,7 +446,7 @@ fn command_path(cmd: &cli::Command) -> (&str, &str) {
         // is exempt from phase enforcement (it carries no live session).
         // It must report its own `top` here so the exemption at the
         // call site matches; otherwise it falls through to `("", "")`
-        // and check_phase rejects it for lacking a session.
+        // and would be subject to the policy extension's write gate.
         cli::Command::Import { .. } => ("import", ""),
         _ => ("", ""),
     }

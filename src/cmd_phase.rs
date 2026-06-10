@@ -138,75 +138,11 @@ fn cmd_phase_show(session: Option<&str>) -> Result<()> {
     json_out(&json!({"phase": phase, "session_id": session_id}))
 }
 
-/// Per-phase write gate. Returns Err with a phase-violation message
-/// when the (top_cmd, sub_cmd) tuple is forbidden in the session's
-/// current phase. `force=true` short-circuits the check.
-pub fn check_phase(
-    store: &SynthStore,
-    session: Option<&str>,
-    top_cmd: &str,
-    sub_cmd: &str,
-    force: bool,
-) -> Result<()> {
-    if force {
-        return Ok(());
-    }
-
-    let session_id = session.filter(|s| !s.is_empty()).ok_or_else(|| {
-        anyhow!("phase enforcement requires a session id; phase is per-session in v2")
-    })?;
-
-    let phase = current_phase_name(store, session_id)?
-        .unwrap_or_else(|| Phase::Orient.as_str().to_string());
-
-    let violation = match phase.as_str() {
-        "orient" => Some("no writes allowed in ORIENT phase"),
-        "plan" => {
-            if top_cmd == "task" && matches!(sub_cmd, "claim" | "done" | "block") {
-                Some("cannot claim/complete tasks in PLAN phase")
-            } else {
-                None
-            }
-        }
-        "agree" => Some(
-            "no writes allowed in AGREE phase -- present plan and wait for human approval. \
-             The agree-time plan snapshot must be pinned while still in PLAN \
-             (`synthesist spec update --agree-snapshot ...`) before running `phase set agree`; \
-             AGREE forbids writes, so it cannot be pinned afterward. Use `--force` to override \
-             this gate.",
-        ),
-        "execute" => {
-            if top_cmd == "task" && matches!(sub_cmd, "add" | "cancel") {
-                Some("cannot add/cancel tasks in EXECUTE phase -- transition to REPLAN")
-            } else if top_cmd == "spec" && sub_cmd == "add" {
-                Some("cannot add specs in EXECUTE phase -- transition to REPLAN")
-            } else {
-                None
-            }
-        }
-        "reflect" => {
-            if top_cmd == "task" && sub_cmd == "claim" {
-                Some("cannot claim tasks in REFLECT phase")
-            } else {
-                None
-            }
-        }
-        "replan" => {
-            if top_cmd == "task" && sub_cmd == "claim" {
-                Some("cannot claim tasks in REPLAN phase")
-            } else {
-                None
-            }
-        }
-        "report" => Some("no writes allowed in REPORT phase"),
-        _ => None,
-    };
-
-    if let Some(msg) = violation {
-        bail!("phase violation ({phase}): {msg}");
-    }
-    Ok(())
-}
+// The per-phase write gate moved OUT of the core into the phase-policy
+// extension (nomograph-extension): the core no longer enforces process.
+// A consumer opts in by configuring a policy extension at the dispatch
+// site; bare synthesist is just data. The phase table now lives in the
+// extension's `before-write` hook.
 
 /// Return the current phase name for `session_id`.
 ///
