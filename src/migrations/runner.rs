@@ -150,6 +150,17 @@ fn plan_with(
 /// After each successful step, writes `claims/_schema.json` to record the
 /// new version. Aborts and returns an error on the first failure; the
 /// tarball backup written by the migration step is the rollback path.
+///
+/// DRY RUN: when `opts.dry_run`, each step's `run()` does its full read +
+/// validation but writes nothing (see the `Migration::run` contract), and the
+/// intermediate `_schema.json` write below is skipped. NOTE the resulting
+/// limitation for MULTI-STEP chains: because the intermediate version record is
+/// not written, a step-2 `run()` that reads `_schema.json` (or calls
+/// `current_version`) will NOT observe step 1's result the way it would in a
+/// real run, so a dry run does not fully reproduce a real multi-step run. This
+/// is harmless for the single-migration registry shipping today; a future
+/// multi-step chain that needs faithful dry-run semantics should thread an
+/// in-memory version cursor rather than rely on on-disk `_schema.json`.
 pub fn apply_chain(
     root: &Path,
     chain: &[Box<dyn Migration>],
@@ -324,6 +335,29 @@ mod tests {
         }
     }
 
+    /// Sorted (relative-path, contents) of every file under `dir`, for
+    /// asserting a tree is byte-for-byte unchanged. Returns empty if absent.
+    fn snapshot_tree(dir: &Path) -> Vec<(String, Vec<u8>)> {
+        fn walk(dir: &Path, base: &Path, out: &mut Vec<(String, Vec<u8>)>) {
+            let Ok(entries) = std::fs::read_dir(dir) else {
+                return;
+            };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    walk(&path, base, out);
+                } else if let Ok(bytes) = std::fs::read(&path) {
+                    let rel = path.strip_prefix(base).unwrap_or(&path);
+                    out.push((rel.to_string_lossy().into_owned(), bytes));
+                }
+            }
+        }
+        let mut out = Vec::new();
+        walk(dir, dir, &mut out);
+        out.sort_by(|a, b| a.0.cmp(&b.0));
+        out
+    }
+
     fn make_v2_store(root: &Path) {
         let claims = root.join("claims");
         let mut store = V2Store::init(&claims).expect("init v2 store");
@@ -464,6 +498,12 @@ mod tests {
         let dir = TempDir::new().unwrap();
         make_v2_store(dir.path());
 
+        // Snapshot the entire estate tree BEFORE: the dry run must leave it
+        // byte-for-byte identical -- this catches ANY stray write (a per-asserter
+        // log.jsonl, a backup, _schema.json), not just the ones detect() keys on.
+        let claims = dir.path().join("claims");
+        let before = snapshot_tree(&claims);
+
         let registry: Vec<Box<dyn Migration>> = vec![Box::new(V2ToV3)];
         let chain = plan_with(dir.path(), None, registry).unwrap();
 
@@ -483,7 +523,12 @@ mod tests {
             "dry run must not write a tarball backup"
         );
 
-        let claims = dir.path().join("claims");
+        // The estate tree is unchanged -- no logs, no _schema.json, nothing.
+        let after = snapshot_tree(&claims);
+        assert_eq!(
+            before, after,
+            "dry run must leave the claims/ tree byte-for-byte identical"
+        );
         assert!(
             schema::read(&claims).unwrap().is_none(),
             "dry run must not write _schema.json"

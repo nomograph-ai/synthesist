@@ -1,5 +1,31 @@
 # Changelog
 
+## [3.0.0-rc.3] - 2026-06-17
+
+Makes the v2-to-v3 migration safely validatable against a real estate before
+any write -- the de-risk for the #11 re-test on a live `.amc` estate.
+
+### Fixed
+- `migrate v2-to-v3 --dry-run` (and `migrate run --dry-run`) now performs a
+  REAL non-destructive validation. Previously it short-circuited to a
+  chain-plan print and returned before ever opening the store -- it never
+  loaded a claim or reported a count. It now routes through the same
+  `apply_chain` path as a real run with `dry_run` set: it opens the v2 store,
+  loads and translates every claim (exercising the real-`.amc`-only paths --
+  `Store::open`, `load_claims`, asserter normalization) and reports
+  `artifacts_touched` + `notes`, while writing NOTHING (no backup, no logs, no
+  `_schema.json`). Verified on the compacted (#11-shape) fixture: dry-run
+  reports the same counts the real run does, leaving the estate byte-identical.
+
+### Changed
+- `--dry-run` output shape: the old `{"plan": [...]}` field is replaced by
+  `{"steps": [...], "next_actions": [...]}`, matching the real-run shape (each
+  step carries `artifacts_touched` and `notes`). Scripts that parsed the old
+  `plan` array must read `steps` instead.
+- The `Migration::run` trait now documents the contract that an implementation
+  MUST honor `opts.dry_run` (write nothing when set); `apply_chain` documents
+  that multi-step dry-runs do not reproduce intermediate `_schema.json` state.
+
 ## [3.0.0-rc.2] - 2026-06-03
 
 Migration infrastructure. rc.1 shipped a v2-to-v3 migration that did not
