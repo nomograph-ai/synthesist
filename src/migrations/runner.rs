@@ -452,6 +452,48 @@ mod tests {
     }
 
     #[test]
+    fn apply_chain_dry_run_translates_but_writes_nothing() {
+        // A dry run must EXERCISE the full translate (so a real estate can be
+        // validated before any write) yet leave the store untouched: it reports
+        // the real `artifacts_touched`, writes no tarball backup, no
+        // `_schema.json`, and the estate still reads as v2 afterward. (The
+        // per-asserter LogWriter is `None` under dry_run in V2ToV3::run, so no
+        // log.jsonl is written either.) This is the property Josh's #11 re-test
+        // relies on: `migrate v2-to-v3 --dry-run` proves the migration against a
+        // real `.amc` estate non-destructively.
+        let dir = TempDir::new().unwrap();
+        make_v2_store(dir.path());
+
+        let registry: Vec<Box<dyn Migration>> = vec![Box::new(V2ToV3)];
+        let chain = plan_with(dir.path(), None, registry).unwrap();
+
+        let opts = MigrationOpts {
+            dry_run: true,
+            backup: true, // even with backup requested, dry_run must skip it
+        };
+        let reports = apply_chain(dir.path(), &chain, &opts).unwrap();
+
+        assert_eq!(reports.len(), 1);
+        assert_eq!(
+            reports[0].artifacts_touched, 1,
+            "dry run must still translate + count the seeded claim"
+        );
+        assert!(
+            reports[0].backup_path.is_none(),
+            "dry run must not write a tarball backup"
+        );
+
+        let claims = dir.path().join("claims");
+        assert!(
+            schema::read(&claims).unwrap().is_none(),
+            "dry run must not write _schema.json"
+        );
+        let cur =
+            current_version_with(dir.path(), &[Box::new(V2ToV3) as Box<dyn Migration>]).unwrap();
+        assert_eq!(cur, "2.x", "estate must still read as v2 after a dry run");
+    }
+
+    #[test]
     fn plan_rejects_unreachable_target_gap() {
         // A registry with v2->3.0.0 and a DISCONNECTED 3.5.0->3.6.0. Planning
         // toward 3.6.0 from a v2 estate must reject: the chain reaches 3.0.0
