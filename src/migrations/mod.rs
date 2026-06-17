@@ -75,6 +75,16 @@ pub trait Migration: Send + Sync {
     fn detect(&self, root: &Path) -> Result<bool, MigrationError>;
     /// Execute the migration. Called only when `detect` returned true and
     /// the caller has confirmed the chain is correct.
+    ///
+    /// CONTRACT -- a `run()` MUST honor `opts.dry_run`: when it is set, perform
+    /// every read and validation against the real store but write NOTHING (no
+    /// backups, no logs, no on-disk files), still returning an accurate
+    /// `MigrationReport` (e.g. `artifacts_touched`, `notes`). `apply_chain`
+    /// invokes `run()` on a dry run precisely so a migration can be validated
+    /// against a real estate non-destructively; a `run()` that ignores
+    /// `dry_run` would silently mutate a store during a "dry" run. (See
+    /// `V2ToV3::run` for the reference: it gates both the tarball backup and the
+    /// `LogWriter` on `!opts.dry_run`.)
     fn run(&self, root: &Path, opts: &MigrationOpts) -> Result<MigrationReport, MigrationError>;
 }
 

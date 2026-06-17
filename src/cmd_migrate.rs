@@ -115,25 +115,15 @@ fn cmd_run(target: Option<&str>, dry_run: bool, no_backup: bool) -> anyhow::Resu
         Err(e) => return Err(e.into()),
     };
 
-    if dry_run {
-        let plan: Vec<_> = chain
-            .iter()
-            .map(|m| {
-                serde_json::json!({
-                    "from_version": m.source_version(),
-                    "to_version": m.to_version(),
-                    "description": m.description(),
-                })
-            })
-            .collect();
-        json_out(&serde_json::json!({
-            "ok": true,
-            "dry_run": true,
-            "plan": plan,
-        }))?;
-        return Ok(());
-    }
-
+    // A dry run takes the SAME path as a real one -- it opens the v2 store,
+    // loads every claim, and runs the full translation loop -- but writes
+    // nothing: each migration's `run()` skips the tarball backup and the
+    // LogWriter when `opts.dry_run`, and `apply_chain` skips `_schema.json`.
+    // So `--dry-run` is a genuine NON-DESTRUCTIVE validation that exercises the
+    // real-`.amc`-only code paths (Store::open, load_claims, asserter
+    // normalization) and reports `artifacts_touched` + `notes` (skips) -- not a
+    // plan-only stub. This is what lets a migration be proven against a real
+    // production estate before any write.
     let opts = MigrationOpts {
         dry_run,
         backup: !no_backup,
@@ -154,14 +144,26 @@ fn cmd_run(target: Option<&str>, dry_run: bool, no_backup: bool) -> anyhow::Resu
         })
         .collect();
 
-    json_out(&serde_json::json!({
-        "ok": true,
-        "dry_run": false,
-        "steps": report_json,
-        "next_actions": [
+    let next_actions: Vec<&str> = if dry_run {
+        vec![
+            "DRY RUN -- nothing was written (no backup, no logs, no _schema.json)",
+            "check each step's `artifacts_touched` (claims that WOULD migrate) and \
+             `notes` (any that WOULD be skipped)",
+            "re-run without --dry-run to apply; a tarball backup is written first \
+             and the source v2 files are left intact",
+        ]
+    } else {
+        vec![
             "run `synthesist migrate status` to confirm schema version",
             "run `synthesist status` to verify claims loaded correctly",
-        ],
+        ]
+    };
+
+    json_out(&serde_json::json!({
+        "ok": true,
+        "dry_run": dry_run,
+        "steps": report_json,
+        "next_actions": next_actions,
     }))?;
 
     Ok(())
