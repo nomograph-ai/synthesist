@@ -84,4 +84,4 @@ default = []
 tempfile = "3"
 assert_cmd = "2"
 predicates = "3"
-oxttl = "0.1"
+oxttl = "0.2"
