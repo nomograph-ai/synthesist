@@ -745,15 +745,27 @@ dependencies = [
 ]
 
 [[package]]
-name = "oxttl"
-version = "0.1.8"
+name = "oxrdf"
+version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0d385f1776d7cace455ef6b7c54407838eff902ca897303d06eb12a26f4cf8a0"
+checksum = "0afd5c28e4a399c57ee2bc3accd40c7b671fdc7b6537499f14e95b265af7d7e0"
+dependencies = [
+ "oxilangtag",
+ "oxiri",
+ "rand 0.9.4",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "oxttl"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f03fd471bd54c23d76631c0a2677aa4bb308d905f6e491ee35dcb0732b7c5c6c"
 dependencies = [
  "memchr",
  "oxilangtag",
  "oxiri",
- "oxrdf",
+ "oxrdf 0.3.3",
  "thiserror 2.0.18",
 ]
 
@@ -1132,7 +1144,7 @@ checksum = "8907e262be4b4b363218f4688f5654d423a958aa4b8d7c7a7f898be591fa474e"
 dependencies = [
  "oxilangtag",
  "oxiri",
- "oxrdf",
+ "oxrdf 0.2.4",
  "peg",
  "rand 0.8.6",
  "thiserror 2.0.18",
