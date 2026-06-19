@@ -44,7 +44,7 @@ redb = "4"
 
 # v2-read shim only: the v2-to-v3 migration drains legacy Automerge
 # `claims/changes/*.amc` logs through `store::Store::open`.
-automerge = "0.8"
+automerge = "0.10"
 
 [dev-dependencies]
 tempfile = "3"
