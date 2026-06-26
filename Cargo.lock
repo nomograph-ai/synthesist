@@ -133,7 +133,7 @@ dependencies = [
  "serde",
  "sha2",
  "smol_str",
- "thiserror 2.0.18",
+ "thiserror",
  "tinyvec",
  "tracing",
  "unicode-segmentation",
@@ -530,7 +530,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f4ecba0bb4e14df997df7cab6d1b584c6432d8865cf2adfced814706d715a7b"
 dependencies = [
  "leb128",
- "thiserror 2.0.18",
+ "thiserror",
 ]
 
 [[package]]
@@ -661,7 +661,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
- "thiserror 1.0.69",
+ "thiserror",
 ]
 
 [[package]]
@@ -682,7 +682,7 @@ dependencies = [
  "spargebra",
  "tar",
  "tempfile",
- "thiserror 1.0.69",
+ "thiserror",
  "time",
  "toml",
 ]
@@ -753,7 +753,7 @@ dependencies = [
  "oxilangtag",
  "oxiri",
  "rand 0.8.6",
- "thiserror 2.0.18",
+ "thiserror",
 ]
 
 [[package]]
@@ -765,7 +765,7 @@ dependencies = [
  "oxilangtag",
  "oxiri",
  "rand 0.9.4",
- "thiserror 2.0.18",
+ "thiserror",
 ]
 
 [[package]]
@@ -778,7 +778,7 @@ dependencies = [
  "oxilangtag",
  "oxiri",
  "oxrdf 0.3.3",
- "thiserror 2.0.18",
+ "thiserror",
 ]
 
 [[package]]
@@ -1176,7 +1176,7 @@ dependencies = [
  "oxrdf 0.2.4",
  "peg",
  "rand 0.8.6",
- "thiserror 2.0.18",
+ "thiserror",
 ]
 
 [[package]]
@@ -1228,31 +1228,11 @@ checksum = "8f50febec83f5ee1df3015341d8bd429f2d1cc62bcba7ea2076759d315084683"
 
 [[package]]
 name = "thiserror"
-version = "1.0.69"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b6aaf5339b578ea85b50e080feb250a3e8ae8cfcdff9a461c9ec2904bc923f52"
-dependencies = [
- "thiserror-impl 1.0.69",
-]
-
-[[package]]
-name = "thiserror"
 version = "2.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4288b5bcbc7920c07a1149a35cf9590a2aa808e0bc1eafaade0b80947865fbc4"
 dependencies = [
- "thiserror-impl 2.0.18",
-]
-
-[[package]]
-name = "thiserror-impl"
-version = "1.0.69"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4fee6c4efc90059e10f81e6d42c60a18f76588c3d74cb83a0b242a2b6c7504c1"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
+ "thiserror-impl",
 ]
 
 [[package]]
