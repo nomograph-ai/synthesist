@@ -47,8 +47,8 @@ redb = "4"
 automerge = "0.10"
 
 [dev-dependencies]
-tempfile = "3"
-proptest = "1"
+tempfile = "=3.27.0"
+proptest = "=1.11.0"
 
 # [profile.release] removed: profiles are only honored at the workspace root.
 # These settings (opt-level = 3, lto = "thin") now live in the monorepo root
