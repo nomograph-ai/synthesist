@@ -69,7 +69,7 @@ nomograph-claim = { path = "claim", version = "3.0.0-rc.3" }
 # spargebra parses SPARQL into an AST; telemetry.rs uses it to derive a
 # stable query_hash from overlay query strings. Retained after the
 # Oxigraph removal because it is a standalone parser crate.
-spargebra = "0.3"
+spargebra = "0.4"
 # blake3 is the substrate's standard hash; used by telemetry canonicalize()
 # for query_hash derivation. Pin to 1.x for stability.
 blake3 = "1"

@@ -36,7 +36,7 @@
 //!
 //! ## bgp_shape derivation
 //!
-//! Uses `spargebra::Query::parse` to build the SPARQL algebra AST, then
+//! Uses `spargebra::SparqlParser::parse_query` to build the SPARQL algebra AST, then
 //! walks the graph pattern recursively. Each distinct variable is replaced
 //! by a positional placeholder (`?v0`, `?v1`, ...) in first-encounter
 //! order. Each IRI is replaced by the token `<iri>`. Literals in triple
@@ -65,6 +65,7 @@ use anyhow::{Context, Result};
 use chrono::Utc;
 use serde::Serialize;
 use spargebra::Query;
+use spargebra::SparqlParser;
 use spargebra::algebra::{Expression, GraphPattern};
 use spargebra::term::{NamedNodePattern, TermPattern};
 
@@ -97,8 +98,9 @@ pub struct CanonForm {
 /// - **Topology-sensitive**: adding or removing triple patterns, or changing
 ///   join structure (OPTIONAL, UNION, GRAPH, ...) does change the output.
 pub fn canonicalize(sparql: &str) -> Result<CanonForm> {
-    let query =
-        Query::parse(sparql, None).map_err(|e| anyhow::anyhow!("SPARQL parse error: {e}"))?;
+    let query = SparqlParser::new()
+        .parse_query(sparql)
+        .map_err(|e| anyhow::anyhow!("SPARQL parse error: {e}"))?;
 
     let pattern = match &query {
         Query::Select { pattern, .. } => pattern,
@@ -241,7 +243,7 @@ struct TelemetryRecord {
 /// On parse failure returns `("", vec![])` so callers record the event
 /// with an empty shape rather than failing.
 pub fn derive_shape(sparql: &str) -> (String, Vec<String>) {
-    let query = match Query::parse(sparql, None) {
+    let query = match SparqlParser::new().parse_query(sparql) {
         Ok(q) => q,
         Err(_) => return (String::new(), vec![]),
     };
