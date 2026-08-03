@@ -10,7 +10,7 @@ default:
   tags: [storr]
 
 include:
-  - component: gitlab.com/nomograph/pipeline/tool-rust@v5.7.0
+  - component: gitlab.com/nomograph/pipeline/tool-rust@v5.10.0
     inputs:
       binary_name: synthesist
       project_description: "Specification graph manager for AI-augmented projects, on the nomograph-claim substrate."
