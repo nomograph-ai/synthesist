@@ -20,7 +20,7 @@ change so rollback is always available.
 
 Related reading:
 
-- `CHANGELOG.md` for a full list of what changed in 3.0.0-rc.2.
+- `CHANGELOG.md` for a full list of what changed in 3.0.0.
 - `MIGRATION.md` for the earlier v1-to-v2 playbook if you need it.
 
 ## Pre-flight
@@ -74,20 +74,19 @@ git commit -m "wip: clean up before v3 migration"
 
 ## Install v3
 
-Install synthesist 3.0.0-rc.2:
+Install synthesist 3.0.0:
 
 ```sh
-cargo install --git https://gitlab.com/nomograph/synthesist --tag v3.0.0-rc.2
+cargo install --git https://gitlab.com/nomograph/synthesist --tag v3.0.0
 ```
 
-macOS ARM and Linux ARM64 are supported. (2.5.2 shipped Linux ARM64
-on the v2 line; pre.1 carries that platform support forward.)
+macOS ARM64, Linux amd64, and Linux ARM64 are supported.
 
 After installation, confirm the version:
 
 ```sh
 synthesist --version
-# synthesist 3.0.0-rc.2
+# synthesist 3.0.0
 ```
 
 ## Dry run
@@ -184,8 +183,9 @@ You should see:
 
 Note: this on-disk schema id (`3.0.0`) identifies the v3 *format* and is
 intentionally distinct from the binary release tag you see in
-`synthesist --version` (e.g. `3.0.0-rc.2`). Do not conflate the two when
-comparing versions.
+`synthesist --version` (e.g. `3.0.1`, once a later patch ships). They
+start at the same number but track different things -- do not conflate
+the two when comparing versions.
 
 If the file is missing or shows a different version, the migration
 did not complete. Restore from the tarball (see "Rollback" below)
@@ -268,7 +268,7 @@ cargo install --git https://gitlab.com/nomograph/synthesist --tag v2.5.2
 ### 4. Retain the tarball
 
 Keep `.synthesist-v2-backup.tar.gz` for at least 90 days before
-deleting it. The pre.1 cycle is intentionally returnable. The tarball
+deleting it. Migration is intentionally returnable. The tarball
 is the only copy of the v2 state once you have deleted or overwritten
 files, so do not discard it prematurely.
 
@@ -284,7 +284,7 @@ error: UnsupportedClaimType: <type> is not in the v3 synthesist
 surface; lattice claim types are not migrated by this command
 ```
 
-Lattice is not part of the pre.1 public surface. The migration does
-not attempt to route these claims, and there is no automated path
+Lattice is not part of the synthesist v3 public surface. The migration
+does not attempt to route these claims, and there is no automated path
 for them in the current release. If you have a store with lattice
 claims, contact the nomograph team before migrating.

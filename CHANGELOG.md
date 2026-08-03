@@ -1,5 +1,16 @@
 # Changelog
 
+## [3.0.0] - 2026-08-03
+
+General availability. The rc.1-rc.3 cycle validated the v2-to-v3
+migration end to end against real production estates (#11); this
+release has no functional changes beyond rc.3 -- dependency updates and
+CI/supply-chain hardening only (Renovate lock-file maintenance, the
+fail-closed automerge gate, and secret-verdict blocking secret
+detection). The CLI surface and on-disk claim-log format are now
+frozen for the v3 line. Ships signed release binaries for macOS
+ARM64, Linux amd64, and Linux ARM64.
+
 ## [3.0.0-rc.3] - 2026-06-17
 
 Makes the v2-to-v3 migration safely validatable against a real estate before

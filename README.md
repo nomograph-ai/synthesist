@@ -9,11 +9,10 @@
 Specification graph manager for AI-augmented collaborative development.
 Claim-based storage over per-asserter, append-only JSON-LD logs.
 
-> **Pre-release.** This is `3.0.0-rc.2`, the first v3-native cut. v3
-> drops the v2 `.amc` substrate entirely and runs on per-asserter
-> JSON-LD logs plus a disposable redb gamma index. The CLI surface is
-> stable for the pre line but not yet frozen; the on-disk format is
-> committed. If you are on v2, read
+> **v3.0.0.** The first v3-native GA release. v3 drops the v2 `.amc`
+> substrate entirely and runs on per-asserter JSON-LD logs plus a
+> disposable redb gamma index. Both the CLI surface and the on-disk
+> format are now frozen for the v3 line. If you are on v2, read
 > [`MIGRATION-v2-to-v3.md`](MIGRATION-v2-to-v3.md) before upgrading.
 
 ## What it is
@@ -65,15 +64,16 @@ in the substrate.
 
 ```toml
 [tools."http:synthesist"]
-version = "3.0.0-rc.2"
+version = "3.0.0"
 
 [tools."http:synthesist".platforms]
 macos-arm64 = { url = "https://gitlab.com/api/v4/projects/80084971/packages/generic/synthesist/v{{version}}/synthesist-darwin-arm64", bin = "synthesist" }
+linux-x64 = { url = "https://gitlab.com/api/v4/projects/80084971/packages/generic/synthesist/v{{version}}/synthesist-linux-amd64", bin = "synthesist" }
 linux-arm64 = { url = "https://gitlab.com/api/v4/projects/80084971/packages/generic/synthesist/v{{version}}/synthesist-linux-arm64", bin = "synthesist" }
 ```
 
-pre.1 ships macOS ARM and Linux ARM64 only. There is no linux-x64/amd64
-artifact on the v3 line.
+Each tagged release ships macOS ARM64, Linux amd64, and Linux ARM64
+binaries.
 
 ### Source
 
