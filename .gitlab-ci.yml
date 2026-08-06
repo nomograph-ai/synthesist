@@ -59,11 +59,24 @@ include:
 
 stages: [lint, test, build, sign, publish, release, notify, verdict, gate]
 
+# Jobs with no rules: inherit the legacy `only: [branches, tags]` default,
+# which SKIPS merge_request_event pipelines -- check-symlinks below carried
+# no rules at all, so it ran on pushes to main but was silently absent from
+# every MR pipeline. The MR pipeline is the head pipeline the
+# automerge-gate component's only_allow_merge_if_pipeline_succeeds reads,
+# so a job absent from it does not gate the merge. Same bug, same fix as
+# nomograph/reference's .on-mr-and-main (and nomograph/behest).
+.on-mr-and-main:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == "main"
+
 # Backstop against the .agent/skills recurrence class. If any committed
 # symlink in this repo resolves to an absolute path, fail before CI
 # spends time on the heavier stages. See scripts/check-symlinks.sh.
 check-symlinks:
   stage: lint
+  extends: .on-mr-and-main
   image: alpine:3.24@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
   before_script:
     - apk add --no-cache bash git
