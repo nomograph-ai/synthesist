@@ -7,7 +7,7 @@
 # registry upload, crates.io publish, GitLab release, notify-kits.
 
 default:
-  tags: [storr]
+  tags: [anvil]
 
 include:
   - component: gitlab.com/nomograph/pipeline/tool-rust@v5.14.1
