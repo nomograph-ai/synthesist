@@ -264,7 +264,7 @@ impl Gamma {
             Err(e) => return Err(e).context("open pso table"),
         };
         let mut out = Vec::new();
-        for item in pso.range::<&str>(prefix.as_str()..)? {
+        for item in pso.range(prefix.as_str()..)? {
             let (k, _) = item?;
             let key = k.value();
             if !key.starts_with(&prefix) {
@@ -289,7 +289,7 @@ impl Gamma {
             Err(e) => return Err(e).context("open pos table"),
         };
         let mut out = Vec::new();
-        for item in pos.range::<&str>(prefix..)? {
+        for item in pos.range(prefix..)? {
             let (k, _) = item?;
             let key = k.value();
             if !key.starts_with(prefix) {
@@ -311,7 +311,7 @@ impl Gamma {
             Err(e) => return Err(e).context("open pso table"),
         };
         let mut out = Vec::new();
-        for item in pso.range::<&str>(prefix.as_str()..)? {
+        for item in pso.range(prefix.as_str()..)? {
             let (k, _) = item?;
             let key = k.value();
             if !key.starts_with(&prefix) {
